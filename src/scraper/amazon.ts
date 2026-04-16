@@ -1,0 +1,197 @@
+import { chromium, type Browser } from 'playwright';
+
+export interface ScrapeResult {
+  asin: string;
+  name: string;
+  price: number;
+  currency: string;
+  imageUrl: string | null;
+  url: string;
+}
+
+// Random user agents to rotate
+const USER_AGENTS = [
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 14.7; rv:132.0) Gecko/20100101 Firefox/132.0',
+];
+
+function randomUserAgent(): string {
+  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+}
+
+function randomDelay(minMs: number, maxMs: number): Promise<void> {
+  const ms = minMs + Math.random() * (maxMs - minMs);
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * Extract ASIN from an Amazon URL.
+ * Supports formats:
+ *   /dp/ASIN
+ *   /gp/product/ASIN
+ *   /exec/obidos/ASIN/ASIN
+ */
+export function extractAsin(url: string): string | null {
+  const patterns = [
+    /\/dp\/([A-Z0-9]{10})/i,
+    /\/gp\/product\/([A-Z0-9]{10})/i,
+    /\/exec\/obidos\/ASIN\/([A-Z0-9]{10})/i,
+    /\/product\/([A-Z0-9]{10})/i,
+  ];
+  for (const pattern of patterns) {
+    const match = url.match(pattern);
+    if (match) return match[1].toUpperCase();
+  }
+  return null;
+}
+
+/**
+ * Normalise an Amazon.es URL to the canonical form.
+ */
+export function normaliseAmazonUrl(asin: string): string {
+  return `https://www.amazon.es/dp/${asin}`;
+}
+
+/**
+ * Parse a price string like "23,99" or "1.299,99" → number.
+ */
+function parseSpanishPrice(raw: string): number {
+  // Remove currency symbols and whitespace
+  const cleaned = raw.replace(/[€$\s]/g, '').trim();
+  // Spanish format: "1.299,99" → thousands separator is dot, decimal is comma
+  const normalised = cleaned.replace(/\./g, '').replace(',', '.');
+  return parseFloat(normalised);
+}
+
+/**
+ * Scrape a single Amazon.es product page.
+ */
+export async function scrapeProduct(url: string): Promise<ScrapeResult> {
+  const asin = extractAsin(url);
+  if (!asin) throw new Error(`No se pudo extraer el ASIN de la URL: ${url}`);
+
+  const canonicalUrl = normaliseAmazonUrl(asin);
+  const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
+
+  const browser: Browser = await chromium.launch({
+    headless: true,
+    executablePath: executablePath || undefined,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas',
+      '--no-first-run',
+      '--no-zygote',
+      '--disable-gpu',
+      '--single-process',
+    ],
+  });
+
+  try {
+    const context = await browser.newContext({
+      userAgent: randomUserAgent(),
+      viewport: { width: 1366, height: 768 },
+      locale: 'es-ES',
+      timezoneId: 'Europe/Madrid',
+      extraHTTPHeaders: {
+        'Accept-Language': 'es-ES,es;q=0.9',
+        Accept:
+          'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Cache-Control': 'max-age=0',
+      },
+    });
+
+    const page = await context.newPage();
+
+    // Block unnecessary resources to speed up scraping
+    await page.route('**/*', (route) => {
+      const resourceType = route.request().resourceType();
+      if (['font', 'media'].includes(resourceType)) {
+        route.abort();
+      } else {
+        route.continue();
+      }
+    });
+
+    await page.goto(canonicalUrl, {
+      waitUntil: 'domcontentloaded',
+      timeout: 30000,
+    });
+
+    // Random delay to mimic human behaviour
+    await randomDelay(1500, 3500);
+
+    // Check for CAPTCHA
+    const bodyText = await page.textContent('body') ?? '';
+    if (
+      bodyText.includes('Enter the characters you see below') ||
+      bodyText.includes('Introduce los caracteres que ves a continuación') ||
+      bodyText.includes('robot')
+    ) {
+      throw new Error('CAPTCHA detectado en Amazon');
+    }
+
+    // ── Extract product title ────────────────────────────────────────────────
+    const name = await page
+      .locator('#productTitle')
+      .first()
+      .textContent({ timeout: 10000 })
+      .then((t) => t?.trim() ?? '')
+      .catch(() => '');
+
+    if (!name) throw new Error('No se encontró el título del producto');
+
+    // ── Extract price ────────────────────────────────────────────────────────
+    // Amazon uses various price selectors; try in order of reliability
+    const priceSelectors = [
+      '.a-price.aok-align-center .a-offscreen',
+      '#corePriceDisplay_desktop_feature_div .a-price .a-offscreen',
+      '#corePrice_desktop .a-price .a-offscreen',
+      '#priceblock_ourprice',
+      '#priceblock_dealprice',
+      '.a-price .a-offscreen',
+      '#sns-base-price',
+    ];
+
+    let rawPrice = '';
+    for (const selector of priceSelectors) {
+      try {
+        rawPrice = await page
+          .locator(selector)
+          .first()
+          .textContent({ timeout: 3000 })
+          .then((t) => t?.trim() ?? '');
+        if (rawPrice) break;
+      } catch {
+        // try next selector
+      }
+    }
+
+    if (!rawPrice) throw new Error('No se encontró el precio del producto');
+
+    const price = parseSpanishPrice(rawPrice);
+    if (isNaN(price) || price <= 0) {
+      throw new Error(`Precio inválido extraído: "${rawPrice}"`);
+    }
+
+    // ── Extract image ────────────────────────────────────────────────────────
+    const imageUrl = await page
+      .locator('#imgTagWrappingLink img, #landingImage')
+      .first()
+      .getAttribute('src', { timeout: 5000 })
+      .catch(() => null);
+
+    return { asin, name, price, currency: 'EUR', imageUrl, url: canonicalUrl };
+  } finally {
+    await browser.close();
+  }
+}

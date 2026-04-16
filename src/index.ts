@@ -1,0 +1,45 @@
+import 'dotenv/config';
+import { createApp } from './server';
+import { pool } from './db/client';
+import { migrate } from './db/migrate';
+import { startScheduler } from './scheduler';
+
+const PORT = parseInt(process.env.PORT ?? '3000', 10);
+
+async function main() {
+  // Wait for PostgreSQL to be ready (retries for Docker startup order)
+  let retries = 10;
+  while (retries > 0) {
+    try {
+      await pool.query('SELECT 1');
+      break;
+    } catch {
+      retries--;
+      if (retries === 0) {
+        console.error('[startup] Cannot connect to PostgreSQL after retries. Exiting.');
+        process.exit(1);
+      }
+      console.log(`[startup] Waiting for PostgreSQL… (${retries} retries left)`);
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+  }
+
+  console.log('[startup] PostgreSQL connected.');
+
+  await migrate();
+
+  const app = createApp();
+
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`[startup] OjoAlPrecio running on http://0.0.0.0:${PORT}`);
+    console.log(`[startup] Version: ${process.env.APP_VERSION ?? 'dev'}`);
+    console.log(`[startup] Commit:  ${process.env.GIT_COMMIT ?? 'local'}`);
+  });
+
+  startScheduler();
+}
+
+main().catch((err) => {
+  console.error('[startup] Fatal error:', err);
+  process.exit(1);
+});

@@ -1,0 +1,128 @@
+<%
+  const title = 'Mis productos — OjoAlPrecio';
+  const body_content = ``;
+%>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mis productos — OjoAlPrecio</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js" defer></script>
+</head>
+<body>
+
+<nav class="navbar">
+  <a href="/" class="navbar-brand">
+    <span class="brand-icon">👁</span>
+    <span class="brand-name">OjoAlPrecio</span>
+  </a>
+  <div class="navbar-actions">
+    <span class="user-email"><%= user.email %></span>
+    <form action="/auth/logout" method="POST" style="display:inline">
+      <button type="submit" class="btn btn-ghost btn-sm">Salir</button>
+    </form>
+  </div>
+</nav>
+
+<main class="container">
+
+  <div class="page-header">
+    <h1>Mis productos</h1>
+    <p class="subtitle">Sigue el precio de tus artículos favoritos de Amazon.es</p>
+  </div>
+
+  <!-- Add product form -->
+  <div class="card add-card">
+    <h2>Añadir producto</h2>
+    <form
+      hx-post="/products"
+      hx-target="#product-list"
+      hx-swap="beforeend"
+      hx-on::after-request="if(event.detail.successful) { this.reset(); htmx.trigger('#product-list', 'refresh'); location.reload(); }"
+      class="add-form"
+      id="add-form"
+    >
+      <div class="input-group">
+        <input
+          type="url"
+          name="url"
+          placeholder="https://www.amazon.es/dp/B0XXXXXXXX"
+          required
+          class="input"
+          autocomplete="off"
+        >
+        <button type="submit" class="btn btn-primary" id="add-btn">
+          Añadir
+        </button>
+      </div>
+      <p class="hint">Pega la URL de cualquier artículo de Amazon.es</p>
+    </form>
+  </div>
+
+  <!-- Products grid -->
+  <% if (products.length === 0) { %>
+    <div class="empty-state">
+      <div class="empty-icon">🛒</div>
+      <h3>No hay productos todavía</h3>
+      <p>Añade la URL de un artículo de Amazon.es para empezar a hacer seguimiento de su precio.</p>
+    </div>
+  <% } else { %>
+    <div class="product-grid" id="product-list">
+      <% products.forEach(function(p) { %>
+        <div class="product-card" id="product-<%= p.id %>">
+          <a href="/products/<%= p.id %>" class="product-card-link">
+            <div class="product-img-wrap">
+              <% if (p.imageUrl) { %>
+                <img src="<%= p.imageUrl %>" alt="<%= p.name ?? p.asin %>" class="product-img" loading="lazy">
+              <% } else { %>
+                <div class="product-img-placeholder">📦</div>
+              <% } %>
+            </div>
+            <div class="product-info">
+              <p class="product-name"><%= p.name ?? p.asin %></p>
+              <p class="product-asin">ASIN: <%= p.asin %></p>
+              <% if (p.lastError) { %>
+                <p class="product-error">⚠ <%= p.lastError %></p>
+              <% } %>
+            </div>
+          </a>
+          <div class="product-prices">
+            <% if (p.currentPrice) { %>
+              <div class="price-current"><%= parseFloat(p.currentPrice).toFixed(2) %> €</div>
+              <% if (p.minPrice && p.maxPrice) { %>
+                <div class="price-range">
+                  <span class="price-min" title="Mínimo histórico">↓ <%= parseFloat(p.minPrice).toFixed(2) %> €</span>
+                  <span class="price-max" title="Máximo histórico">↑ <%= parseFloat(p.maxPrice).toFixed(2) %> €</span>
+                </div>
+              <% } %>
+              <div class="price-checks"><%= p.checkCount %> registros</div>
+            <% } else { %>
+              <div class="price-pending">Cargando…</div>
+            <% } %>
+          </div>
+          <div class="product-actions">
+            <a href="/products/<%= p.id %>" class="btn btn-sm btn-outline">Ver historial</a>
+            <button
+              class="btn btn-sm btn-danger"
+              hx-delete="/products/<%= p.id %>"
+              hx-target="#product-<%= p.id %>"
+              hx-swap="outerHTML"
+              hx-confirm="¿Eliminar este producto y todo su historial de precios?"
+            >Eliminar</button>
+          </div>
+        </div>
+      <% }); %>
+    </div>
+  <% } %>
+
+</main>
+
+<footer class="footer">
+  <p>OjoAlPrecio v<%= process.env['APP_VERSION'] ?? 'dev' %> &nbsp;·&nbsp; Amazon.es Price Tracker</p>
+</footer>
+
+</body>
+</html>

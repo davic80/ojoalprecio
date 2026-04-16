@@ -1,0 +1,80 @@
+services:
+
+  # ── App ──────────────────────────────────────────────────────────────────────
+  app:
+    image: ghcr.io/davic80/ojoalprecio:${IMAGE_TAG:-latest}
+    container_name: ojoalprecio-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-ojoalprecio}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ojoalprecio}
+      - SESSION_SECRET=${SESSION_SECRET}
+      - SESSION_COOKIE_SECURE=${SESSION_COOKIE_SECURE:-true}
+      - SITE_URL=${SITE_URL:-http://localhost:3000}
+      - PORT=3000
+      # Scheduler: default every hour. Override with cron expression.
+      # Examples: "*/30 * * * *" = every 30 min, "0 * * * *" = every hour
+      - CHECK_INTERVAL_CRON=${CHECK_INTERVAL_CRON:-0 * * * *}
+      # SMTP email
+      - SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+      - SMTP_FROM=${SMTP_FROM}
+      # App metadata
+      - APP_VERSION=${APP_VERSION:-1.0.0}
+      - NODE_ENV=production
+    ports:
+      - "3000:3000"
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/auth/login', r => process.exit(r.statusCode < 500 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ── PostgreSQL ────────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: ojoalprecio-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-ojoalprecio}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB:-ojoalprecio}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ojoalprecio} -d ${POSTGRES_DB:-ojoalprecio}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ── Cloudflare Tunnel ─────────────────────────────────────────────────────────
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: ojoalprecio-tunnel
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    restart: unless-stopped
+    networks:
+      - internal
+    depends_on:
+      app:
+        condition: service_healthy
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  pgdata:
+    driver: local

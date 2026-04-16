@@ -1,0 +1,129 @@
+import nodemailer, { type Transporter } from 'nodemailer';
+
+interface MailerConfig {
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  from: string;
+}
+
+function getConfig(): MailerConfig {
+  return {
+    host: process.env.SMTP_HOST ?? 'smtp.gmail.com',
+    port: parseInt(process.env.SMTP_PORT ?? '587', 10),
+    user: process.env.SMTP_USER ?? '',
+    password: process.env.SMTP_PASSWORD ?? '',
+    from: process.env.SMTP_FROM ?? process.env.SMTP_USER ?? '',
+  };
+}
+
+function createTransporter(): Transporter {
+  const cfg = getConfig();
+  return nodemailer.createTransport({
+    host: cfg.host,
+    port: cfg.port,
+    secure: cfg.port === 465,
+    auth: { user: cfg.user, pass: cfg.password },
+  });
+}
+
+export interface PriceAlertOptions {
+  to: string;
+  productName: string;
+  productUrl: string;
+  currentPrice: number;
+  thresholdPrice: number;
+  imageUrl?: string | null;
+  currency?: string;
+}
+
+export async function sendPriceAlert(opts: PriceAlertOptions): Promise<void> {
+  const cfg = getConfig();
+  if (!cfg.user || !cfg.password) {
+    console.warn('[mailer] SMTP not configured, skipping email.');
+    return;
+  }
+
+  const transporter = createTransporter();
+  const currencySymbol = opts.currency === 'EUR' ? '€' : opts.currency ?? '€';
+  const siteUrl = process.env.SITE_URL ?? 'http://localhost:3000';
+
+  const html = `
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Alerta de precio - OjoAlPrecio</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; margin: 0; padding: 20px;">
+  <div style="max-width: 540px; margin: 0 auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.08);">
+
+    <div style="background: #e63946; padding: 28px 32px; text-align: center;">
+      <h1 style="color: #fff; margin: 0; font-size: 22px; letter-spacing: -0.3px;">
+        OjoAlPrecio — Alerta de precio
+      </h1>
+    </div>
+
+    <div style="padding: 32px;">
+      ${opts.imageUrl ? `<img src="${opts.imageUrl}" alt="Producto" style="display:block;max-width:160px;height:auto;margin:0 auto 24px;border-radius:8px;">` : ''}
+
+      <h2 style="font-size: 16px; color: #333; margin: 0 0 8px;">${opts.productName}</h2>
+
+      <p style="color: #666; font-size: 14px; margin: 0 0 24px;">
+        El precio ha bajado por debajo de tu umbral configurado.
+      </p>
+
+      <div style="display: flex; gap: 16px; margin-bottom: 28px;">
+        <div style="flex:1; background:#fff5f5; border:1px solid #fecdd3; border-radius:8px; padding:16px; text-align:center;">
+          <div style="font-size:12px; color:#999; text-transform:uppercase; letter-spacing:.5px; margin-bottom:4px;">Precio actual</div>
+          <div style="font-size:28px; font-weight:700; color:#e63946;">${opts.currentPrice.toFixed(2)} ${currencySymbol}</div>
+        </div>
+        <div style="flex:1; background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; padding:16px; text-align:center;">
+          <div style="font-size:12px; color:#999; text-transform:uppercase; letter-spacing:.5px; margin-bottom:4px;">Tu umbral</div>
+          <div style="font-size:28px; font-weight:700; color:#6b7280;">${opts.thresholdPrice.toFixed(2)} ${currencySymbol}</div>
+        </div>
+      </div>
+
+      <a href="${opts.productUrl}"
+         style="display:block; background:#e63946; color:#fff; text-decoration:none; text-align:center; padding:14px 24px; border-radius:8px; font-weight:600; font-size:15px; margin-bottom:16px;">
+        Ver producto en Amazon
+      </a>
+
+      <a href="${siteUrl}"
+         style="display:block; color:#6b7280; text-decoration:none; text-align:center; font-size:13px;">
+        Ver historial en OjoAlPrecio
+      </a>
+    </div>
+
+    <div style="background:#f9fafb; padding:16px 32px; text-align:center; font-size:12px; color:#9ca3af; border-top:1px solid #f0f0f0;">
+      OjoAlPrecio — Seguimiento de precios en Amazon.es<br>
+      Para dejar de recibir alertas de este producto, gestiona tus alertas en la app.
+    </div>
+  </div>
+</body>
+</html>
+  `.trim();
+
+  await transporter.sendMail({
+    from: `"OjoAlPrecio" <${cfg.from}>`,
+    to: opts.to,
+    subject: `Precio bajado: ${opts.productName} — ${opts.currentPrice.toFixed(2)} ${currencySymbol}`,
+    html,
+  });
+
+  console.log(`[mailer] Alert sent to ${opts.to} for "${opts.productName}" at ${opts.currentPrice}`);
+}
+
+export async function verifyMailer(): Promise<boolean> {
+  const cfg = getConfig();
+  if (!cfg.user || !cfg.password) return false;
+  try {
+    const t = createTransporter();
+    await t.verify();
+    return true;
+  } catch {
+    return false;
+  }
+}

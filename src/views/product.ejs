@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= product.name ?? product.asin %> — OjoAlPrecio</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+</head>
+<body>
+
+<nav class="navbar">
+  <a href="/" class="navbar-brand">
+    <span class="brand-icon">👁</span>
+    <span class="brand-name">OjoAlPrecio</span>
+  </a>
+  <div class="navbar-actions">
+    <span class="user-email"><%= user.email %></span>
+    <form action="/auth/logout" method="POST" style="display:inline">
+      <button type="submit" class="btn btn-ghost btn-sm">Salir</button>
+    </form>
+  </div>
+</nav>
+
+<main class="container">
+
+  <div class="back-link">
+    <a href="/">← Volver al dashboard</a>
+  </div>
+
+  <!-- Product header -->
+  <div class="product-header">
+    <% if (product.imageUrl) { %>
+      <img src="<%= product.imageUrl %>" alt="<%= product.name %>" class="product-detail-img">
+    <% } %>
+    <div class="product-header-info">
+      <h1><%= product.name ?? product.asin %></h1>
+      <p class="product-asin">ASIN: <strong><%= product.asin %></strong></p>
+      <a href="<%= product.url %>" target="_blank" rel="noopener" class="amazon-link">
+        Ver en Amazon.es ↗
+      </a>
+      <% if (product.lastError) { %>
+        <div class="alert-box alert-error">⚠ Último error: <%= product.lastError %></div>
+      <% } %>
+    </div>
+
+    <%
+      const prices = history.map(h => parseFloat(h.price));
+      const currentPrice = prices[0] ?? null;
+      const minPrice = prices.length ? Math.min(...prices) : null;
+      const maxPrice = prices.length ? Math.max(...prices) : null;
+    %>
+    <div class="price-stats">
+      <div class="stat-box stat-current">
+        <div class="stat-label">Precio actual</div>
+        <div class="stat-value"><%= currentPrice ? currentPrice.toFixed(2) + ' €' : '—' %></div>
+      </div>
+      <div class="stat-box stat-min">
+        <div class="stat-label">Mínimo histórico</div>
+        <div class="stat-value"><%= minPrice ? minPrice.toFixed(2) + ' €' : '—' %></div>
+      </div>
+      <div class="stat-box stat-max">
+        <div class="stat-label">Máximo histórico</div>
+        <div class="stat-value"><%= maxPrice ? maxPrice.toFixed(2) + ' €' : '—' %></div>
+      </div>
+      <div class="stat-box stat-checks">
+        <div class="stat-label">Registros</div>
+        <div class="stat-value"><%= history.length %></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Manual refresh -->
+  <div class="toolbar">
+    <button
+      class="btn btn-outline btn-sm"
+      hx-post="/products/<%= product.id %>/refresh"
+      hx-indicator="#refresh-spinner"
+      hx-on::after-request="location.reload()"
+    >
+      Actualizar ahora
+    </button>
+    <span id="refresh-spinner" class="htmx-indicator spinner"></span>
+  </div>
+
+  <!-- Price chart -->
+  <% if (history.length > 0) { %>
+    <div class="card chart-card">
+      <h2>Historial de precios</h2>
+      <div class="chart-wrap">
+        <canvas id="priceChart"></canvas>
+      </div>
+    </div>
+
+    <script>
+      const chartData = <%- JSON.stringify(
+        history.slice().reverse().map(h => ({
+          x: new Date(h.scrapedAt).toISOString(),
+          y: parseFloat(h.price)
+        }))
+      ) %>;
+
+      document.addEventListener('DOMContentLoaded', () => {
+        const ctx = document.getElementById('priceChart').getContext('2d');
+        new Chart(ctx, {
+          type: 'line',
+          data: {
+            datasets: [{
+              label: 'Precio (€)',
+              data: chartData,
+              borderColor: '#e63946',
+              backgroundColor: 'rgba(230, 57, 70, 0.08)',
+              borderWidth: 2,
+              pointRadius: chartData.length > 100 ? 0 : 3,
+              pointHoverRadius: 5,
+              tension: 0.2,
+              fill: true,
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { intersect: false, mode: 'index' },
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                callbacks: {
+                  label: ctx => ctx.parsed.y.toFixed(2) + ' €'
+                }
+              }
+            },
+            scales: {
+              x: {
+                type: 'time',
+                time: {
+                  tooltipFormat: 'dd/MM/yyyy HH:mm',
+                  displayFormats: { hour: 'dd/MM HH:mm', day: 'dd/MM', month: 'MMM yyyy' }
+                },
+                grid: { color: 'rgba(0,0,0,0.05)' }
+              },
+              y: {
+                ticks: { callback: v => v.toFixed(2) + ' €' },
+                grid: { color: 'rgba(0,0,0,0.05)' }
+              }
+            }
+          }
+        });
+      });
+    </script>
+
+    <!-- Recent price table -->
+    <div class="card">
+      <h2>Últimos registros</h2>
+      <div class="table-wrap">
+        <table class="price-table">
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Precio</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% history.slice(0, 50).forEach(function(h) { %>
+              <tr>
+                <td><%= new Date(h.scrapedAt).toLocaleString('es-ES') %></td>
+                <td class="price-cell"><%= parseFloat(h.price).toFixed(2) %> €</td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  <% } else { %>
+    <div class="empty-state">
+      <div class="empty-icon">📊</div>
+      <p>Aún no hay datos de precio. El seguimiento comenzará en breve.</p>
+    </div>
+  <% } %>
+
+  <!-- Alerts section -->
+  <div class="card" id="alerts-section">
+    <h2>Alertas de precio</h2>
+    <p class="subtitle">Recibe un email cuando el precio baje de tu umbral.</p>
+
+    <form
+      hx-post="/products/<%= product.id %>/alerts"
+      hx-target="#alerts-section"
+      hx-swap="outerHTML"
+      class="alert-form"
+    >
+      <div class="alert-inputs">
+        <div class="form-field">
+          <label for="thresholdPrice">Avisar si el precio baja de</label>
+          <div class="input-with-unit">
+            <input
+              type="number"
+              name="thresholdPrice"
+              id="thresholdPrice"
+              min="0.01"
+              step="0.01"
+              placeholder="0.00"
+              required
+              class="input input-sm"
+            >
+            <span class="unit">€</span>
+          </div>
+        </div>
+        <div class="form-field">
+          <label for="notificationEmail">Email de notificación</label>
+          <input
+            type="email"
+            name="notificationEmail"
+            id="notificationEmail"
+            placeholder="<%= user.email %>"
+            value="<%= user.email %>"
+            required
+            class="input input-sm"
+          >
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm alert-submit">Crear alerta</button>
+      </div>
+    </form>
+
+    <% if (typeof alerts !== 'undefined' && alerts && alerts.length > 0) { %>
+      <div class="alerts-list">
+        <% alerts.forEach(function(alert) { %>
+          <div class="alert-item <%= alert.notifiedAt ? 'alert-triggered' : 'alert-active' %>" id="alert-<%= alert.id %>">
+            <div class="alert-info">
+              <span class="alert-threshold">≤ <%= parseFloat(alert.thresholdPrice).toFixed(2) %> €</span>
+              <span class="alert-email"><%= alert.notificationEmail %></span>
+              <% if (alert.notifiedAt) { %>
+                <span class="alert-badge badge-triggered">Enviada <%= new Date(alert.notifiedAt).toLocaleString('es-ES') %></span>
+              <% } else { %>
+                <span class="alert-badge badge-active">Activa</span>
+              <% } %>
+            </div>
+            <div class="alert-actions">
+              <% if (alert.notifiedAt) { %>
+                <button
+                  class="btn btn-sm btn-outline"
+                  hx-patch="/alerts/<%= alert.id %>/reset"
+                  hx-target="#alerts-section"
+                  hx-swap="outerHTML"
+                  title="Reactivar para volver a notificar"
+                >Reactivar</button>
+              <% } %>
+              <button
+                class="btn btn-sm btn-danger"
+                hx-delete="/alerts/<%= alert.id %>"
+                hx-target="#alert-<%= alert.id %>"
+                hx-swap="outerHTML"
+                hx-confirm="¿Eliminar esta alerta?"
+              >Eliminar</button>
+            </div>
+          </div>
+        <% }); %>
+      </div>
+    <% } %>
+  </div>
+
+</main>
+
+<footer class="footer">
+  <p>OjoAlPrecio v<%= process.env['APP_VERSION'] ?? 'dev' %> &nbsp;·&nbsp; Amazon.es Price Tracker</p>
+</footer>
+
+</body>
+</html>
