@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-04-18
+
+### Fixed
+- Host port now configurable via `HOST_PORT` env variable (default `8080`) to avoid conflicts with other services running on the host
+
 ## [1.0.0] - 2026-04-14
 
 ### Added
