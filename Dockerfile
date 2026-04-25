@@ -63,8 +63,9 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev
 
-# Copy compiled output and static assets
+# Copy compiled output, views, and static assets
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/src/views ./dist/views
 COPY public/ ./public/
 
 # Non-root user for security
