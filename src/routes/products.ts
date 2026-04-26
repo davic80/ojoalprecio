@@ -19,38 +19,42 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
       p.asin,
       p.url,
       p.name,
-      p.image_url AS "imageUrl",
-      p.is_active AS "isActive",
-      p.last_error AS "lastError",
-      p.created_at AS "createdAt",
+      p.image_url   AS "imageUrl",
+      p.is_active   AS "isActive",
+      p.is_public   AS "isPublic",
+      p.last_error  AS "lastError",
+      p.created_at  AS "createdAt",
       (
-        SELECT ph.price
-        FROM price_history ph
-        WHERE ph.product_id = p.id
-        ORDER BY ph.scraped_at DESC
-        LIMIT 1
+        SELECT ph.price FROM price_history ph
+        WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1
       ) AS "currentPrice",
       (
-        SELECT MIN(ph2.price)
-        FROM price_history ph2
-        WHERE ph2.product_id = p.id
-      ) AS "minPrice",
+        SELECT ph.price FROM price_history ph
+        WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC OFFSET 1 LIMIT 1
+      ) AS "previousPrice",
+      (SELECT MIN(ph2.price) FROM price_history ph2 WHERE ph2.product_id = p.id) AS "minPrice",
+      (SELECT MAX(ph3.price) FROM price_history ph3 WHERE ph3.product_id = p.id) AS "maxPrice",
+      (SELECT COUNT(*) FROM price_history ph4 WHERE ph4.product_id = p.id) AS "checkCount",
       (
-        SELECT MAX(ph3.price)
-        FROM price_history ph3
-        WHERE ph3.product_id = p.id
-      ) AS "maxPrice",
-      (
-        SELECT COUNT(*)
-        FROM price_history ph4
-        WHERE ph4.product_id = p.id
-      ) AS "checkCount"
+        SELECT json_agg(sub.price ORDER BY sub.scraped_at ASC)
+        FROM (
+          SELECT price, scraped_at FROM price_history
+          WHERE product_id = p.id ORDER BY scraped_at DESC LIMIT 20
+        ) sub
+      ) AS "sparklineData"
     FROM products p
     WHERE p.user_id = ${userId}
     ORDER BY p.created_at DESC
   `);
 
-  res.render('dashboard', { products: rows.rows, user: { email: req.session.userEmail } });
+  const prods = rows.rows as any[];
+  const stats = {
+    total: prods.length,
+    atLow: prods.filter(p => p.currentPrice && p.minPrice &&
+      parseFloat(p.currentPrice) <= parseFloat(p.minPrice) + 0.01).length,
+    withError: prods.filter(p => p.lastError).length,
+  };
+  res.render('dashboard', { products: prods, stats, user: { email: req.session.userEmail } });
 });
 
 // ── POST /products — Add product ──────────────────────────────────────────────
@@ -211,6 +215,32 @@ router.post('/products/:id/refresh', requireAuth, async (req: Request, res: Resp
     await db.update(products).set({ lastError: msg }).where(eq(products.id, productId));
     res.status(500).json({ error: msg });
   }
+});
+
+// ── POST /products/:id/toggle-public — Toggle public visibility ───────────────
+router.post('/products/:id/toggle-public', requireAuth, async (req: Request, res: Response) => {
+  const productId = parseInt(String(req.params.id), 10);
+  const userId = req.session.userId!;
+
+  const [product] = await db
+    .select()
+    .from(products)
+    .where(and(eq(products.id, productId), eq(products.userId, userId)))
+    .limit(1);
+
+  if (!product) return res.status(404).json({ error: 'Producto no encontrado.' });
+
+  const [updated] = await db
+    .update(products)
+    .set({ isPublic: !product.isPublic })
+    .where(eq(products.id, productId))
+    .returning();
+
+  if (req.headers['hx-request']) {
+    res.setHeader('HX-Redirect', `/products/${productId}`);
+    return res.status(200).send('');
+  }
+  res.json({ isPublic: updated.isPublic });
 });
 
 export default router;

@@ -49,6 +49,25 @@ const MIGRATIONS = [
   CREATE INDEX IF NOT EXISTS idx_products_user_id ON products(user_id);
   CREATE INDEX IF NOT EXISTS idx_alerts_product_id ON alerts(product_id);
   `,
+  // Migration 5: public product pages
+  `
+  ALTER TABLE products ADD COLUMN IF NOT EXISTS is_public BOOLEAN DEFAULT FALSE NOT NULL;
+  CREATE INDEX IF NOT EXISTS idx_products_is_public ON products(is_public) WHERE is_public = TRUE;
+  `,
+  // Migration 6: advanced alert types + Telegram channel
+  `
+  ALTER TABLE alerts
+    ADD COLUMN IF NOT EXISTS alert_type         VARCHAR(20)     DEFAULT 'price' NOT NULL,
+    ADD COLUMN IF NOT EXISTS percentage_drop    NUMERIC(5,2),
+    ADD COLUMN IF NOT EXISTS reference_price    NUMERIC(10,2),
+    ADD COLUMN IF NOT EXISTS notification_channel VARCHAR(20)   DEFAULT 'email' NOT NULL,
+    ADD COLUMN IF NOT EXISTS telegram_chat_id   VARCHAR(50);
+  ALTER TABLE alerts ALTER COLUMN threshold_price DROP NOT NULL;
+  `,
+  // Migration 7: Telegram chat ID per user
+  `
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_chat_id VARCHAR(50);
+  `,
 ];
 
 export async function migrate(): Promise<void> {

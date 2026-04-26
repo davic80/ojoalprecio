@@ -42,6 +42,16 @@
       <a href="<%= amazonUrl %>" target="_blank" rel="noopener sponsored" class="amazon-link">
         Ver en Amazon.es ↗
       </a>
+      <div class="public-toggle-wrap">
+        <form hx-post="/products/<%= product.id %>/toggle-public" style="display:inline">
+          <button type="submit" class="btn btn-sm <%= product.isPublic ? 'btn-outline btn-active-green' : 'btn-ghost' %>">
+            <%= product.isPublic ? '🌐 Página pública activa' : '🔒 Hacer público' %>
+          </button>
+        </form>
+        <% if (product.isPublic) { %>
+          <a href="/p/<%= product.asin %>" target="_blank" class="hint-link">Ver página pública ↗</a>
+        <% } %>
+      </div>
       <% if (product.lastError) { %>
         <div class="alert-box alert-error">⚠ Último error: <%= product.lastError %></div>
       <% } %>
@@ -183,53 +193,116 @@
   <!-- Alerts section -->
   <div class="card" id="alerts-section">
     <h2>Alertas de precio</h2>
-    <p class="subtitle">Recibe un email cuando el precio baje de tu umbral.</p>
+    <p class="subtitle">Recibe una notificación cuando el precio baje según tus condiciones.</p>
 
     <form
       hx-post="/products/<%= product.id %>/alerts"
       hx-target="#alerts-section"
       hx-swap="outerHTML"
       class="alert-form"
+      id="alert-form"
     >
+      <!-- Alert type selector -->
+      <div class="alert-type-tabs">
+        <label class="alert-type-tab">
+          <input type="radio" name="alertType" value="price" checked onchange="updateAlertForm(this.value)">
+          <span>Precio fijo</span>
+        </label>
+        <label class="alert-type-tab">
+          <input type="radio" name="alertType" value="percent" onchange="updateAlertForm(this.value)">
+          <span>% de bajada</span>
+        </label>
+        <label class="alert-type-tab">
+          <input type="radio" name="alertType" value="alltime_low" onchange="updateAlertForm(this.value)">
+          <span>Mínimo histórico</span>
+        </label>
+      </div>
+
       <div class="alert-inputs">
-        <div class="form-field">
+        <!-- Price threshold (shown for 'price' type) -->
+        <div class="form-field" id="field-price">
           <label for="thresholdPrice">Avisar si el precio baja de</label>
           <div class="input-with-unit">
-            <input
-              type="number"
-              name="thresholdPrice"
-              id="thresholdPrice"
-              min="0.01"
-              step="0.01"
-              placeholder="0.00"
-              required
-              class="input input-sm"
-            >
+            <input type="number" name="thresholdPrice" id="thresholdPrice"
+              min="0.01" step="0.01" placeholder="0.00" class="input input-sm">
             <span class="unit">€</span>
           </div>
         </div>
+
+        <!-- Percentage drop (shown for 'percent' type) -->
+        <div class="form-field" id="field-percent" style="display:none">
+          <label for="percentageDrop">Avisar si baja un</label>
+          <div class="input-with-unit">
+            <input type="number" name="percentageDrop" id="percentageDrop"
+              min="1" max="99" step="1" placeholder="15" class="input input-sm">
+            <span class="unit">%</span>
+          </div>
+          <% const prices = history.map(h => parseFloat(h.price)); const cur = prices[0] ?? null; %>
+          <p class="hint" style="margin-top:4px">desde el precio actual (<%= cur ? cur.toFixed(2) + ' €' : '—' %>)</p>
+        </div>
+
+        <!-- alltime_low has no extra input -->
+        <div class="form-field" id="field-alltime" style="display:none">
+          <p class="hint">Recibirás una notificación cada vez que se registre un nuevo mínimo histórico.</p>
+        </div>
+
         <div class="form-field">
           <label for="notificationEmail">Email de notificación</label>
-          <input
-            type="email"
-            name="notificationEmail"
-            id="notificationEmail"
-            placeholder="<%= user.email %>"
-            value="<%= user.email %>"
-            required
-            class="input input-sm"
-          >
+          <input type="email" name="notificationEmail" id="notificationEmail"
+            value="<%= user.email %>" required class="input input-sm">
         </div>
+
+        <div class="form-field">
+          <label for="notificationChannel">Canal</label>
+          <select name="notificationChannel" id="notificationChannel" class="input input-sm">
+            <option value="email">Email</option>
+            <option value="telegram">Telegram</option>
+            <option value="both">Email + Telegram</option>
+          </select>
+        </div>
+
+        <div class="form-field" id="field-telegram" style="display:none">
+          <label for="telegramChatId">Telegram Chat ID</label>
+          <input type="text" name="telegramChatId" id="telegramChatId"
+            placeholder="123456789" class="input input-sm">
+          <p class="hint" style="margin-top:4px">Consíguelo escribiendo /start a @userinfobot</p>
+        </div>
+
         <button type="submit" class="btn btn-primary btn-sm alert-submit">Crear alerta</button>
       </div>
     </form>
+
+    <script>
+      function updateAlertForm(type) {
+        document.getElementById('field-price').style.display   = type === 'price'   ? '' : 'none';
+        document.getElementById('field-percent').style.display = type === 'percent' ? '' : 'none';
+        document.getElementById('field-alltime').style.display = type === 'alltime_low' ? '' : 'none';
+        // required attributes
+        document.getElementById('thresholdPrice').required  = type === 'price';
+        document.getElementById('percentageDrop').required  = type === 'percent';
+      }
+      document.getElementById('notificationChannel').addEventListener('change', function() {
+        document.getElementById('field-telegram').style.display =
+          (this.value === 'telegram' || this.value === 'both') ? '' : 'none';
+      });
+    </script>
 
     <% if (typeof alerts !== 'undefined' && alerts && alerts.length > 0) { %>
       <div class="alerts-list">
         <% alerts.forEach(function(alert) { %>
           <div class="alert-item <%= alert.notifiedAt ? 'alert-triggered' : 'alert-active' %>" id="alert-<%= alert.id %>">
             <div class="alert-info">
-              <span class="alert-threshold">≤ <%= parseFloat(alert.thresholdPrice).toFixed(2) %> €</span>
+              <%
+                let alertLabel = '';
+                if (alert.alertType === 'percent') {
+                  alertLabel = '−' + parseFloat(alert.percentageDrop).toFixed(0) + '% desde ' + parseFloat(alert.referencePrice).toFixed(2) + ' €';
+                } else if (alert.alertType === 'alltime_low') {
+                  alertLabel = 'Nuevo mínimo histórico';
+                } else {
+                  alertLabel = '≤ ' + parseFloat(alert.thresholdPrice).toFixed(2) + ' €';
+                }
+              %>
+              <span class="alert-threshold"><%= alertLabel %></span>
               <span class="alert-email"><%= alert.notificationEmail %></span>
               <% if (alert.notifiedAt) { %>
                 <span class="alert-badge badge-triggered">Enviada <%= new Date(alert.notifiedAt).toLocaleString('es-ES') %></span>

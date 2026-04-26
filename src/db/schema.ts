@@ -1,4 +1,4 @@
-import { pgTable, serial, varchar, text, boolean, timestamp, numeric, integer, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, serial, varchar, text, boolean, timestamp, numeric, integer } from 'drizzle-orm/pg-core';
 
 // ── Users ────────────────────────────────────────────────────────────────────
 
@@ -6,6 +6,7 @@ export const users = pgTable('users', {
   id: serial('id').primaryKey(),
   email: varchar('email', { length: 255 }).notNull().unique(),
   passwordHash: varchar('password_hash', { length: 255 }).notNull(),
+  telegramChatId: varchar('telegram_chat_id', { length: 50 }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
@@ -19,6 +20,7 @@ export const products = pgTable('products', {
   name: text('name'),
   imageUrl: text('image_url'),
   isActive: boolean('is_active').default(true).notNull(),
+  isPublic: boolean('is_public').default(false).notNull(),
   lastError: text('last_error'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
@@ -39,8 +41,15 @@ export const alerts = pgTable('alerts', {
   id: serial('id').primaryKey(),
   productId: integer('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
   userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-  thresholdPrice: numeric('threshold_price', { precision: 10, scale: 2 }).notNull(),
+  // 'price' = fixed threshold | 'percent' = % drop from reference | 'alltime_low' = any new all-time low
+  alertType: varchar('alert_type', { length: 20 }).default('price').notNull(),
+  thresholdPrice: numeric('threshold_price', { precision: 10, scale: 2 }),
+  percentageDrop: numeric('percentage_drop', { precision: 5, scale: 2 }),
+  referencePrice: numeric('reference_price', { precision: 10, scale: 2 }),
   notificationEmail: varchar('notification_email', { length: 255 }).notNull(),
+  // 'email' | 'telegram' | 'both'
+  notificationChannel: varchar('notification_channel', { length: 20 }).default('email').notNull(),
+  telegramChatId: varchar('telegram_chat_id', { length: 50 }),
   isActive: boolean('is_active').default(true).notNull(),
   notifiedAt: timestamp('notified_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),

@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mejores ofertas en Amazon.es — OjoAlPrecio</title>
+  <meta name="description" content="Ofertas y bajadas de precio en Amazon.es en tiempo real. Historial de precios y alertas gratuitas.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <a href="/" class="navbar-brand">
+    <span class="brand-icon">👁</span>
+    <span class="brand-name">OjoAlPrecio</span>
+  </a>
+  <div class="navbar-actions">
+    <a href="/auth/login" class="btn btn-outline btn-sm">Entrar</a>
+  </div>
+</nav>
+
+<main class="container">
+
+  <div class="page-header">
+    <h1>Mejores ofertas</h1>
+    <p class="subtitle">Productos en Amazon.es con bajadas de precio destacadas</p>
+  </div>
+
+  <% if (deals.length === 0) { %>
+    <div class="empty-state">
+      <div class="empty-icon">🔍</div>
+      <h3>Sin ofertas publicadas todavía</h3>
+      <p>Cuando los usuarios compartan sus productos, aparecerán aquí.</p>
+    </div>
+  <% } else { %>
+    <div class="product-grid">
+      <% deals.forEach(function(d) { %>
+        <div class="product-card">
+          <a href="/p/<%= d.asin %>" class="product-card-link">
+            <div class="product-img-wrap">
+              <% if (d.imageUrl) { %>
+                <img src="<%= d.imageUrl %>" alt="<%= d.name ?? d.asin %>" class="product-img" loading="lazy">
+              <% } else { %>
+                <div class="product-img-placeholder">📦</div>
+              <% } %>
+              <% if (d.isAtLow) { %>
+                <span class="badge-low">Mínimo histórico</span>
+              <% } %>
+            </div>
+            <div class="product-info">
+              <p class="product-name"><%= d.name ?? d.asin %></p>
+              <p class="product-asin">ASIN: <%= d.asin %></p>
+            </div>
+          </a>
+          <div class="product-prices">
+            <div class="price-row">
+              <div class="price-current"><%= parseFloat(d.currentPrice).toFixed(2) %> €</div>
+              <% if (d.discountFromMax > 0) { %>
+                <span class="trend-down">↓ <%= d.discountFromMax %>% vs max</span>
+              <% } %>
+            </div>
+            <% if (d.minPrice && d.maxPrice) { %>
+              <div class="price-range">
+                <span class="price-min">↓ <%= parseFloat(d.minPrice).toFixed(2) %> €</span>
+                <span class="price-max">↑ <%= parseFloat(d.maxPrice).toFixed(2) %> €</span>
+              </div>
+            <% } %>
+            <div class="price-checks"><%= d.checkCount %> registros</div>
+          </div>
+          <div class="product-actions">
+            <a href="/p/<%= d.asin %>" class="btn btn-sm btn-outline">Ver historial</a>
+            <a href="<%= d.amazonUrl %>" target="_blank" rel="noopener sponsored" class="btn btn-sm btn-primary">Amazon ↗</a>
+          </div>
+        </div>
+      <% }); %>
+    </div>
+  <% } %>
+
+</main>
+
+<footer class="footer">
+  <p>OjoAlPrecio &nbsp;·&nbsp; <a href="/auth/login">Añade tus productos</a></p>
+</footer>
+
+</body>
+</html>

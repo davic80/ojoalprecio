@@ -428,3 +428,116 @@ body.auth-page {
   .alert-inputs { flex-direction: column; }
   .auth-card { padding: 28px 20px; }
 }
+
+/* ── Stats bar (dashboard) ───────────────────────────────────────────────────── */
+.stats-bar {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.stat-pill {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  background: var(--white);
+  border: 1px solid var(--gray-200);
+  border-radius: 20px;
+  padding: 5px 14px;
+  font-size: 13px;
+}
+.stat-pill-value { font-weight: 700; font-size: 15px; color: var(--gray-900); }
+.stat-pill-label { color: var(--gray-500); }
+.stat-pill-green { border-color: #bbf7d0; background: #f0fdf4; }
+.stat-pill-green .stat-pill-value { color: var(--green); }
+.stat-pill-warn  { border-color: #fed7aa; background: #fff7ed; }
+.stat-pill-warn  .stat-pill-value { color: #c2410c; }
+
+/* ── Sparkline ───────────────────────────────────────────────────────────────── */
+.sparkline {
+  display: block;
+  width: 80px;
+  height: 28px;
+  margin: 4px 0;
+  overflow: visible;
+}
+
+/* ── Trend badges ────────────────────────────────────────────────────────────── */
+.price-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.trend-down { font-size: 12px; font-weight: 600; color: var(--green); }
+.trend-up   { font-size: 12px; font-weight: 600; color: var(--red); }
+.trend-neutral { font-size: 12px; color: var(--gray-400); }
+
+/* ── Badge mínimo histórico ──────────────────────────────────────────────────── */
+.product-img-wrap { position: relative; }
+.badge-low {
+  position: absolute;
+  bottom: 6px; left: 50%;
+  transform: translateX(-50%);
+  background: var(--green);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+  letter-spacing: .3px;
+}
+
+/* ── Public tag ──────────────────────────────────────────────────────────────── */
+.public-tag { color: var(--green); font-size: 11px; font-weight: 600; }
+.public-toggle-wrap { display: flex; align-items: center; gap: 10px; margin: 8px 0; flex-wrap: wrap; }
+.btn-active-green { border-color: var(--green); color: var(--green); }
+.hint-link { font-size: 12px; color: var(--gray-500); }
+.hint-link:hover { color: var(--gray-900); }
+
+/* ── Alert type tabs ─────────────────────────────────────────────────────────── */
+.alert-type-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 16px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.alert-type-tab {
+  flex: 1;
+  display: flex;
+  cursor: pointer;
+}
+.alert-type-tab input[type="radio"] { display: none; }
+.alert-type-tab span {
+  flex: 1;
+  text-align: center;
+  padding: 8px 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--gray-500);
+  border-right: 1px solid var(--gray-200);
+  transition: background .15s, color .15s;
+}
+.alert-type-tab:last-child span { border-right: none; }
+.alert-type-tab input:checked + span {
+  background: var(--red);
+  color: #fff;
+}
+
+/* ── CTA bar (public product page) ──────────────────────────────────────────── */
+.cta-bar {
+  display: flex;
+  gap: 12px;
+  margin: 20px 0 28px;
+  flex-wrap: wrap;
+}
+
+/* ── Nav link ────────────────────────────────────────────────────────────────── */
+.nav-link {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--gray-700);
+  text-decoration: none;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: background .15s;
+}
+.nav-link:hover { background: var(--gray-100); text-decoration: none; }
