@@ -49,10 +49,27 @@ export function extractAsin(url: string): string | null {
 }
 
 /**
- * Normalise an Amazon.es URL to the canonical form.
+ * Normalise an Amazon.es URL to the canonical form (no affiliate tag — used for scraping).
  */
 export function normaliseAmazonUrl(asin: string): string {
   return `https://www.amazon.es/dp/${asin}`;
+}
+
+const AFFILIATE_TAG = 'canidrone-21';
+
+/**
+ * Return the URL with the affiliate tag applied (replaces any existing tag).
+ * Use this for all links shown to the user or sent in emails.
+ */
+export function affiliateUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    u.searchParams.delete('tag');
+    u.searchParams.set('tag', AFFILIATE_TAG);
+    return u.toString();
+  } catch {
+    return url;
+  }
 }
 
 /**

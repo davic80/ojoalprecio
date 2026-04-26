@@ -3,7 +3,7 @@ import { body, validationResult } from 'express-validator';
 import { db } from '../db/client';
 import { products, priceHistory, alerts } from '../db/schema';
 import { eq, and, desc, sql } from 'drizzle-orm';
-import { extractAsin, normaliseAmazonUrl, scrapeProduct } from '../scraper/amazon';
+import { extractAsin, normaliseAmazonUrl, scrapeProduct, affiliateUrl } from '../scraper/amazon';
 import { requireAuth } from '../middleware/auth';
 
 const router = Router();
@@ -173,6 +173,7 @@ router.get('/products/:id', requireAuth, async (req: Request, res: Response) => 
     history,
     alerts: productAlerts,
     user: { email: req.session.userEmail },
+    amazonUrl: affiliateUrl(product.url),
   });
 });
 

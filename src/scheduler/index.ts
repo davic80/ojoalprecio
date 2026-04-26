@@ -2,7 +2,7 @@ import cron from 'node-cron';
 import { db } from '../db/client';
 import { products, priceHistory, alerts } from '../db/schema';
 import { eq, and, isNull, lte, desc } from 'drizzle-orm';
-import { scrapeProduct } from '../scraper/amazon';
+import { scrapeProduct, affiliateUrl } from '../scraper/amazon';
 import { sendPriceAlert } from '../mailer';
 
 const CHECK_INTERVAL = process.env.CHECK_INTERVAL_CRON ?? '0 * * * *'; // every hour
@@ -111,7 +111,7 @@ async function processAlerts(
         await sendPriceAlert({
           to: alert.notificationEmail,
           productName,
-          productUrl: product?.url ?? `https://www.amazon.es/dp/${productId}`,
+          productUrl: affiliateUrl(product?.url ?? `https://www.amazon.es/dp/${productId}`),
           currentPrice,
           thresholdPrice: threshold,
           imageUrl,

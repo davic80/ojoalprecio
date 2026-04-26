@@ -39,7 +39,7 @@
     <div class="product-header-info">
       <h1><%= product.name ?? product.asin %></h1>
       <p class="product-asin">ASIN: <strong><%= product.asin %></strong></p>
-      <a href="<%= product.url %>" target="_blank" rel="noopener" class="amazon-link">
+      <a href="<%= amazonUrl %>" target="_blank" rel="noopener sponsored" class="amazon-link">
         Ver en Amazon.es ↗
       </a>
       <% if (product.lastError) { %>
