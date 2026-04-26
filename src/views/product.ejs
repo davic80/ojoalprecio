@@ -56,8 +56,9 @@
         <% } %>
       </div>
 
-      <% if (categories && categories.length > 0) { %>
+      <% if ((categories && categories.length > 0) || isAdmin) { %>
       <div class="category-wrap">
+        <% if (categories && categories.length > 0) { %>
         <form hx-post="/products/<%= product.id %>/set-category" class="category-form">
           <label class="category-label" for="categoryId">Categoría</label>
           <div class="input-group input-group-sm">
@@ -70,6 +71,21 @@
             <button type="submit" class="btn btn-sm btn-outline">Guardar</button>
           </div>
         </form>
+        <% } %>
+        <% if (isAdmin) { %>
+        <form
+          hx-post="/admin/categories"
+          class="category-form"
+          style="margin-top:<%= categories && categories.length > 0 ? '8px' : '0' %>"
+        >
+          <input type="hidden" name="_redirect" value="/products/<%= product.id %>">
+          <label class="category-label">Nueva categoría</label>
+          <div class="input-group input-group-sm">
+            <input type="text" name="name" placeholder="Nombre…" class="input input-sm" maxlength="100" required>
+            <button type="submit" class="btn btn-sm btn-primary">Crear</button>
+          </div>
+        </form>
+        <% } %>
       </div>
       <% } %>
       <% if (!product.isAvailable) { %>

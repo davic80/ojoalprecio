@@ -37,13 +37,19 @@ router.get('/admin/categories', requireAuth, requireAdmin, async (req: Request, 
 // ── POST /admin/categories ────────────────────────────────────────────────────
 router.post('/admin/categories', requireAuth, requireAdmin, async (req: Request, res: Response) => {
   const name = String(req.body.name ?? '').trim();
-  if (!name) return res.redirect('/admin/categories');
+  const redirectTo = String(req.body._redirect ?? '').trim();
+  const target = redirectTo.startsWith('/') ? redirectTo : '/admin/categories';
 
-  const slug = toSlug(name);
-  if (!slug) return res.redirect('/admin/categories');
+  if (name) {
+    const slug = toSlug(name);
+    if (slug) await db.insert(categories).values({ name, slug }).onConflictDoNothing();
+  }
 
-  await db.insert(categories).values({ name, slug }).onConflictDoNothing();
-  res.redirect('/admin/categories');
+  if (req.headers['hx-request']) {
+    res.setHeader('HX-Redirect', target);
+    return res.status(200).send('');
+  }
+  res.redirect(target);
 });
 
 // ── PATCH /admin/categories/:id ───────────────────────────────────────────────
