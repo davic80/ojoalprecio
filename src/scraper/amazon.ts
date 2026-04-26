@@ -101,10 +101,11 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-accelerated-2d-canvas',
-      '--no-first-run',
-      '--no-zygote',
       '--disable-gpu',
-      '--single-process',
+      '--no-first-run',
+      // Remove automation markers detected by Amazon
+      '--disable-blink-features=AutomationControlled',
+      '--disable-infobars',
     ],
   });
 
@@ -127,9 +128,24 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
       },
     });
 
+    // Patch navigator.webdriver and other automation fingerprints before any page loads
+    await context.addInitScript(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+      Object.defineProperty(navigator, 'languages', { get: () => ['es-ES', 'es', 'en-US', 'en'] });
+      Object.defineProperty(navigator, 'plugins', {
+        get: () => Object.assign([], {
+          0: { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format', length: 1 },
+          1: { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '', length: 0 },
+          length: 2,
+        }),
+      });
+      // @ts-ignore — runs in browser context, not Node
+      window.chrome = { runtime: {}, app: { isInstalled: false } };
+    });
+
     const page = await context.newPage();
 
-    // Block unnecessary resources to speed up scraping
+    // Block fonts and media to speed up loading
     await page.route('**/*', (route) => {
       const resourceType = route.request().resourceType();
       if (['font', 'media'].includes(resourceType)) {
@@ -139,8 +155,9 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
       }
     });
 
-    // Small pre-navigation delay to appear more human-like
-    await randomDelay(500, 1500);
+    // Visit Amazon homepage first to get real session cookies before hitting the product page
+    await page.goto('https://www.amazon.es', { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await randomDelay(800, 1800);
 
     await page.goto(canonicalUrl, {
       waitUntil: 'domcontentloaded',
@@ -157,12 +174,15 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
       throw new Error('Amazon bloqueó la petición (bot detection)');
     }
 
-    // Check for CAPTCHA
+    // Check for CAPTCHA — use URL pattern and specific strings, not generic words
+    // ("robot" appears in normal Amazon.es page content and causes false positives)
+    const currentUrl = page.url();
     const bodyText = await page.textContent('body') ?? '';
     if (
+      currentUrl.includes('validateCaptcha') ||
       bodyText.includes('Enter the characters you see below') ||
       bodyText.includes('Introduce los caracteres que ves a continuación') ||
-      bodyText.includes('robot')
+      bodyText.includes('validateCaptcha')
     ) {
       throw new Error('CAPTCHA detectado en Amazon');
     }
