@@ -68,6 +68,22 @@ const MIGRATIONS = [
   `
   ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_chat_id VARCHAR(50);
   `,
+  // Migration 8: product availability tracking
+  `
+  ALTER TABLE products ADD COLUMN IF NOT EXISTS is_available BOOLEAN DEFAULT TRUE NOT NULL;
+  CREATE INDEX IF NOT EXISTS idx_products_is_available ON products(is_available) WHERE is_available = FALSE;
+  `,
+  // Migration 9: categories
+  `
+  CREATE TABLE IF NOT EXISTS categories (
+    id         SERIAL PRIMARY KEY,
+    name       VARCHAR(100) NOT NULL UNIQUE,
+    slug       VARCHAR(100) NOT NULL UNIQUE,
+    created_at TIMESTAMP DEFAULT NOW() NOT NULL
+  );
+  ALTER TABLE products ADD COLUMN IF NOT EXISTS category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL;
+  CREATE INDEX IF NOT EXISTS idx_products_category_id ON products(category_id);
+  `,
 ];
 
 export async function migrate(): Promise<void> {

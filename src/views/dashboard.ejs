@@ -45,6 +45,9 @@ function trendBadge(current, previous) {
   </a>
   <div class="navbar-actions">
     <a href="/ofertas" class="nav-link">Ofertas</a>
+    <% if (typeof isAdmin !== 'undefined' && isAdmin) { %>
+      <a href="/admin/categories" class="nav-link">Admin</a>
+    <% } %>
     <span class="user-email"><%= user.email %></span>
     <form action="/auth/logout" method="POST" style="display:inline">
       <button type="submit" class="btn btn-ghost btn-sm">Salir</button>
@@ -69,6 +72,12 @@ function trendBadge(current, previous) {
     <div class="stat-pill stat-pill-green">
       <span class="stat-pill-value"><%= stats.atLow %></span>
       <span class="stat-pill-label"><%= stats.atLow === 1 ? 'en mínimo histórico' : 'en mínimo histórico' %></span>
+    </div>
+    <% } %>
+    <% if (stats.unavailable > 0) { %>
+    <div class="stat-pill stat-pill-gray">
+      <span class="stat-pill-value"><%= stats.unavailable %></span>
+      <span class="stat-pill-label"><%= stats.unavailable === 1 ? 'sin stock' : 'sin stock' %></span>
     </div>
     <% } %>
     <% if (stats.withError > 0) { %>
@@ -116,7 +125,7 @@ function trendBadge(current, previous) {
     </div>
   <% } else { %>
     <% products.forEach(function(p) {
-      const isAtLow = p.currentPrice && p.minPrice && parseFloat(p.currentPrice) <= parseFloat(p.minPrice) + 0.01;
+      const isAtLow = p.isAvailable && p.currentPrice && p.minPrice && parseFloat(p.currentPrice) <= parseFloat(p.minPrice) + 0.01;
     %>
     <div class="product-card" id="product-<%= p.id %>">
       <a href="/products/<%= p.id %>" class="product-card-link">
@@ -127,12 +136,15 @@ function trendBadge(current, previous) {
             <div class="product-img-placeholder">📦</div>
           <% } %>
           <% if (isAtLow) { %>
-            <span class="badge-low" title="Precio en mínimo histórico">Mínimo histórico</span>
+            <span class="badge-low" title="Precio en mínimo desde que se inició el seguimiento">Precio mínimo</span>
+          <% } else if (!p.isAvailable) { %>
+            <span class="badge-unavailable" title="Actualmente sin stock en Amazon">Sin stock</span>
           <% } %>
         </div>
         <div class="product-info">
           <p class="product-name"><%= p.name ?? p.asin %></p>
           <p class="product-asin">ASIN: <%= p.asin %><% if (p.isPublic) { %> · <span class="public-tag">público</span><% } %></p>
+          <% if (p.categoryName) { %><span class="category-tag"><%= p.categoryName %></span><% } %>
           <% if (p.lastError) { %>
             <p class="product-error">⚠ <%= p.lastError %></p>
           <% } %>
@@ -140,7 +152,15 @@ function trendBadge(current, previous) {
       </a>
 
       <div class="product-prices">
-        <% if (p.currentPrice) { %>
+        <% if (!p.isAvailable) { %>
+          <div class="price-unavailable">Sin stock</div>
+          <% if (p.minPrice) { %>
+            <div class="price-range">
+              <span class="price-min" title="Precio mínimo registrado">↓ <%= parseFloat(p.minPrice).toFixed(2) %> €</span>
+              <span class="price-max" title="Precio máximo registrado">↑ <%= parseFloat(p.maxPrice).toFixed(2) %> €</span>
+            </div>
+          <% } %>
+        <% } else if (p.currentPrice) { %>
           <div class="price-row">
             <div class="price-current"><%= parseFloat(p.currentPrice).toFixed(2) %> €</div>
             <%- trendBadge(p.currentPrice, p.previousPrice) %>
@@ -148,8 +168,8 @@ function trendBadge(current, previous) {
           <%- sparklineSvg(p.sparklineData, 80, 28) %>
           <% if (p.minPrice && p.maxPrice) { %>
             <div class="price-range">
-              <span class="price-min" title="Mínimo histórico">↓ <%= parseFloat(p.minPrice).toFixed(2) %> €</span>
-              <span class="price-max" title="Máximo histórico">↑ <%= parseFloat(p.maxPrice).toFixed(2) %> €</span>
+              <span class="price-min" title="Precio mínimo registrado">↓ <%= parseFloat(p.minPrice).toFixed(2) %> €</span>
+              <span class="price-max" title="Precio máximo registrado">↑ <%= parseFloat(p.maxPrice).toFixed(2) %> €</span>
             </div>
           <% } %>
           <div class="price-checks"><%= p.checkCount %> registros</div>

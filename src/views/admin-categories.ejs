@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Categorías — Admin OjoAlPrecio</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js" defer></script>
+</head>
+<body>
+
+<nav class="navbar">
+  <a href="/" class="navbar-brand">
+    <span class="brand-icon">👁</span>
+    <span class="brand-name">OjoAlPrecio</span>
+  </a>
+  <div class="navbar-actions">
+    <a href="/admin/categories" class="nav-link nav-link-active">Categorías</a>
+    <span class="user-email"><%= user.email %></span>
+    <form action="/auth/logout" method="POST" style="display:inline">
+      <button type="submit" class="btn btn-ghost btn-sm">Salir</button>
+    </form>
+  </div>
+</nav>
+
+<main class="container">
+
+  <div class="page-header">
+    <h1>Gestión de categorías</h1>
+    <p class="subtitle">Las categorías que crees aquí estarán disponibles para todos los usuarios.</p>
+  </div>
+
+  <!-- Add category -->
+  <div class="card add-card">
+    <h2>Nueva categoría</h2>
+    <form action="/admin/categories" method="POST" class="add-form">
+      <div class="input-group">
+        <input type="text" name="name" placeholder="Nombre de la categoría" required
+          class="input" autocomplete="off" maxlength="100">
+        <button type="submit" class="btn btn-primary">Crear</button>
+      </div>
+      <p class="hint">El slug se genera automáticamente. Ejemplo: "Audio y sonido" → audio-y-sonido</p>
+    </form>
+  </div>
+
+  <!-- Category list -->
+  <div class="card">
+    <h2>Categorías existentes (<%= categories.length %>)</h2>
+    <% if (categories.length === 0) { %>
+      <p class="hint" style="margin-top:12px">No hay categorías todavía. Crea la primera arriba.</p>
+    <% } else { %>
+      <div class="table-wrap" style="margin-top:16px">
+        <table class="price-table">
+          <thead>
+            <tr>
+              <th>Nombre</th>
+              <th>Slug</th>
+              <th style="text-align:right">Productos</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% categories.forEach(function(cat) { %>
+              <tr id="cat-<%= cat.id %>">
+                <td><strong><%= cat.name %></strong></td>
+                <td><code class="hint"><%= cat.slug %></code></td>
+                <td style="text-align:right"><%= cat.productCount %></td>
+                <td style="text-align:right">
+                  <button
+                    class="btn btn-sm btn-danger"
+                    hx-delete="/admin/categories/<%= cat.id %>"
+                    hx-target="#cat-<%= cat.id %>"
+                    hx-swap="outerHTML"
+                    hx-confirm="¿Eliminar '<%= cat.name %>'? Los productos quedarán sin categoría."
+                  >Eliminar</button>
+                </td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+    <% } %>
+  </div>
+
+  <div style="margin-top:12px">
+    <a href="/" class="hint-link">← Volver al dashboard</a>
+  </div>
+
+</main>
+
+<footer class="footer">
+  <p>OjoAlPrecio Admin &nbsp;·&nbsp; <a href="/ofertas">Ver ofertas públicas</a></p>
+</footer>
+
+</body>
+</html>

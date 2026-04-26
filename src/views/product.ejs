@@ -18,6 +18,9 @@
     <span class="brand-name">OjoAlPrecio</span>
   </a>
   <div class="navbar-actions">
+    <% if (typeof isAdmin !== 'undefined' && isAdmin) { %>
+      <a href="/admin/categories" class="nav-link">Admin</a>
+    <% } %>
     <span class="user-email"><%= user.email %></span>
     <form action="/auth/logout" method="POST" style="display:inline">
       <button type="submit" class="btn btn-ghost btn-sm">Salir</button>
@@ -52,6 +55,26 @@
           <a href="/p/<%= product.asin %>" target="_blank" class="hint-link">Ver página pública ↗</a>
         <% } %>
       </div>
+
+      <% if (categories && categories.length > 0) { %>
+      <div class="category-wrap">
+        <form hx-post="/products/<%= product.id %>/set-category" class="category-form">
+          <label class="category-label" for="categoryId">Categoría</label>
+          <div class="input-group input-group-sm">
+            <select name="categoryId" id="categoryId" class="input input-sm">
+              <option value="">Sin categoría</option>
+              <% categories.forEach(function(cat) { %>
+                <option value="<%= cat.id %>" <%= product.categoryId === cat.id ? 'selected' : '' %>><%= cat.name %></option>
+              <% }); %>
+            </select>
+            <button type="submit" class="btn btn-sm btn-outline">Guardar</button>
+          </div>
+        </form>
+      </div>
+      <% } %>
+      <% if (!product.isAvailable) { %>
+        <div class="alert-box alert-unavailable">Sin stock en Amazon — recibirás una notificación cuando vuelva a estar disponible.</div>
+      <% } %>
       <% if (product.lastError) { %>
         <div class="alert-box alert-error">⚠ Último error: <%= product.lastError %></div>
       <% } %>
@@ -66,14 +89,14 @@
     <div class="price-stats">
       <div class="stat-box stat-current">
         <div class="stat-label">Precio actual</div>
-        <div class="stat-value"><%= currentPrice ? currentPrice.toFixed(2) + ' €' : '—' %></div>
+        <div class="stat-value"><%= !product.isAvailable ? 'Sin stock' : (currentPrice ? currentPrice.toFixed(2) + ' €' : '—') %></div>
       </div>
       <div class="stat-box stat-min">
-        <div class="stat-label">Mínimo histórico</div>
+        <div class="stat-label">Precio mínimo</div>
         <div class="stat-value"><%= minPrice ? minPrice.toFixed(2) + ' €' : '—' %></div>
       </div>
       <div class="stat-box stat-max">
-        <div class="stat-label">Máximo histórico</div>
+        <div class="stat-label">Precio máximo</div>
         <div class="stat-value"><%= maxPrice ? maxPrice.toFixed(2) + ' €' : '—' %></div>
       </div>
       <div class="stat-box stat-checks">
@@ -237,8 +260,11 @@
               min="1" max="99" step="1" placeholder="15" class="input input-sm">
             <span class="unit">%</span>
           </div>
-          <% const prices = history.map(h => parseFloat(h.price)); const cur = prices[0] ?? null; %>
-          <p class="hint" style="margin-top:4px">desde el precio actual (<%= cur ? cur.toFixed(2) + ' €' : '—' %>)</p>
+          <% const cur = prices[0] ?? null; %>
+          <p class="hint" style="margin-top:4px">
+            desde el precio actual (<%= cur ? cur.toFixed(2) + ' €' : '—' %>)
+            <% if (cur) { %> → avisar si baja de <strong id="percent-target-label">—</strong><% } %>
+          </p>
         </div>
 
         <!-- alltime_low has no extra input -->
@@ -273,14 +299,25 @@
     </form>
 
     <script>
+      const _currentPrice = <%= prices[0] ?? 'null' %>;
+
       function updateAlertForm(type) {
         document.getElementById('field-price').style.display   = type === 'price'   ? '' : 'none';
         document.getElementById('field-percent').style.display = type === 'percent' ? '' : 'none';
         document.getElementById('field-alltime').style.display = type === 'alltime_low' ? '' : 'none';
-        // required attributes
         document.getElementById('thresholdPrice').required  = type === 'price';
         document.getElementById('percentageDrop').required  = type === 'percent';
       }
+
+      document.getElementById('percentageDrop').addEventListener('input', function() {
+        const label = document.getElementById('percent-target-label');
+        if (!label || !_currentPrice) return;
+        const pct = parseFloat(this.value);
+        if (isNaN(pct) || pct <= 0) { label.textContent = '—'; return; }
+        const target = _currentPrice * (1 - pct / 100);
+        label.textContent = target.toFixed(2) + ' €';
+      });
+
       document.getElementById('notificationChannel').addEventListener('change', function() {
         document.getElementById('field-telegram').style.display =
           (this.value === 'telegram' || this.value === 'both') ? '' : 'none';

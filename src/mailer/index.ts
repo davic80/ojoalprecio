@@ -116,6 +116,86 @@ export async function sendPriceAlert(opts: PriceAlertOptions): Promise<void> {
   console.log(`[mailer] Alert sent to ${opts.to} for "${opts.productName}" at ${opts.currentPrice}`);
 }
 
+export interface BackInStockOptions {
+  to: string;
+  productName: string;
+  productUrl: string;
+  currentPrice: number;
+  imageUrl?: string | null;
+  currency?: string;
+}
+
+export async function sendBackInStockAlert(opts: BackInStockOptions): Promise<void> {
+  const cfg = getConfig();
+  if (!cfg.user || !cfg.password) {
+    console.warn('[mailer] SMTP not configured, skipping back-in-stock email.');
+    return;
+  }
+
+  const transporter = createTransporter();
+  const currencySymbol = opts.currency === 'EUR' ? '€' : opts.currency ?? '€';
+  const siteUrl = process.env.SITE_URL ?? 'http://localhost:3000';
+
+  const html = `
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vuelve a estar disponible - OjoAlPrecio</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; margin: 0; padding: 20px;">
+  <div style="max-width: 540px; margin: 0 auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.08);">
+
+    <div style="background: #2a9d8f; padding: 28px 32px; text-align: center;">
+      <h1 style="color: #fff; margin: 0; font-size: 22px; letter-spacing: -0.3px;">
+        OjoAlPrecio — ¡De vuelta en stock!
+      </h1>
+    </div>
+
+    <div style="padding: 32px;">
+      ${opts.imageUrl ? `<img src="${opts.imageUrl}" alt="Producto" style="display:block;max-width:160px;height:auto;margin:0 auto 24px;border-radius:8px;">` : ''}
+
+      <h2 style="font-size: 16px; color: #333; margin: 0 0 8px;">${opts.productName}</h2>
+
+      <p style="color: #666; font-size: 14px; margin: 0 0 24px;">
+        Este producto que tenías en seguimiento vuelve a estar disponible en Amazon.es.
+      </p>
+
+      <div style="background:#f0fdf9; border:1px solid #6ee7d7; border-radius:8px; padding:20px; text-align:center; margin-bottom:28px;">
+        <div style="font-size:12px; color:#999; text-transform:uppercase; letter-spacing:.5px; margin-bottom:4px;">Precio actual</div>
+        <div style="font-size:32px; font-weight:700; color:#2a9d8f;">${opts.currentPrice.toFixed(2)} ${currencySymbol}</div>
+      </div>
+
+      <a href="${opts.productUrl}"
+         style="display:block; background:#2a9d8f; color:#fff; text-decoration:none; text-align:center; padding:14px 24px; border-radius:8px; font-weight:600; font-size:15px; margin-bottom:16px;">
+        Comprar en Amazon.es
+      </a>
+
+      <a href="${siteUrl}"
+         style="display:block; color:#6b7280; text-decoration:none; text-align:center; font-size:13px;">
+        Ver historial en OjoAlPrecio
+      </a>
+    </div>
+
+    <div style="background:#f9fafb; padding:16px 32px; text-align:center; font-size:12px; color:#9ca3af; border-top:1px solid #f0f0f0;">
+      OjoAlPrecio — Seguimiento de precios en Amazon.es
+    </div>
+  </div>
+</body>
+</html>
+  `.trim();
+
+  await transporter.sendMail({
+    from: `"OjoAlPrecio" <${cfg.from}>`,
+    to: opts.to,
+    subject: `¡Vuelve a estar disponible! ${opts.productName} — ${opts.currentPrice.toFixed(2)} ${currencySymbol}`,
+    html,
+  });
+
+  console.log(`[mailer] Back-in-stock alert sent to ${opts.to} for "${opts.productName}"`);
+}
+
 export async function verifyMailer(): Promise<boolean> {
   const cfg = getConfig();
   if (!cfg.user || !cfg.password) return false;

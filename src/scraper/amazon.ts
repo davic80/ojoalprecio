@@ -1,5 +1,12 @@
 import { chromium, type Browser } from 'playwright';
 
+export class ProductUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ProductUnavailableError';
+  }
+}
+
 export interface ScrapeResult {
   asin: string;
   name: string;
@@ -196,6 +203,25 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
       .catch(() => '');
 
     if (!name) throw new Error('No se encontró el título del producto');
+
+    // ── Check availability ───────────────────────────────────────────────────
+    const availabilityText = await page
+      .locator('#availability')
+      .first()
+      .textContent({ timeout: 3000 })
+      .catch(() => '');
+    const normalizedAvail = (availabilityText ?? '').toLowerCase().trim();
+    const unavailableKeywords = [
+      'no disponible',
+      'actualmente no disponible',
+      'currently unavailable',
+      'not available',
+      'agotado',
+      'out of stock',
+    ];
+    if (unavailableKeywords.some((kw) => normalizedAvail.includes(kw))) {
+      throw new ProductUnavailableError(`Producto no disponible`);
+    }
 
     // ── Extract price ────────────────────────────────────────────────────────
     // Wait up to 5 seconds for JS-rendered price elements to appear.

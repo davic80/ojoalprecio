@@ -1,10 +1,10 @@
 import cron from 'node-cron';
 import { db } from '../db/client';
-import { products, priceHistory, alerts } from '../db/schema';
-import { eq, and, isNull, desc, min } from 'drizzle-orm';
-import { scrapeProduct, affiliateUrl } from '../scraper/amazon';
-import { sendPriceAlert } from '../mailer';
-import { sendTelegramAlert } from '../mailer/telegram';
+import { products, priceHistory, alerts, users } from '../db/schema';
+import { eq, and, desc, min } from 'drizzle-orm';
+import { scrapeProduct, affiliateUrl, ProductUnavailableError } from '../scraper/amazon';
+import { sendPriceAlert, sendBackInStockAlert } from '../mailer';
+import { sendTelegramAlert, sendTelegramBackInStock } from '../mailer/telegram';
 
 const CHECK_INTERVAL = process.env.CHECK_INTERVAL_CRON ?? '0 * * * *';
 
@@ -36,20 +36,71 @@ async function checkAllProducts(): Promise<void> {
 }
 
 async function checkProduct(productId: number, url: string, label: string): Promise<void> {
+  // Load current state to detect availability transitions
+  const [current] = await db.select({ isAvailable: products.isAvailable }).from(products).where(eq(products.id, productId)).limit(1);
+  const wasUnavailable = current ? !current.isAvailable : false;
+
   try {
     console.log(`[scheduler] Scraping: ${label}`);
     const result = await scrapeProduct(url);
 
     await db.insert(priceHistory).values({ productId, price: String(result.price), currency: result.currency });
-    await db.update(products).set({ name: result.name, imageUrl: result.imageUrl, lastError: null }).where(eq(products.id, productId));
+    await db.update(products).set({
+      name: result.name,
+      imageUrl: result.imageUrl,
+      lastError: null,
+      isAvailable: true,
+    }).where(eq(products.id, productId));
 
     console.log(`[scheduler] ${label} → ${result.price} ${result.currency}`);
 
+    // Product just came back in stock — notify owner
+    if (wasUnavailable) {
+      console.log(`[scheduler] ${label} → back in stock, sending notification`);
+      await notifyBackInStock(productId, result.price, result.currency, result.name, result.imageUrl, url);
+    }
+
     await processAlerts(productId, result.price, result.currency, label, result.imageUrl, url);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[scheduler] Failed for ${label}: ${msg}`);
-    await db.update(products).set({ lastError: msg }).where(eq(products.id, productId));
+    if (err instanceof ProductUnavailableError) {
+      console.log(`[scheduler] ${label} → No disponible`);
+      await db.update(products).set({ isAvailable: false, lastError: null }).where(eq(products.id, productId));
+    } else {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[scheduler] Failed for ${label}: ${msg}`);
+      await db.update(products).set({ lastError: msg }).where(eq(products.id, productId));
+    }
+  }
+}
+
+async function notifyBackInStock(
+  productId: number,
+  currentPrice: number,
+  currency: string,
+  productName: string,
+  imageUrl: string | null | undefined,
+  productUrl: string,
+): Promise<void> {
+  const productAffilUrl = affiliateUrl(productUrl);
+
+  const [product] = await db.select({ userId: products.userId }).from(products).where(eq(products.id, productId)).limit(1);
+  if (!product) return;
+  const [owner] = await db.select({ email: users.email, telegramChatId: users.telegramChatId }).from(users).where(eq(users.id, product.userId)).limit(1);
+  if (!owner) return;
+
+  try {
+    await sendBackInStockAlert({ to: owner.email, productName, productUrl: productAffilUrl, currentPrice, imageUrl, currency });
+  } catch (err) {
+    console.error(`[scheduler] Back-in-stock email failed:`, err);
+  }
+
+  const chatId = owner.telegramChatId ?? process.env.TELEGRAM_CHAT_ID;
+  if (chatId) {
+    try {
+      await sendTelegramBackInStock({ chatId, productName, productUrl: productAffilUrl, currentPrice, currency });
+    } catch (err) {
+      console.error(`[scheduler] Back-in-stock Telegram failed:`, err);
+    }
   }
 }
 

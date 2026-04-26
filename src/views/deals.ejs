@@ -27,54 +27,73 @@
     <p class="subtitle">Productos en Amazon.es con bajadas de precio destacadas</p>
   </div>
 
-  <% if (deals.length === 0) { %>
+  <% const totalDeals = groups.reduce((s, g) => s + g.deals.length, 0); %>
+
+  <% if (totalDeals === 0) { %>
     <div class="empty-state">
       <div class="empty-icon">🔍</div>
       <h3>Sin ofertas publicadas todavía</h3>
       <p>Cuando los usuarios compartan sus productos, aparecerán aquí.</p>
     </div>
   <% } else { %>
-    <div class="product-grid">
-      <% deals.forEach(function(d) { %>
-        <div class="product-card">
-          <a href="/p/<%= d.asin %>" class="product-card-link">
-            <div class="product-img-wrap">
-              <% if (d.imageUrl) { %>
-                <img src="<%= d.imageUrl %>" alt="<%= d.name ?? d.asin %>" class="product-img" loading="lazy">
-              <% } else { %>
-                <div class="product-img-placeholder">📦</div>
-              <% } %>
-              <% if (d.isAtLow) { %>
-                <span class="badge-low">Mínimo histórico</span>
-              <% } %>
-            </div>
-            <div class="product-info">
-              <p class="product-name"><%= d.name ?? d.asin %></p>
-              <p class="product-asin">ASIN: <%= d.asin %></p>
-            </div>
-          </a>
-          <div class="product-prices">
-            <div class="price-row">
-              <div class="price-current"><%= parseFloat(d.currentPrice).toFixed(2) %> €</div>
-              <% if (d.discountFromMax > 0) { %>
-                <span class="trend-down">↓ <%= d.discountFromMax %>% vs max</span>
-              <% } %>
-            </div>
-            <% if (d.minPrice && d.maxPrice) { %>
-              <div class="price-range">
-                <span class="price-min">↓ <%= parseFloat(d.minPrice).toFixed(2) %> €</span>
-                <span class="price-max">↑ <%= parseFloat(d.maxPrice).toFixed(2) %> €</span>
-              </div>
-            <% } %>
-            <div class="price-checks"><%= d.checkCount %> registros</div>
-          </div>
-          <div class="product-actions">
-            <a href="/p/<%= d.asin %>" class="btn btn-sm btn-outline">Ver historial</a>
-            <a href="<%= d.amazonUrl %>" target="_blank" rel="noopener sponsored" class="btn btn-sm btn-primary">Amazon ↗</a>
-          </div>
-        </div>
+
+    <% if (groups.length > 1) { %>
+    <nav class="category-nav">
+      <% groups.forEach(function(g) { %>
+        <a href="#cat-<%= g.slug ?? 'otros' %>" class="category-nav-link"><%= g.name %></a>
       <% }); %>
-    </div>
+    </nav>
+    <% } %>
+
+    <% groups.forEach(function(group) { %>
+      <section class="category-section" id="cat-<%= group.slug ?? 'otros' %>">
+        <% if (groups.length > 1) { %>
+          <h2 class="category-section-title"><%= group.name %></h2>
+        <% } %>
+        <div class="product-grid">
+          <% group.deals.forEach(function(d) { %>
+            <div class="product-card">
+              <a href="/p/<%= d.asin %>" class="product-card-link">
+                <div class="product-img-wrap">
+                  <% if (d.imageUrl) { %>
+                    <img src="<%= d.imageUrl %>" alt="<%= d.name ?? d.asin %>" class="product-img" loading="lazy">
+                  <% } else { %>
+                    <div class="product-img-placeholder">📦</div>
+                  <% } %>
+                  <% if (d.isAtLow) { %>
+                    <span class="badge-low">Precio mínimo</span>
+                  <% } %>
+                </div>
+                <div class="product-info">
+                  <p class="product-name"><%= d.name ?? d.asin %></p>
+                  <p class="product-asin">ASIN: <%= d.asin %></p>
+                </div>
+              </a>
+              <div class="product-prices">
+                <div class="price-row">
+                  <div class="price-current"><%= parseFloat(d.currentPrice).toFixed(2) %> €</div>
+                  <% if (d.discountFromMax > 0) { %>
+                    <span class="trend-down">↓ <%= d.discountFromMax %>% vs max</span>
+                  <% } %>
+                </div>
+                <% if (d.minPrice && d.maxPrice) { %>
+                  <div class="price-range">
+                    <span class="price-min">↓ <%= parseFloat(d.minPrice).toFixed(2) %> €</span>
+                    <span class="price-max">↑ <%= parseFloat(d.maxPrice).toFixed(2) %> €</span>
+                  </div>
+                <% } %>
+                <div class="price-checks"><%= d.checkCount %> registros</div>
+              </div>
+              <div class="product-actions">
+                <a href="/p/<%= d.asin %>" class="btn btn-sm btn-outline">Ver historial</a>
+                <a href="<%= d.amazonUrl %>" target="_blank" rel="noopener sponsored" class="btn btn-sm btn-primary">Amazon ↗</a>
+              </div>
+            </div>
+          <% }); %>
+        </div>
+      </section>
+    <% }); %>
+
   <% } %>
 
 </main>

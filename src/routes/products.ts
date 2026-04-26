@@ -1,10 +1,11 @@
 import { Router, type Request, type Response } from 'express';
 import { body, validationResult } from 'express-validator';
 import { db } from '../db/client';
-import { products, priceHistory, alerts } from '../db/schema';
-import { eq, and, desc, sql } from 'drizzle-orm';
-import { extractAsin, normaliseAmazonUrl, scrapeProduct, affiliateUrl } from '../scraper/amazon';
+import { products, priceHistory, alerts, categories } from '../db/schema';
+import { eq, and, desc, sql, asc } from 'drizzle-orm';
+import { extractAsin, normaliseAmazonUrl, scrapeProduct, affiliateUrl, ProductUnavailableError } from '../scraper/amazon';
 import { requireAuth } from '../middleware/auth';
+import { isAdmin } from '../middleware/admin';
 
 const router = Router();
 
@@ -20,9 +21,12 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
       p.url,
       p.name,
       p.image_url   AS "imageUrl",
-      p.is_active   AS "isActive",
-      p.is_public   AS "isPublic",
-      p.last_error  AS "lastError",
+      p.category_id  AS "categoryId",
+      (SELECT c.name FROM categories c WHERE c.id = p.category_id) AS "categoryName",
+      p.is_active    AS "isActive",
+      p.is_public    AS "isPublic",
+      p.is_available AS "isAvailable",
+      p.last_error   AS "lastError",
       p.created_at  AS "createdAt",
       (
         SELECT ph.price FROM price_history ph
@@ -53,8 +57,9 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
     atLow: prods.filter(p => p.currentPrice && p.minPrice &&
       parseFloat(p.currentPrice) <= parseFloat(p.minPrice) + 0.01).length,
     withError: prods.filter(p => p.lastError).length,
+    unavailable: prods.filter(p => !p.isAvailable).length,
   };
-  res.render('dashboard', { products: prods, stats, user: { email: req.session.userEmail } });
+  res.render('dashboard', { products: prods, stats, user: { email: req.session.userEmail }, isAdmin: isAdmin(req) });
 });
 
 // ── POST /products — Add product ──────────────────────────────────────────────
@@ -110,11 +115,12 @@ router.post(
         });
       })
       .catch(async (err) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        await db
-          .update(products)
-          .set({ lastError: msg })
-          .where(eq(products.id, product.id));
+        if (err instanceof ProductUnavailableError) {
+          await db.update(products).set({ isAvailable: false, lastError: null }).where(eq(products.id, product.id));
+        } else {
+          const msg = err instanceof Error ? err.message : String(err);
+          await db.update(products).set({ lastError: msg }).where(eq(products.id, product.id));
+        }
       });
 
     // Return HTML partial for HTMX or JSON for API
@@ -172,12 +178,16 @@ router.get('/products/:id', requireAuth, async (req: Request, res: Response) => 
     .from(alerts)
     .where(and(eq(alerts.productId, productId), eq(alerts.userId, userId)));
 
+  const allCategories = await db.select().from(categories).orderBy(asc(categories.name));
+
   res.render('product', {
     product,
     history,
     alerts: productAlerts,
+    categories: allCategories,
     user: { email: req.session.userEmail },
     amazonUrl: affiliateUrl(product.url),
+    isAdmin: isAdmin(req),
   });
 });
 
@@ -198,7 +208,7 @@ router.post('/products/:id/refresh', requireAuth, async (req: Request, res: Resp
     const result = await scrapeProduct(product.url);
     await db
       .update(products)
-      .set({ name: result.name, imageUrl: result.imageUrl, lastError: null })
+      .set({ name: result.name, imageUrl: result.imageUrl, lastError: null, isAvailable: true })
       .where(eq(products.id, productId));
     await db.insert(priceHistory).values({
       productId,
@@ -211,9 +221,15 @@ router.post('/products/:id/refresh', requireAuth, async (req: Request, res: Resp
     }
     res.json({ success: true, price: result.price });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    await db.update(products).set({ lastError: msg }).where(eq(products.id, productId));
-    res.status(500).json({ error: msg });
+    if (err instanceof ProductUnavailableError) {
+      await db.update(products).set({ isAvailable: false, lastError: null }).where(eq(products.id, productId));
+      if (req.headers['hx-request']) return res.redirect(`/products/${productId}`);
+      res.status(200).json({ unavailable: true });
+    } else {
+      const msg = err instanceof Error ? err.message : String(err);
+      await db.update(products).set({ lastError: msg }).where(eq(products.id, productId));
+      res.status(500).json({ error: msg });
+    }
   }
 });
 
@@ -241,6 +257,31 @@ router.post('/products/:id/toggle-public', requireAuth, async (req: Request, res
     return res.status(200).send('');
   }
   res.json({ isPublic: updated.isPublic });
+});
+
+// ── POST /products/:id/set-category ──────────────────────────────────────────
+router.post('/products/:id/set-category', requireAuth, async (req: Request, res: Response) => {
+  const productId = parseInt(String(req.params.id), 10);
+  const userId = req.session.userId!;
+
+  const [product] = await db
+    .select()
+    .from(products)
+    .where(and(eq(products.id, productId), eq(products.userId, userId)))
+    .limit(1);
+
+  if (!product) return res.status(404).json({ error: 'Producto no encontrado.' });
+
+  const rawId = req.body.categoryId;
+  const categoryId = rawId && rawId !== '' ? parseInt(String(rawId), 10) : null;
+
+  await db.update(products).set({ categoryId }).where(eq(products.id, productId));
+
+  if (req.headers['hx-request']) {
+    res.setHeader('HX-Redirect', `/products/${productId}`);
+    return res.status(200).send('');
+  }
+  res.json({ success: true });
 });
 
 export default router;

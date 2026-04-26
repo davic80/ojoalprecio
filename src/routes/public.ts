@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { db } from '../db/client';
 import { products, priceHistory } from '../db/schema';
-import { eq, and, desc, sql } from 'drizzle-orm';
+import { eq, desc, sql } from 'drizzle-orm';
 import { affiliateUrl } from '../scraper/amazon';
 
 const router = Router();
@@ -11,21 +11,20 @@ router.get('/ofertas', async (_req: Request, res: Response) => {
   const rows = await db.execute(sql`
     SELECT
       p.id, p.asin, p.name, p.image_url AS "imageUrl", p.url,
+      c.name AS "categoryName", c.slug AS "categorySlug",
       (
         SELECT ph.price FROM price_history ph
         WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1
       ) AS "currentPrice",
       (SELECT MIN(ph2.price) FROM price_history ph2 WHERE ph2.product_id = p.id) AS "minPrice",
       (SELECT MAX(ph3.price) FROM price_history ph3 WHERE ph3.product_id = p.id) AS "maxPrice",
-      (SELECT COUNT(*) FROM price_history ph4 WHERE ph4.product_id = p.id) AS "checkCount",
-      (SELECT ph5.scraped_at FROM price_history ph5
-       WHERE ph5.product_id = p.id ORDER BY ph5.scraped_at DESC LIMIT 1) AS "lastChecked"
+      (SELECT COUNT(*) FROM price_history ph4 WHERE ph4.product_id = p.id) AS "checkCount"
     FROM products p
-    WHERE p.is_public = TRUE AND p.is_active = TRUE
-    ORDER BY p.created_at DESC
+    LEFT JOIN categories c ON c.id = p.category_id
+    WHERE p.is_public = TRUE AND p.is_active = TRUE AND p.is_available = TRUE
+    ORDER BY c.name ASC NULLS LAST, p.created_at DESC
   `);
 
-  // Filter products with price data, sort by proximity to historical low (best deals first)
   const deals = (rows.rows as any[])
     .filter(p => p.currentPrice && p.minPrice)
     .map(p => ({
@@ -35,15 +34,29 @@ router.get('/ofertas', async (_req: Request, res: Response) => {
         ? Math.round((1 - parseFloat(p.currentPrice) / parseFloat(p.maxPrice)) * 100)
         : 0,
       isAtLow: parseFloat(p.currentPrice) <= parseFloat(p.minPrice) + 0.01,
-    }))
-    .sort((a, b) => {
-      // Products at historical low first, then by biggest discount
+    }));
+
+  // Group by category; uncategorized goes last under "Otros"
+  const groupMap = new Map<string, { name: string; slug: string | null; deals: any[] }>();
+  for (const deal of deals) {
+    const key = deal.categoryName ?? '__none__';
+    if (!groupMap.has(key)) {
+      groupMap.set(key, { name: deal.categoryName ?? 'Otros', slug: deal.categorySlug ?? null, deals: [] });
+    }
+    groupMap.get(key)!.deals.push(deal);
+  }
+
+  // Sort each group: at-low first, then by biggest discount
+  const groups = [...groupMap.values()].map(g => ({
+    ...g,
+    deals: g.deals.sort((a, b) => {
       if (a.isAtLow && !b.isAtLow) return -1;
       if (!a.isAtLow && b.isAtLow) return 1;
       return b.discountFromMax - a.discountFromMax;
-    });
+    }),
+  }));
 
-  res.render('deals', { deals });
+  res.render('deals', { groups });
 });
 
 // ── GET /p/:asin — Public product page ───────────────────────────────────────

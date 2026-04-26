@@ -1,4 +1,13 @@
-import { pgTable, serial, varchar, text, boolean, timestamp, numeric, integer } from 'drizzle-orm/pg-core';
+import { pgTable, serial, varchar, text, boolean, timestamp, numeric, integer, index } from 'drizzle-orm/pg-core';
+
+// ── Categories ───────────────────────────────────────────────────────────────
+
+export const categories = pgTable('categories', {
+  id: serial('id').primaryKey(),
+  name: varchar('name', { length: 100 }).notNull().unique(),
+  slug: varchar('slug', { length: 100 }).notNull().unique(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
 
 // ── Users ────────────────────────────────────────────────────────────────────
 
@@ -19,8 +28,10 @@ export const products = pgTable('products', {
   url: text('url').notNull(),
   name: text('name'),
   imageUrl: text('image_url'),
+  categoryId: integer('category_id').references(() => categories.id, { onDelete: 'set null' }),
   isActive: boolean('is_active').default(true).notNull(),
   isPublic: boolean('is_public').default(false).notNull(),
+  isAvailable: boolean('is_available').default(true).notNull(),
   lastError: text('last_error'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
@@ -56,6 +67,9 @@ export const alerts = pgTable('alerts', {
 });
 
 // ── Types ─────────────────────────────────────────────────────────────────────
+
+export type Category = typeof categories.$inferSelect;
+export type NewCategory = typeof categories.$inferInsert;
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;

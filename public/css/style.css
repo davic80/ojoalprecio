@@ -541,3 +541,97 @@ body.auth-page {
   transition: background .15s;
 }
 .nav-link:hover { background: var(--gray-100); text-decoration: none; }
+.nav-link-active { background: var(--gray-100); }
+
+/* ── Categories ──────────────────────────────────────────────────────────────── */
+.category-tag {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--green);
+  background: #f0fdf9;
+  border: 1px solid #a7f3d0;
+  border-radius: 20px;
+  padding: 1px 8px;
+  margin-top: 4px;
+  letter-spacing: .2px;
+}
+.category-wrap {
+  margin-top: 12px;
+}
+.category-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--gray-500);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  margin-bottom: 6px;
+}
+.category-form .input-group-sm { gap: 6px; }
+.category-section { margin-bottom: 40px; }
+.category-section-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--gray-900);
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--gray-200);
+}
+.category-nav {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 28px;
+}
+.category-nav-link {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-700);
+  background: var(--gray-100);
+  border: 1px solid var(--gray-200);
+  border-radius: 20px;
+  padding: 4px 14px;
+  text-decoration: none;
+  transition: background .15s, color .15s;
+}
+.category-nav-link:hover {
+  background: var(--green);
+  color: #fff;
+  border-color: var(--green);
+}
+
+/* ── Availability (out of stock) ─────────────────────────────────────────────── */
+.price-unavailable {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gray-500);
+  padding: 2px 0;
+}
+.badge-unavailable {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  background: var(--gray-500);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  padding: 2px 7px;
+  border-radius: 20px;
+}
+.stat-pill-gray {
+  background: var(--gray-100);
+  color: var(--gray-700);
+  border-color: var(--gray-200);
+}
+.alert-box.alert-unavailable {
+  background: var(--gray-50);
+  border: 1px solid var(--gray-200);
+  color: var(--gray-700);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  font-size: 14px;
+  margin-top: 8px;
+}

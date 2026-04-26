@@ -8,6 +8,7 @@ import productsRouter from './routes/products';
 import pricesRouter from './routes/prices';
 import alertsRouter from './routes/alerts';
 import publicRouter from './routes/public';
+import adminRouter from './routes/admin';
 import './types/session';
 
 const PgSession = connectPgSimple(session);
@@ -45,6 +46,7 @@ export function createApp() {
 
   // ── Routes ───────────────────────────────────────────────────────────────────
   app.use('/auth', authRouter);
+  app.use('/', adminRouter);
   app.use('/', publicRouter);
   app.use('/', productsRouter);
   app.use('/', pricesRouter);
