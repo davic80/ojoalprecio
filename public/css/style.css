@@ -541,6 +541,17 @@ body.auth-page {
   transition: background .15s;
 }
 .nav-link:hover { background: var(--gray-100); text-decoration: none; }
+
+/* ── Stat sublabel (tracking start date) ─────────────────────────────────────── */
+.stat-sublabel {
+  font-size: 10px;
+  color: var(--gray-400);
+  margin-top: 3px;
+  letter-spacing: .2px;
+}
+
+/* 4-tab alert form: slightly smaller text */
+.alert-type-tabs .alert-type-tab span { font-size: 12px; padding: 8px 2px; }
 .nav-link-active { background: var(--gray-100); }
 
 /* ── Categories ──────────────────────────────────────────────────────────────── */

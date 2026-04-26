@@ -1,7 +1,7 @@
 import cron from 'node-cron';
 import { db } from '../db/client';
 import { products, priceHistory, alerts, users } from '../db/schema';
-import { eq, and, desc, min } from 'drizzle-orm';
+import { eq, and, desc, min, isNull } from 'drizzle-orm';
 import { scrapeProduct, affiliateUrl, ProductUnavailableError } from '../scraper/amazon';
 import { sendPriceAlert, sendBackInStockAlert } from '../mailer';
 import { sendTelegramAlert, sendTelegramBackInStock } from '../mailer/telegram';
@@ -65,6 +65,9 @@ async function checkProduct(productId: number, url: string, label: string): Prom
     if (err instanceof ProductUnavailableError) {
       console.log(`[scheduler] ${label} → No disponible`);
       await db.update(products).set({ isAvailable: false, lastError: null }).where(eq(products.id, productId));
+      // Reset stock alerts so they fire again when the product comes back
+      await db.update(alerts).set({ notifiedAt: null })
+        .where(and(eq(alerts.productId, productId), eq(alerts.alertType, 'stock')));
     } else {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[scheduler] Failed for ${label}: ${msg}`);
@@ -100,6 +103,34 @@ async function notifyBackInStock(
       await sendTelegramBackInStock({ chatId, productName, productUrl: productAffilUrl, currentPrice, currency });
     } catch (err) {
       console.error(`[scheduler] Back-in-stock Telegram failed:`, err);
+    }
+  }
+
+  // Fire explicit stock-type alerts (may include users other than the owner)
+  const stockAlerts = await db.select().from(alerts).where(
+    and(
+      eq(alerts.productId, productId),
+      eq(alerts.alertType, 'stock'),
+      eq(alerts.isActive, true),
+      isNull(alerts.notifiedAt),
+    ),
+  );
+
+  for (const alert of stockAlerts) {
+    try {
+      const channel = alert.notificationChannel ?? 'email';
+      if (channel === 'email' || channel === 'both') {
+        await sendBackInStockAlert({ to: alert.notificationEmail, productName, productUrl: productAffilUrl, currentPrice, imageUrl, currency });
+      }
+      if (channel === 'telegram' || channel === 'both') {
+        const alertChatId = alert.telegramChatId ?? process.env.TELEGRAM_CHAT_ID;
+        if (alertChatId) {
+          await sendTelegramBackInStock({ chatId: alertChatId, productName, productUrl: productAffilUrl, currentPrice, currency });
+        }
+      }
+      await db.update(alerts).set({ notifiedAt: new Date() }).where(eq(alerts.id, alert.id));
+    } catch (err) {
+      console.error(`[scheduler] Stock alert ${alert.id} failed:`, err);
     }
   }
 }

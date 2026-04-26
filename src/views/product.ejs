@@ -94,6 +94,7 @@
       <div class="stat-box stat-min">
         <div class="stat-label">Precio mínimo</div>
         <div class="stat-value"><%= minPrice ? minPrice.toFixed(2) + ' €' : '—' %></div>
+        <% if (minPrice) { %><div class="stat-sublabel">desde <%= new Date(product.createdAt).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' }) %></div><% } %>
       </div>
       <div class="stat-box stat-max">
         <div class="stat-label">Precio máximo</div>
@@ -237,7 +238,11 @@
         </label>
         <label class="alert-type-tab">
           <input type="radio" name="alertType" value="alltime_low" onchange="updateAlertForm(this.value)">
-          <span>Mínimo histórico</span>
+          <span>Precio mínimo</span>
+        </label>
+        <label class="alert-type-tab">
+          <input type="radio" name="alertType" value="stock" onchange="updateAlertForm(this.value)">
+          <span>Vuelta en stock</span>
         </label>
       </div>
 
@@ -269,7 +274,12 @@
 
         <!-- alltime_low has no extra input -->
         <div class="form-field" id="field-alltime" style="display:none">
-          <p class="hint">Recibirás una notificación cada vez que se registre un nuevo mínimo histórico.</p>
+          <p class="hint">Recibirás una notificación cada vez que se registre un nuevo precio mínimo.</p>
+        </div>
+
+        <!-- stock has no extra input -->
+        <div class="form-field" id="field-stock" style="display:none">
+          <p class="hint">Recibirás una notificación cuando este producto vuelva a estar disponible en Amazon, independientemente del precio.</p>
         </div>
 
         <div class="form-field">
@@ -305,6 +315,7 @@
         document.getElementById('field-price').style.display   = type === 'price'   ? '' : 'none';
         document.getElementById('field-percent').style.display = type === 'percent' ? '' : 'none';
         document.getElementById('field-alltime').style.display = type === 'alltime_low' ? '' : 'none';
+        document.getElementById('field-stock').style.display   = type === 'stock'   ? '' : 'none';
         document.getElementById('thresholdPrice').required  = type === 'price';
         document.getElementById('percentageDrop').required  = type === 'percent';
       }
@@ -334,7 +345,9 @@
                 if (alert.alertType === 'percent') {
                   alertLabel = '−' + parseFloat(alert.percentageDrop).toFixed(0) + '% desde ' + parseFloat(alert.referencePrice).toFixed(2) + ' €';
                 } else if (alert.alertType === 'alltime_low') {
-                  alertLabel = 'Nuevo mínimo histórico';
+                  alertLabel = 'Nuevo precio mínimo';
+                } else if (alert.alertType === 'stock') {
+                  alertLabel = 'Vuelta en stock';
                 } else {
                   alertLabel = '≤ ' + parseFloat(alert.thresholdPrice).toFixed(2) + ' €';
                 }

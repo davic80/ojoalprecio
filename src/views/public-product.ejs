@@ -47,11 +47,12 @@
         <div class="stat-value"><%= currentPrice ? currentPrice.toFixed(2) + ' €' : '—' %></div>
       </div>
       <div class="stat-box stat-min">
-        <div class="stat-label">Mínimo histórico</div>
+        <div class="stat-label">Precio mínimo</div>
         <div class="stat-value"><%= minPrice ? minPrice.toFixed(2) + ' €' : '—' %></div>
+        <% if (minPrice) { %><div class="stat-sublabel">desde <%= new Date(product.createdAt).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' }) %></div><% } %>
       </div>
       <div class="stat-box stat-max">
-        <div class="stat-label">Máximo histórico</div>
+        <div class="stat-label">Precio máximo</div>
         <div class="stat-value"><%= maxPrice ? maxPrice.toFixed(2) + ' €' : '—' %></div>
       </div>
       <div class="stat-box stat-checks">

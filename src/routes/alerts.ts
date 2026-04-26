@@ -12,7 +12,7 @@ router.post(
   '/products/:id/alerts',
   requireAuth,
   body('notificationEmail').isEmail().normalizeEmail().withMessage('Email de notificación inválido.'),
-  body('alertType').isIn(['price', 'percent', 'alltime_low']).withMessage('Tipo de alerta inválido.'),
+  body('alertType').isIn(['price', 'percent', 'alltime_low', 'stock']).withMessage('Tipo de alerta inválido.'),
   body('thresholdPrice').if(body('alertType').equals('price'))
     .isFloat({ min: 0.01 }).withMessage('El precio umbral debe ser un número positivo.'),
   body('percentageDrop').if(body('alertType').equals('percent'))
@@ -55,6 +55,7 @@ router.post(
       alertType: alertType ?? 'price',
       thresholdPrice: alertType === 'price' ? String(parseFloat(thresholdPrice).toFixed(2)) : null,
       percentageDrop: alertType === 'percent' ? String(parseFloat(percentageDrop).toFixed(2)) : null,
+      // stock alerts fire independently of price — no threshold needed
       referencePrice: referencePrice ?? null,
       notificationEmail,
       notificationChannel: notificationChannel ?? 'email',
