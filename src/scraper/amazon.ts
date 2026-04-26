@@ -122,13 +122,23 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
       }
     });
 
+    // Small pre-navigation delay to appear more human-like
+    await randomDelay(500, 1500);
+
     await page.goto(canonicalUrl, {
       waitUntil: 'domcontentloaded',
       timeout: 30000,
     });
 
-    // Random delay to mimic human behaviour
-    await randomDelay(1500, 3500);
+    // Check for bot detection before anything else
+    const pageTitle = await page.title();
+    if (
+      pageTitle.includes('Documento no encontrado') ||
+      pageTitle.includes('Page Not Found') ||
+      pageTitle.includes('Robot Check')
+    ) {
+      throw new Error('Amazon bloqueó la petición (bot detection)');
+    }
 
     // Check for CAPTCHA
     const bodyText = await page.textContent('body') ?? '';
@@ -151,7 +161,14 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
     if (!name) throw new Error('No se encontró el título del producto');
 
     // ── Extract price ────────────────────────────────────────────────────────
-    // Amazon uses various price selectors; try in order of reliability
+    // Wait up to 5 seconds for JS-rendered price elements to appear.
+    // Amazon renders prices client-side; waiting longer risks triggering bot detection.
+    await page
+      .waitForSelector('.a-price .a-offscreen, #priceblock_ourprice, #priceblock_dealprice, .a-price-whole', {
+        timeout: 5000,
+      })
+      .catch(() => {});
+
     const priceSelectors = [
       '.a-price.aok-align-center .a-offscreen',
       '#corePriceDisplay_desktop_feature_div .a-price .a-offscreen',
@@ -168,7 +185,7 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
         rawPrice = await page
           .locator(selector)
           .first()
-          .textContent({ timeout: 3000 })
+          .textContent({ timeout: 1000 })
           .then((t) => t?.trim() ?? '');
         if (rawPrice) break;
       } catch {

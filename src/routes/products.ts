@@ -115,7 +115,8 @@ router.post(
 
     // Return HTML partial for HTMX or JSON for API
     if (req.headers['hx-request']) {
-      return res.redirect('/');
+      res.setHeader('HX-Redirect', '/');
+      return res.status(200).send('');
     }
     res.status(201).json({ success: true, productId: product.id });
   },

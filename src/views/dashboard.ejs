@@ -63,6 +63,7 @@
   </div>
 
   <!-- Products grid -->
+  <div class="product-grid" id="product-list">
   <% if (products.length === 0) { %>
     <div class="empty-state">
       <div class="empty-icon">🛒</div>
@@ -70,7 +71,6 @@
       <p>Añade la URL de un artículo de Amazon.es para empezar a hacer seguimiento de su precio.</p>
     </div>
   <% } else { %>
-    <div class="product-grid" id="product-list">
       <% products.forEach(function(p) { %>
         <div class="product-card" id="product-<%= p.id %>">
           <a href="/products/<%= p.id %>" class="product-card-link">
@@ -115,8 +115,8 @@
           </div>
         </div>
       <% }); %>
-    </div>
   <% } %>
+  </div>
 
 </main>
 
