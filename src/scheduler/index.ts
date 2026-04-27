@@ -1,7 +1,7 @@
 import cron from 'node-cron';
 import { db } from '../db/client';
 import { products, priceHistory, alerts, users } from '../db/schema';
-import { eq, and, desc, min, isNull } from 'drizzle-orm';
+import { eq, and, desc, min, isNull, sql } from 'drizzle-orm';
 import { scrapeProduct, affiliateUrl, ProductUnavailableError } from '../scraper/amazon';
 import { sendPriceAlert, sendBackInStockAlert } from '../mailer';
 import { sendTelegramAlert, sendTelegramBackInStock } from '../mailer/telegram';
@@ -40,14 +40,14 @@ async function checkProduct(productId: number, url: string, label: string): Prom
   const [current] = await db.select({ isAvailable: products.isAvailable }).from(products).where(eq(products.id, productId)).limit(1);
   const wasUnavailable = current ? !current.isAvailable : false;
 
-  // Fetch previous price before inserting the new record
-  const [prevRow] = await db
-    .select({ price: priceHistory.price })
-    .from(priceHistory)
-    .where(eq(priceHistory.productId, productId))
-    .orderBy(desc(priceHistory.scrapedAt))
-    .limit(1);
-  const previousPrice = prevRow ? parseFloat(String(prevRow.price)) : null;
+  // Fetch max price in the last 3 days before this scrape (reference for sale detection)
+  const refResult = await db.execute(sql`
+    SELECT MAX(price)::float AS ref
+    FROM price_history
+    WHERE product_id = ${productId}
+      AND scraped_at >= NOW() - INTERVAL '3 days'
+  `);
+  const referencePrice = refResult.rows[0] ? (refResult.rows[0] as any).ref as number | null : null;
 
   try {
     console.log(`[scheduler] Scraping: ${label}`);
@@ -55,15 +55,11 @@ async function checkProduct(productId: number, url: string, label: string): Prom
 
     await db.insert(priceHistory).values({ productId, price: String(result.price), currency: result.currency });
 
-    // Detect sale: >7% drop from previous record → on sale; any price increase → off sale
+    // on sale if current price is >7% below the 3-day max; off sale otherwise
     let isOnSale: boolean | undefined;
-    if (previousPrice !== null) {
-      if (result.price < previousPrice * 0.93) {
-        isOnSale = true;
-        console.log(`[scheduler] ${label} → sale detected (${previousPrice} → ${result.price})`);
-      } else if (result.price > previousPrice) {
-        isOnSale = false;
-      }
+    if (referencePrice !== null) {
+      isOnSale = result.price < referencePrice * 0.93;
+      if (isOnSale) console.log(`[scheduler] ${label} → sale detected (ref ${referencePrice} → ${result.price})`);
     }
 
     await db.update(products).set({

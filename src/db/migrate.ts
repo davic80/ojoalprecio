@@ -89,7 +89,7 @@ const MIGRATIONS = [
   ALTER TABLE products ADD COLUMN IF NOT EXISTS is_on_sale BOOLEAN DEFAULT FALSE NOT NULL;
   CREATE INDEX IF NOT EXISTS idx_products_is_on_sale ON products(is_on_sale) WHERE is_on_sale = TRUE;
   `,
-  // Migration 11: backfill is_on_sale from existing price history
+  // Migration 11: backfill is_on_sale from existing price history (record-to-record, superseded by 12)
   `
   UPDATE products p
   SET is_on_sale = TRUE
@@ -106,6 +106,27 @@ const MIGRATIONS = [
       ORDER BY ph2.scraped_at DESC
       OFFSET 1 LIMIT 1
     ) * 0.93;
+  `,
+  // Migration 12: re-backfill is_on_sale using 3-day max as reference
+  `
+  UPDATE products p
+  SET is_on_sale = COALESCE((
+    WITH latest AS (
+      SELECT price, scraped_at
+      FROM price_history
+      WHERE product_id = p.id
+      ORDER BY scraped_at DESC
+      LIMIT 1
+    )
+    SELECT latest.price < MAX(ph.price) * 0.93
+    FROM latest
+    JOIN price_history ph ON ph.product_id = p.id
+    WHERE ph.scraped_at >= latest.scraped_at - INTERVAL '3 days'
+      AND ph.scraped_at < latest.scraped_at
+    GROUP BY latest.price
+  ), FALSE)
+  WHERE is_active = TRUE
+    AND EXISTS (SELECT 1 FROM price_history WHERE product_id = p.id);
   `,
 ];
 
