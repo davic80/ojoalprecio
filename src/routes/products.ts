@@ -9,8 +9,12 @@ import { isAdmin, requireAdmin } from '../middleware/admin';
 
 const router = Router();
 
-// ── GET / — Dashboard ─────────────────────────────────────────────────────────
-router.get('/', requireAuth, async (req: Request, res: Response) => {
+// ── GET / — Dashboard (redirect guests to /ofertas) ──────────────────────────
+router.get('/', (req: Request, res: Response, next) => {
+  if (!req.session.userId) return res.redirect('/ofertas');
+  if (!req.session.emailVerified) return res.redirect('/auth/verify-pending');
+  next();
+}, async (req: Request, res: Response) => {
   const userId = req.session.userId!;
 
   const q          = String(req.query.q ?? '').trim();

@@ -1,15 +1,17 @@
 import { Router, type Request, type Response } from 'express';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import { body, validationResult } from 'express-validator';
 import { db } from '../db/client';
-import { users } from '../db/schema';
-import { eq } from 'drizzle-orm';
+import { users, emailVerifications } from '../db/schema';
+import { eq, and, gt } from 'drizzle-orm';
+import { sendVerificationEmail } from '../mailer/index';
 
 const router = Router();
 
 // ── GET /auth/login ───────────────────────────────────────────────────────────
 router.get('/login', (req: Request, res: Response) => {
-  if (req.session.userId) return res.redirect('/');
+  if (req.session.userId && req.session.emailVerified) return res.redirect('/');
   res.render('login', { error: null, email: '' });
 });
 
@@ -36,15 +38,23 @@ router.post(
       return res.render('login', { error: 'Email o contraseña incorrectos.', email });
     }
 
+    if (!user.emailVerified) {
+      req.session.userId = user.id;
+      req.session.userEmail = user.email;
+      req.session.emailVerified = false;
+      return res.redirect('/auth/verify-pending');
+    }
+
     req.session.userId = user.id;
     req.session.userEmail = user.email;
+    req.session.emailVerified = true;
     res.redirect('/');
   },
 );
 
 // ── GET /auth/register ────────────────────────────────────────────────────────
 router.get('/register', (req: Request, res: Response) => {
-  if (req.session.userId) return res.redirect('/');
+  if (req.session.userId && req.session.emailVerified) return res.redirect('/');
   res.render('register', { error: null, email: '' });
 });
 
@@ -74,13 +84,93 @@ router.post(
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
-    const [user] = await db.insert(users).values({ email, passwordHash }).returning();
+    const [user] = await db
+      .insert(users)
+      .values({ email, passwordHash, emailVerified: false })
+      .returning();
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    await db.insert(emailVerifications).values({ userId: user.id, token, expiresAt });
+
+    const siteUrl = process.env.SITE_URL ?? 'http://localhost:3000';
+    const verifyUrl = `${siteUrl}/auth/verify?token=${token}`;
+    sendVerificationEmail({ to: email, verifyUrl }).catch(err =>
+      console.error('[auth] sendVerificationEmail failed:', err),
+    );
 
     req.session.userId = user.id;
     req.session.userEmail = user.email;
-    res.redirect('/');
+    req.session.emailVerified = false;
+    res.redirect('/auth/verify-pending');
   },
 );
+
+// ── GET /auth/verify-pending ──────────────────────────────────────────────────
+router.get('/verify-pending', (req: Request, res: Response) => {
+  if (!req.session.userId) return res.redirect('/auth/login');
+  if (req.session.emailVerified) return res.redirect('/');
+  res.render('verify-pending', { email: req.session.userEmail ?? '' });
+});
+
+// ── POST /auth/resend-verification ───────────────────────────────────────────
+router.post('/resend-verification', async (req: Request, res: Response) => {
+  if (!req.session.userId) return res.redirect('/auth/login');
+
+  const userId = req.session.userId;
+  const email = req.session.userEmail!;
+
+  // Delete old tokens for this user
+  await db
+    .delete(emailVerifications)
+    .where(eq(emailVerifications.userId, userId));
+
+  const token = crypto.randomBytes(32).toString('hex');
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  await db.insert(emailVerifications).values({ userId, token, expiresAt });
+
+  const siteUrl = process.env.SITE_URL ?? 'http://localhost:3000';
+  const verifyUrl = `${siteUrl}/auth/verify?token=${token}`;
+  sendVerificationEmail({ to: email, verifyUrl }).catch(err =>
+    console.error('[auth] resend sendVerificationEmail failed:', err),
+  );
+
+  res.render('verify-pending', { email, resent: true });
+});
+
+// ── GET /auth/verify?token=xxx ────────────────────────────────────────────────
+router.get('/verify', async (req: Request, res: Response) => {
+  const token = String(req.query.token ?? '').trim();
+  if (!token) return res.redirect('/auth/login');
+
+  const now = new Date();
+  const [row] = await db
+    .select()
+    .from(emailVerifications)
+    .where(and(eq(emailVerifications.token, token), gt(emailVerifications.expiresAt, now)))
+    .limit(1);
+
+  if (!row) {
+    return res.render('error', {
+      message: 'El enlace de verificación no es válido o ha expirado.',
+      user: null,
+    });
+  }
+
+  await db.update(users).set({ emailVerified: true }).where(eq(users.id, row.userId));
+  await db.delete(emailVerifications).where(eq(emailVerifications.userId, row.userId));
+
+  // Update session if this user is logged in
+  if (req.session.userId === row.userId) {
+    req.session.emailVerified = true;
+  }
+
+  res.render('login', {
+    error: null,
+    email: '',
+    success: '¡Email verificado! Ya puedes iniciar sesión.',
+  });
+});
 
 // ── POST /auth/logout ─────────────────────────────────────────────────────────
 router.post('/logout', (req: Request, res: Response) => {

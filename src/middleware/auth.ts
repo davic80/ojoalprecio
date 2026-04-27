@@ -5,5 +5,9 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
     res.redirect('/auth/login');
     return;
   }
+  if (!req.session.emailVerified) {
+    res.redirect('/auth/verify-pending');
+    return;
+  }
   next();
 }

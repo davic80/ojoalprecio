@@ -147,6 +147,19 @@ const MIGRATIONS = [
   CREATE INDEX IF NOT EXISTS idx_alert_events_user_id ON alert_events(user_id);
   CREATE INDEX IF NOT EXISTS idx_alert_events_triggered_at ON alert_events(triggered_at DESC);
   `,
+  // Migration 15: email verification
+  `
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE NOT NULL;
+  UPDATE users SET email_verified = TRUE;
+  CREATE TABLE IF NOT EXISTS email_verifications (
+    id         SERIAL PRIMARY KEY,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token      VARCHAR(64) NOT NULL UNIQUE,
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW() NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_email_verifications_token ON email_verifications(token);
+  `,
 ];
 
 export async function migrate(): Promise<void> {

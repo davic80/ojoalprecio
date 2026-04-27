@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Verifica tu email — OjoAlPrecio</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body class="auth-page">
+
+<div class="auth-card">
+  <div class="auth-logo">
+    <span class="brand-icon-lg">👁</span>
+    <h1>OjoAlPrecio</h1>
+    <p>Seguimiento de precios en Amazon.es</p>
+  </div>
+
+  <div style="text-align:center; padding: 8px 0 16px;">
+    <div style="font-size: 48px; margin-bottom: 12px;">📬</div>
+    <h2 style="margin: 0 0 8px; font-size: 20px;">Revisa tu correo</h2>
+    <p style="color: var(--text-muted); margin: 0 0 20px; font-size: 14px;">
+      Hemos enviado un enlace de verificación a <strong><%= email %></strong>.<br>
+      Haz clic en el enlace para activar tu cuenta.
+    </p>
+  </div>
+
+  <% if (typeof resent !== 'undefined' && resent) { %>
+    <div class="alert-box" style="background:var(--green-light,#f0fdf4); border:1px solid var(--green); color: #166534; margin-bottom: 16px;">
+      Correo reenviado. Revisa tu bandeja de entrada (y la carpeta de spam).
+    </div>
+  <% } %>
+
+  <form action="/auth/resend-verification" method="POST" style="margin-bottom: 16px;">
+    <button type="submit" class="btn btn-outline btn-full">Reenviar email de verificación</button>
+  </form>
+
+  <form action="/auth/logout" method="POST">
+    <button type="submit" class="btn btn-ghost btn-full" style="font-size: 13px; color: var(--text-muted);">
+      Usar otra cuenta
+    </button>
+  </form>
+</div>
+
+</body>
+</html>

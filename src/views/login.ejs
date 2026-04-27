@@ -16,6 +16,9 @@
     <p>Seguimiento de precios en Amazon.es</p>
   </div>
 
+  <% if (typeof success !== 'undefined' && success) { %>
+    <div class="alert-box" style="background:var(--green-light,#f0fdf4); border:1px solid var(--green); color:#166534; margin-bottom:16px;"><%= success %></div>
+  <% } %>
   <% if (error) { %>
     <div class="alert-box alert-error"><%= error %></div>
   <% } %>
