@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Recuperar contraseña — OjoAlPrecio</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body class="auth-page">
+
+<div class="auth-card">
+  <div class="auth-logo">
+    <span class="brand-icon-lg">👁</span>
+    <h1>OjoAlPrecio</h1>
+    <p>Recuperar contraseña</p>
+  </div>
+
+  <% if (sent) { %>
+    <div class="alert-box" style="background:var(--green-light,#f0fdf4); border:1px solid var(--green); color:#166534; margin-bottom:16px;">
+      Si el email está registrado, recibirás un enlace en breve. Revisa también la carpeta de spam.
+    </div>
+    <p class="auth-alt"><a href="/auth/login">← Volver al inicio de sesión</a></p>
+  <% } else { %>
+    <% if (error) { %>
+      <div class="alert-box alert-error"><%= error %></div>
+    <% } %>
+
+    <p style="color: var(--text-muted); font-size: 14px; margin: 0 0 20px;">
+      Introduce tu email y te enviaremos un enlace para restablecer tu contraseña.
+    </p>
+
+    <form action="/auth/forgot" method="POST" class="auth-form">
+      <div class="form-field">
+        <label for="email">Email</label>
+        <input
+          type="email"
+          name="email"
+          id="email"
+          required
+          autocomplete="email"
+          class="input"
+          placeholder="tu@email.com"
+        >
+      </div>
+      <button type="submit" class="btn btn-primary btn-full">Enviar enlace</button>
+    </form>
+
+    <p class="auth-alt"><a href="/auth/login">← Volver al inicio de sesión</a></p>
+  <% } %>
+</div>
+
+</body>
+</html>

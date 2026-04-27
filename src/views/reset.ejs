@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nueva contraseña — OjoAlPrecio</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body class="auth-page">
+
+<div class="auth-card">
+  <div class="auth-logo">
+    <span class="brand-icon-lg">👁</span>
+    <h1>OjoAlPrecio</h1>
+    <p>Nueva contraseña</p>
+  </div>
+
+  <% if (expired) { %>
+    <div class="alert-box alert-error" style="margin-bottom:16px;"><%= error %></div>
+    <p class="auth-alt">
+      <a href="/auth/forgot">Solicitar un nuevo enlace</a>
+    </p>
+  <% } else { %>
+    <% if (error) { %>
+      <div class="alert-box alert-error"><%= error %></div>
+    <% } %>
+
+    <form action="/auth/reset" method="POST" class="auth-form">
+      <input type="hidden" name="token" value="<%= token %>">
+      <div class="form-field">
+        <label for="password">Nueva contraseña</label>
+        <input
+          type="password"
+          name="password"
+          id="password"
+          required
+          minlength="8"
+          autocomplete="new-password"
+          class="input"
+          placeholder="Mínimo 8 caracteres"
+        >
+      </div>
+      <div class="form-field">
+        <label for="passwordConfirm">Repetir contraseña</label>
+        <input
+          type="password"
+          name="passwordConfirm"
+          id="passwordConfirm"
+          required
+          autocomplete="new-password"
+          class="input"
+          placeholder="••••••••"
+        >
+      </div>
+      <button type="submit" class="btn btn-primary btn-full">Guardar contraseña</button>
+    </form>
+  <% } %>
+</div>
+
+</body>
+</html>

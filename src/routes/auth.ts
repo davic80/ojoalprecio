@@ -3,9 +3,9 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { body, validationResult } from 'express-validator';
 import { db } from '../db/client';
-import { users, emailVerifications } from '../db/schema';
+import { users, emailVerifications, passwordResets } from '../db/schema';
 import { eq, and, gt } from 'drizzle-orm';
-import { sendVerificationEmail } from '../mailer/index';
+import { sendVerificationEmail, sendPasswordResetEmail } from '../mailer/index';
 
 const router = Router();
 
@@ -171,6 +171,103 @@ router.get('/verify', async (req: Request, res: Response) => {
     success: '¡Email verificado! Ya puedes iniciar sesión.',
   });
 });
+
+// ── GET /auth/forgot ──────────────────────────────────────────────────────────
+router.get('/forgot', (req: Request, res: Response) => {
+  if (req.session.userId && req.session.emailVerified) return res.redirect('/');
+  res.render('forgot', { sent: false, error: null });
+});
+
+// ── POST /auth/forgot ─────────────────────────────────────────────────────────
+router.post(
+  '/forgot',
+  body('email').isEmail().normalizeEmail({ gmail_remove_dots: false }),
+  async (req: Request, res: Response) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.render('forgot', { sent: false, error: 'Introduce un email válido.' });
+    }
+
+    const { email } = req.body as { email: string };
+    const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
+
+    // Always show success to avoid user enumeration
+    if (user) {
+      await db.delete(passwordResets).where(eq(passwordResets.userId, user.id));
+
+      const token = crypto.randomBytes(32).toString('hex');
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+      await db.insert(passwordResets).values({ userId: user.id, token, expiresAt });
+
+      const siteUrl = process.env.SITE_URL ?? 'http://localhost:3000';
+      const resetUrl = `${siteUrl}/auth/reset?token=${token}`;
+      sendPasswordResetEmail({ to: email, resetUrl }).catch(err =>
+        console.error('[auth] sendPasswordResetEmail failed:', err),
+      );
+    }
+
+    res.render('forgot', { sent: true, error: null });
+  },
+);
+
+// ── GET /auth/reset?token=xxx ─────────────────────────────────────────────────
+router.get('/reset', async (req: Request, res: Response) => {
+  const token = String(req.query.token ?? '').trim();
+  if (!token) return res.redirect('/auth/forgot');
+
+  const now = new Date();
+  const [row] = await db
+    .select()
+    .from(passwordResets)
+    .where(and(eq(passwordResets.token, token), gt(passwordResets.expiresAt, now)))
+    .limit(1);
+
+  if (!row) {
+    return res.render('reset', { token: '', error: 'El enlace no es válido o ha expirado.', expired: true });
+  }
+
+  res.render('reset', { token, error: null, expired: false });
+});
+
+// ── POST /auth/reset ──────────────────────────────────────────────────────────
+router.post(
+  '/reset',
+  body('password').isLength({ min: 8 }).withMessage('La contraseña debe tener al menos 8 caracteres.'),
+  body('passwordConfirm').custom((val, { req }) => {
+    if (val !== req.body.password) throw new Error('Las contraseñas no coinciden.');
+    return true;
+  }),
+  async (req: Request, res: Response) => {
+    const token = String(req.body.token ?? '').trim();
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.render('reset', { token, error: errors.array()[0].msg, expired: false });
+    }
+
+    const now = new Date();
+    const [row] = await db
+      .select()
+      .from(passwordResets)
+      .where(and(eq(passwordResets.token, token), gt(passwordResets.expiresAt, now)))
+      .limit(1);
+
+    if (!row) {
+      return res.render('reset', { token: '', error: 'El enlace no es válido o ha expirado.', expired: true });
+    }
+
+    const { password } = req.body as { password: string };
+    const passwordHash = await bcrypt.hash(password, 12);
+
+    await db.update(users).set({ passwordHash }).where(eq(users.id, row.userId));
+    await db.delete(passwordResets).where(eq(passwordResets.userId, row.userId));
+
+    res.render('login', {
+      error: null,
+      email: '',
+      success: 'Contraseña actualizada. Ya puedes iniciar sesión.',
+    });
+  },
+);
 
 // ── POST /auth/logout ─────────────────────────────────────────────────────────
 router.post('/logout', (req: Request, res: Response) => {

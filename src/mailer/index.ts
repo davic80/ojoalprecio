@@ -253,6 +253,63 @@ export async function sendVerificationEmail(opts: VerificationEmailOptions): Pro
   console.log(`[mailer] Verification email sent to ${opts.to}`);
 }
 
+export interface PasswordResetEmailOptions {
+  to: string;
+  resetUrl: string;
+}
+
+export async function sendPasswordResetEmail(opts: PasswordResetEmailOptions): Promise<void> {
+  const cfg = getConfig();
+  if (!cfg.user || !cfg.password) {
+    console.warn('[mailer] SMTP not configured, skipping password reset email.');
+    return;
+  }
+
+  const transporter = createTransporter();
+
+  const html = `
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Restablecer contraseña - OjoAlPrecio</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; margin: 0; padding: 20px;">
+  <div style="max-width: 540px; margin: 0 auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.08);">
+    <div style="background: #e63946; padding: 28px 32px; text-align: center;">
+      <h1 style="color: #fff; margin: 0; font-size: 22px; letter-spacing: -0.3px;">OjoAlPrecio — Restablecer contraseña</h1>
+    </div>
+    <div style="padding: 32px;">
+      <p style="color: #333; font-size: 15px; margin: 0 0 24px;">
+        Recibimos una solicitud para restablecer la contraseña de tu cuenta. Haz clic en el botón para crear una nueva:
+      </p>
+      <a href="${opts.resetUrl}"
+         style="display:block; background:#e63946; color:#fff; text-decoration:none; text-align:center; padding:14px 24px; border-radius:8px; font-weight:600; font-size:15px; margin-bottom:20px;">
+        Restablecer contraseña
+      </a>
+      <p style="color:#9ca3af; font-size:12px; margin:0;">
+        El enlace caduca en 1 hora. Si no solicitaste este cambio, ignora este correo — tu contraseña no cambiará.
+      </p>
+    </div>
+    <div style="background:#f9fafb; padding:16px 32px; text-align:center; font-size:12px; color:#9ca3af; border-top:1px solid #f0f0f0;">
+      OjoAlPrecio — Seguimiento de precios en Amazon.es
+    </div>
+  </div>
+</body>
+</html>
+  `.trim();
+
+  await transporter.sendMail({
+    from: `"OjoAlPrecio" <${cfg.from}>`,
+    to: opts.to,
+    subject: 'Restablecer tu contraseña en OjoAlPrecio',
+    html,
+  });
+
+  console.log(`[mailer] Password reset email sent to ${opts.to}`);
+}
+
 export async function verifyMailer(): Promise<boolean> {
   const cfg = getConfig();
   if (!cfg.user || !cfg.password) return false;

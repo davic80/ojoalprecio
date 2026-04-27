@@ -160,6 +160,17 @@ const MIGRATIONS = [
   );
   CREATE INDEX IF NOT EXISTS idx_email_verifications_token ON email_verifications(token);
   `,
+  // Migration 16: password reset tokens
+  `
+  CREATE TABLE IF NOT EXISTS password_resets (
+    id         SERIAL PRIMARY KEY,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token      VARCHAR(64) NOT NULL UNIQUE,
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW() NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_password_resets_token ON password_resets(token);
+  `,
 ];
 
 export async function migrate(): Promise<void> {

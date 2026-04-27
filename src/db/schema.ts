@@ -30,6 +30,16 @@ export const emailVerifications = pgTable('email_verifications', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+// ── Password Resets ───────────────────────────────────────────────────────────
+
+export const passwordResets = pgTable('password_resets', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  token: varchar('token', { length: 64 }).notNull().unique(),
+  expiresAt: timestamp('expires_at').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
 // ── Products ─────────────────────────────────────────────────────────────────
 
 export const products = pgTable('products', {
@@ -103,6 +113,9 @@ export type NewUser = typeof users.$inferInsert;
 
 export type EmailVerification = typeof emailVerifications.$inferSelect;
 export type NewEmailVerification = typeof emailVerifications.$inferInsert;
+
+export type PasswordReset = typeof passwordResets.$inferSelect;
+export type NewPasswordReset = typeof passwordResets.$inferInsert;
 
 export type Product = typeof products.$inferSelect;
 export type NewProduct = typeof products.$inferInsert;
