@@ -18,22 +18,23 @@ router.get('/ofertas', async (_req: Request, res: Response) => {
       ) AS "currentPrice",
       (SELECT MIN(ph2.price) FROM price_history ph2 WHERE ph2.product_id = p.id) AS "minPrice",
       (SELECT MAX(ph3.price) FROM price_history ph3 WHERE ph3.product_id = p.id) AS "maxPrice",
-      (SELECT COUNT(*) FROM price_history ph4 WHERE ph4.product_id = p.id) AS "checkCount"
+      (SELECT COUNT(*) FROM price_history ph4 WHERE ph4.product_id = p.id) AS "checkCount",
+      p.is_on_sale AS "isOnSale"
     FROM products p
     LEFT JOIN categories c ON c.id = p.category_id
-    WHERE p.is_public = TRUE AND p.is_active = TRUE AND p.is_available = TRUE AND p.is_on_sale = TRUE
+    WHERE p.is_public = TRUE AND p.is_active = TRUE AND p.is_available = TRUE
     ORDER BY c.name ASC NULLS LAST, p.created_at DESC
   `);
 
   const deals = (rows.rows as any[])
-    .filter(p => p.currentPrice && p.minPrice)
+    .filter(p => p.currentPrice)
     .map(p => ({
       ...p,
       amazonUrl: affiliateUrl(p.url),
       discountFromMax: p.maxPrice
         ? Math.round((1 - parseFloat(p.currentPrice) / parseFloat(p.maxPrice)) * 100)
         : 0,
-      isAtLow: parseInt(p.checkCount, 10) >= 360 && parseFloat(p.currentPrice) <= parseFloat(p.minPrice) + 0.01,
+      isAtLow: parseInt(p.checkCount, 10) >= 360 && p.minPrice && parseFloat(p.currentPrice) <= parseFloat(p.minPrice) + 0.01,
     }));
 
   // Group by category; uncategorized goes last under "Otros"
@@ -46,10 +47,12 @@ router.get('/ofertas', async (_req: Request, res: Response) => {
     groupMap.get(key)!.deals.push(deal);
   }
 
-  // Sort each group: at-low first, then by biggest discount
+  // Sort: on-sale first, then at-low, then by biggest discount from max
   const groups = [...groupMap.values()].map(g => ({
     ...g,
     deals: g.deals.sort((a, b) => {
+      if (a.isOnSale && !b.isOnSale) return -1;
+      if (!a.isOnSale && b.isOnSale) return 1;
       if (a.isAtLow && !b.isAtLow) return -1;
       if (!a.isAtLow && b.isAtLow) return 1;
       return b.discountFromMax - a.discountFromMax;
