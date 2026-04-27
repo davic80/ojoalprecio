@@ -16,7 +16,7 @@ router.get('/login', (req: Request, res: Response) => {
 // ── POST /auth/login ──────────────────────────────────────────────────────────
 router.post(
   '/login',
-  body('email').isEmail().normalizeEmail(),
+  body('email').isEmail().normalizeEmail({ gmail_remove_dots: false }),
   body('password').notEmpty(),
   async (req: Request, res: Response) => {
     const errors = validationResult(req);
@@ -51,7 +51,7 @@ router.get('/register', (req: Request, res: Response) => {
 // ── POST /auth/register ───────────────────────────────────────────────────────
 router.post(
   '/register',
-  body('email').isEmail().normalizeEmail(),
+  body('email').isEmail().normalizeEmail({ gmail_remove_dots: false }),
   body('password').isLength({ min: 8 }).withMessage('La contraseña debe tener al menos 8 caracteres.'),
   body('passwordConfirm').custom((val, { req }) => {
     if (val !== req.body.password) throw new Error('Las contraseñas no coinciden.');
