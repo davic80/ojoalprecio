@@ -128,6 +128,10 @@ const MIGRATIONS = [
   WHERE is_active = TRUE
     AND EXISTS (SELECT 1 FROM price_history WHERE product_id = p.id);
   `,
+  // Migration 13: make all on-sale products public
+  `
+  UPDATE products SET is_public = TRUE WHERE is_on_sale = TRUE;
+  `,
 ];
 
 export async function migrate(): Promise<void> {
