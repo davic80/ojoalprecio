@@ -115,6 +115,47 @@ function trendBadge(current, previous) {
     </form>
   </div>
 
+  <!-- Wishlist import (admin only) -->
+  <% if (typeof isAdmin !== 'undefined' && isAdmin) { %>
+  <div class="card add-card" style="margin-top:12px">
+    <h2>Importar wishlist de Amazon</h2>
+    <form hx-post="/products/import-wishlist" hx-target="#wishlist-result" hx-swap="innerHTML" class="add-form">
+      <div class="input-group">
+        <input type="url" name="wishlistUrl" placeholder="https://www.amazon.es/hz/wishlist/ls/…" required class="input" autocomplete="off">
+        <button type="submit" class="btn btn-outline">Importar</button>
+      </div>
+      <p class="hint">La wishlist debe ser pública en Amazon</p>
+    </form>
+    <div id="wishlist-result"></div>
+  </div>
+  <% } %>
+
+  <!-- Filter bar -->
+  <% if (stats.total > 0) { %>
+  <form class="filter-bar" method="get" action="/"
+    hx-get="/" hx-target="body" hx-push-url="true" hx-trigger="change, input delay:400ms">
+    <input type="text" name="q" value="<%= filters.q %>" placeholder="Buscar producto…" class="input input-sm" style="flex:1; min-width:160px">
+    <select name="category" class="input input-sm">
+      <option value="">Todas las categorías</option>
+      <option value="none" <%= filters.category === 'none' ? 'selected' : '' %>>Sin categoría</option>
+      <% allCategories.forEach(function(cat) { %>
+        <option value="<%= cat.id %>" <%= filters.category === String(cat.id) ? 'selected' : '' %>><%= cat.name %></option>
+      <% }); %>
+    </select>
+    <select name="status" class="input input-sm">
+      <option value="all"         <%= filters.status === 'all'         ? 'selected' : '' %>>Todos</option>
+      <option value="on_sale"     <%= filters.status === 'on_sale'     ? 'selected' : '' %>>En oferta</option>
+      <option value="unavailable" <%= filters.status === 'unavailable' ? 'selected' : '' %>>Sin stock</option>
+      <option value="error"       <%= filters.status === 'error'       ? 'selected' : '' %>>Con error</option>
+    </select>
+    <select name="per_page" class="input input-sm" style="width:auto">
+      <% [10,20,50].forEach(function(n) { %>
+        <option value="<%= n %>" <%= filters.perPage === n ? 'selected' : '' %>><%= n %> / pág.</option>
+      <% }); %>
+    </select>
+  </form>
+  <% } %>
+
   <!-- Products grid -->
   <div class="product-grid" id="product-list">
   <% if (products.length === 0) { %>
@@ -194,6 +235,19 @@ function trendBadge(current, previous) {
     <% }); %>
   <% } %>
   </div>
+
+  <!-- Pagination -->
+  <% if (totalPages > 1) { %>
+  <div class="pagination">
+    <% if (page > 1) { %>
+      <a href="/?q=<%= encodeURIComponent(filters.q) %>&category=<%= filters.category %>&status=<%= filters.status %>&per_page=<%= filters.perPage %>&page=<%= page - 1 %>" class="btn btn-sm btn-outline">← Anterior</a>
+    <% } %>
+    <span class="hint" style="align-self:center">Página <%= page %> de <%= totalPages %> (<%= totalCount %> productos)</span>
+    <% if (page < totalPages) { %>
+      <a href="/?q=<%= encodeURIComponent(filters.q) %>&category=<%= filters.category %>&status=<%= filters.status %>&per_page=<%= filters.perPage %>&page=<%= page + 1 %>" class="btn btn-sm btn-outline">Siguiente →</a>
+    <% } %>
+  </div>
+  <% } %>
 
 </main>
 

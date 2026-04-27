@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Historial de alertas — Admin OjoAlPrecio</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js" defer></script>
+</head>
+<body>
+
+<nav class="navbar">
+  <a href="/" class="navbar-brand">
+    <span class="brand-icon">👁</span>
+    <span class="brand-name">OjoAlPrecio</span>
+  </a>
+  <div class="navbar-actions">
+    <a href="/admin/categories" class="nav-link">Categorías</a>
+    <a href="/admin/alerts" class="nav-link nav-link-active">Alertas</a>
+    <span class="user-email"><%= user.email %></span>
+    <form action="/auth/logout" method="POST" style="display:inline">
+      <button type="submit" class="btn btn-ghost btn-sm">Salir</button>
+    </form>
+  </div>
+</nav>
+
+<main class="container">
+
+  <div class="page-header">
+    <h1>Historial de alertas</h1>
+    <p class="subtitle">Últimas 200 alertas disparadas en el sistema.</p>
+  </div>
+
+  <div class="card">
+    <% if (events.length === 0) { %>
+      <p class="hint" style="margin-top:12px">No hay alertas disparadas todavía.</p>
+    <% } else { %>
+      <div class="table-wrap">
+        <table class="price-table">
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Producto</th>
+              <th>Tipo</th>
+              <th>Precio</th>
+              <th>Umbral</th>
+              <th>Usuario</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% events.forEach(function(ev) { %>
+              <tr>
+                <td style="white-space:nowrap; font-size:12px; color:var(--gray-500)">
+                  <%= new Date(ev.triggeredAt).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' }) %>
+                </td>
+                <td>
+                  <a href="/products/<%= ev.productId %>" style="font-size:13px; font-weight:500">
+                    <%= ev.productName ?? ev.productAsin %>
+                  </a>
+                  <span class="product-asin" style="display:block"><%= ev.productAsin %></span>
+                </td>
+                <td>
+                  <span class="alert-badge badge-active" style="font-size:11px"><%= ev.alertType %></span>
+                </td>
+                <td class="price-cell"><%= parseFloat(ev.priceAtTime).toFixed(2) %> €</td>
+                <td style="font-size:12px; color:var(--gray-500)"><%= ev.thresholdLabel ?? '—' %></td>
+                <td style="font-size:12px; color:var(--gray-500)"><%= ev.userEmail %></td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+    <% } %>
+  </div>
+
+  <div style="margin-top:12px">
+    <a href="/" class="hint-link">← Volver al dashboard</a>
+  </div>
+
+</main>
+
+<footer class="footer">
+  <p>OjoAlPrecio v<%= process.env['APP_VERSION'] ?? 'dev' %> Admin &nbsp;·&nbsp; <a href="/ofertas">Ver ofertas públicas</a></p>
+</footer>
+
+</body>
+</html>

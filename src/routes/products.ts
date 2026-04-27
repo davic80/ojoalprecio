@@ -3,7 +3,7 @@ import { body, validationResult } from 'express-validator';
 import { db } from '../db/client';
 import { products, priceHistory, alerts, categories } from '../db/schema';
 import { eq, and, desc, sql, asc } from 'drizzle-orm';
-import { extractAsin, normaliseAmazonUrl, scrapeProduct, affiliateUrl, ProductUnavailableError } from '../scraper/amazon';
+import { extractAsin, normaliseAmazonUrl, scrapeProduct, scrapeWishlist, affiliateUrl, ProductUnavailableError } from '../scraper/amazon';
 import { requireAuth } from '../middleware/auth';
 import { isAdmin, requireAdmin } from '../middleware/admin';
 
@@ -13,54 +13,80 @@ const router = Router();
 router.get('/', requireAuth, async (req: Request, res: Response) => {
   const userId = req.session.userId!;
 
-  // Fetch user products with latest price
-  const rows = await db.execute(sql`
-    SELECT
-      p.id,
-      p.asin,
-      p.url,
-      p.name,
-      p.image_url   AS "imageUrl",
-      p.category_id  AS "categoryId",
-      (SELECT c.name FROM categories c WHERE c.id = p.category_id) AS "categoryName",
-      p.is_active    AS "isActive",
-      p.is_public    AS "isPublic",
-      p.is_available AS "isAvailable",
-      p.is_on_sale   AS "isOnSale",
-      p.last_error   AS "lastError",
-      p.created_at  AS "createdAt",
-      (
-        SELECT ph.price FROM price_history ph
-        WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1
-      ) AS "currentPrice",
-      (
-        SELECT ph.price FROM price_history ph
-        WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC OFFSET 1 LIMIT 1
-      ) AS "previousPrice",
-      (SELECT MIN(ph2.price) FROM price_history ph2 WHERE ph2.product_id = p.id) AS "minPrice",
-      (SELECT MAX(ph3.price) FROM price_history ph3 WHERE ph3.product_id = p.id) AS "maxPrice",
-      (SELECT COUNT(*) FROM price_history ph4 WHERE ph4.product_id = p.id) AS "checkCount",
-      (
-        SELECT json_agg(sub.price ORDER BY sub.scraped_at ASC)
-        FROM (
-          SELECT price, scraped_at FROM price_history
-          WHERE product_id = p.id ORDER BY scraped_at DESC LIMIT 20
-        ) sub
-      ) AS "sparklineData"
-    FROM products p
-    WHERE p.user_id = ${userId}
-    ORDER BY p.created_at DESC
-  `);
+  const q          = String(req.query.q ?? '').trim();
+  const catFilter  = String(req.query.category ?? '').trim();
+  const status     = String(req.query.status ?? 'all').trim();
+  const perPage    = [10, 20, 50].includes(Number(req.query.per_page)) ? Number(req.query.per_page) : 20;
+  const page       = Math.max(1, parseInt(String(req.query.page ?? '1'), 10));
+  const offset     = (page - 1) * perPage;
 
+  const whereClauses = [sql`p.user_id = ${userId}`];
+  if (q)         whereClauses.push(sql`(p.name ILIKE ${'%' + q + '%'} OR p.asin ILIKE ${'%' + q + '%'})`);
+  if (catFilter) whereClauses.push(catFilter === 'none' ? sql`p.category_id IS NULL` : sql`p.category_id = ${parseInt(catFilter, 10)}`);
+  if (status === 'on_sale')    whereClauses.push(sql`p.is_on_sale = TRUE`);
+  if (status === 'unavailable') whereClauses.push(sql`p.is_available = FALSE`);
+  if (status === 'error')      whereClauses.push(sql`p.last_error IS NOT NULL`);
+  const where = sql.join(whereClauses, sql` AND `);
+
+  const [countRow, rows, allCategories] = await Promise.all([
+    db.execute(sql`SELECT COUNT(*) AS total FROM products p WHERE ${where}`),
+    db.execute(sql`
+      SELECT
+        p.id, p.asin, p.url, p.name,
+        p.image_url   AS "imageUrl",
+        p.category_id  AS "categoryId",
+        (SELECT c.name FROM categories c WHERE c.id = p.category_id) AS "categoryName",
+        p.is_active    AS "isActive",
+        p.is_public    AS "isPublic",
+        p.is_available AS "isAvailable",
+        p.is_on_sale   AS "isOnSale",
+        p.last_error   AS "lastError",
+        p.created_at   AS "createdAt",
+        (SELECT ph.price  FROM price_history ph WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1) AS "currentPrice",
+        (SELECT ph.price  FROM price_history ph WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC OFFSET 1 LIMIT 1) AS "previousPrice",
+        (SELECT MIN(ph2.price) FROM price_history ph2 WHERE ph2.product_id = p.id) AS "minPrice",
+        (SELECT MAX(ph3.price) FROM price_history ph3 WHERE ph3.product_id = p.id) AS "maxPrice",
+        (SELECT COUNT(*)       FROM price_history ph4 WHERE ph4.product_id = p.id) AS "checkCount",
+        (SELECT json_agg(sub.price ORDER BY sub.scraped_at ASC)
+         FROM (SELECT price, scraped_at FROM price_history WHERE product_id = p.id ORDER BY scraped_at DESC LIMIT 20) sub
+        ) AS "sparklineData"
+      FROM products p
+      WHERE ${where}
+      ORDER BY p.created_at DESC
+      LIMIT ${perPage} OFFSET ${offset}
+    `),
+    db.select().from(categories).orderBy(asc(categories.name)),
+  ]);
+
+  const totalCount = parseInt(String((countRow.rows[0] as any).total), 10);
+  const totalPages = Math.ceil(totalCount / perPage);
   const prods = rows.rows as any[];
+
+  // stats always computed over all user products (unfiltered)
+  const allRows = await db.execute(sql`
+    SELECT p.is_available, p.last_error, p.is_on_sale,
+      (SELECT ph.price FROM price_history ph WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1) AS "currentPrice",
+      (SELECT MIN(ph2.price) FROM price_history ph2 WHERE ph2.product_id = p.id) AS "minPrice",
+      (SELECT COUNT(*) FROM price_history ph4 WHERE ph4.product_id = p.id) AS "checkCount"
+    FROM products p WHERE p.user_id = ${userId}
+  `);
+  const all = allRows.rows as any[];
   const stats = {
-    total: prods.length,
-    atLow: prods.filter(p => p.currentPrice && p.minPrice && parseInt(p.checkCount, 10) >= 360 &&
+    total: all.length,
+    atLow: all.filter(p => p.currentPrice && p.minPrice && parseInt(p.checkCount, 10) >= 360 &&
       parseFloat(p.currentPrice) <= parseFloat(p.minPrice) + 0.01).length,
-    withError: prods.filter(p => p.lastError).length,
-    unavailable: prods.filter(p => !p.isAvailable).length,
+    withError: all.filter(p => p.lastError).length,
+    unavailable: all.filter(p => !p.isAvailable).length,
   };
-  res.render('dashboard', { products: prods, stats, user: { email: req.session.userEmail }, isAdmin: isAdmin(req) });
+
+  res.render('dashboard', {
+    products: prods, stats,
+    filters: { q, category: catFilter, status, perPage },
+    page, totalPages, totalCount,
+    allCategories,
+    user: { email: req.session.userEmail },
+    isAdmin: isAdmin(req),
+  });
 });
 
 // ── POST /products — Add product ──────────────────────────────────────────────
@@ -283,6 +309,54 @@ router.post('/products/:id/set-category', requireAuth, async (req: Request, res:
     return res.status(200).send('');
   }
   res.json({ success: true });
+});
+
+// ── POST /products/import-wishlist ────────────────────────────────────────────
+router.post('/products/import-wishlist', requireAuth, async (req: Request, res: Response) => {
+  const wishlistUrl = String(req.body.wishlistUrl ?? '').trim();
+  const userId = req.session.userId!;
+
+  if (!wishlistUrl.includes('amazon.es') || !wishlistUrl.includes('wishlist')) {
+    return res.status(400).send('<p class="hint" style="color:var(--red)">URL inválida. Debe ser una wishlist de amazon.es.</p>');
+  }
+
+  let urls: string[];
+  try {
+    urls = await scrapeWishlist(wishlistUrl);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return res.status(200).send(`<p class="hint" style="color:var(--red)">${msg}</p>`);
+  }
+
+  let added = 0, skipped = 0, errors = 0;
+
+  for (const productUrl of urls) {
+    const asin = extractAsin(productUrl);
+    if (!asin) { errors++; continue; }
+
+    const [existing] = await db.select().from(products)
+      .where(and(eq(products.userId, userId), eq(products.asin, asin))).limit(1);
+    if (existing) { skipped++; continue; }
+
+    const canonicalUrl = normaliseAmazonUrl(asin);
+    const [product] = await db.insert(products).values({ userId, asin, url: canonicalUrl }).returning();
+    added++;
+
+    scrapeProduct(canonicalUrl).then(async result => {
+      await db.update(products).set({ name: result.name, imageUrl: result.imageUrl, lastError: null }).where(eq(products.id, product.id));
+      await db.insert(priceHistory).values({ productId: product.id, price: String(result.price), currency: result.currency });
+    }).catch(async err => {
+      const msg = err instanceof Error ? err.message : String(err);
+      await db.update(products).set({ lastError: msg }).where(eq(products.id, product.id));
+    });
+  }
+
+  res.send(`
+    <div class="alert-box" style="margin-top:12px; background:var(--green-light,#f0fdf4); border:1px solid var(--green); border-radius:8px; padding:12px 16px">
+      <strong>${added} productos añadidos</strong> · ${skipped} ya existían · ${errors} errores
+      ${added > 0 ? ' — <a href="/" style="color:var(--green)">Ver dashboard</a>' : ''}
+    </div>
+  `);
 });
 
 export default router;

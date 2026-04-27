@@ -67,6 +67,21 @@ export const alerts = pgTable('alerts', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+// ── Alert Events ──────────────────────────────────────────────────────────────
+
+export const alertEvents = pgTable('alert_events', {
+  id: serial('id').primaryKey(),
+  alertId: integer('alert_id').references(() => alerts.id, { onDelete: 'set null' }),
+  productId: integer('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  alertType: varchar('alert_type', { length: 20 }).notNull(),
+  priceAtTime: numeric('price_at_time', { precision: 10, scale: 2 }).notNull(),
+  thresholdLabel: text('threshold_label'),
+  triggeredAt: timestamp('triggered_at').defaultNow().notNull(),
+});
+export type AlertEvent = typeof alertEvents.$inferSelect;
+export type NewAlertEvent = typeof alertEvents.$inferInsert;
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export type Category = typeof categories.$inferSelect;

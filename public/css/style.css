@@ -140,6 +140,13 @@ a:hover { text-decoration: underline; }
 }
 .input-sm { padding: 6px 10px; font-size: 13px; }
 
+/* ── Filter bar ──────────────────────────────────────────────────────────────── */
+.filter-bar { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
+.filter-bar .input-sm { height: 36px; }
+
+/* ── Pagination ──────────────────────────────────────────────────────────────── */
+.pagination { display: flex; gap: 8px; justify-content: center; align-items: center; margin-top: 24px; }
+
 .input-group {
   display: flex;
   gap: 10px;

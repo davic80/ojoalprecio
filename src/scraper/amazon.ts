@@ -275,3 +275,130 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
     await browser.close();
   }
 }
+
+/**
+ * Scrape all product ASINs from a public Amazon.es wishlist URL.
+ * Returns an array of canonical product URLs (one per unique ASIN).
+ */
+export async function scrapeWishlist(url: string): Promise<string[]> {
+  const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
+
+  const browser: Browser = await chromium.launch({
+    headless: true,
+    executablePath: executablePath || undefined,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas',
+      '--disable-gpu',
+      '--no-first-run',
+      '--disable-blink-features=AutomationControlled',
+      '--disable-infobars',
+    ],
+  });
+
+  try {
+    const context = await browser.newContext({
+      userAgent: randomUserAgent(),
+      viewport: { width: 1366, height: 768 },
+      locale: 'es-ES',
+      timezoneId: 'Europe/Madrid',
+      extraHTTPHeaders: {
+        'Accept-Language': 'es-ES,es;q=0.9',
+        Accept:
+          'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Cache-Control': 'max-age=0',
+      },
+    });
+
+    await context.addInitScript(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+      Object.defineProperty(navigator, 'languages', { get: () => ['es-ES', 'es', 'en-US', 'en'] });
+      // @ts-ignore — runs in browser context, not Node
+      window.chrome = { runtime: {}, app: { isInstalled: false } };
+    });
+
+    const page = await context.newPage();
+
+    await page.route('**/*', (route) => {
+      const resourceType = route.request().resourceType();
+      if (['font', 'media'].includes(resourceType)) {
+        route.abort();
+      } else {
+        route.continue();
+      }
+    });
+
+    // Visit homepage first to get a real session
+    await page.goto('https://www.amazon.es', { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await randomDelay(800, 1500);
+
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+    // Check for bot detection / private wishlist
+    const pageTitle = await page.title();
+    if (
+      pageTitle.includes('Documento no encontrado') ||
+      pageTitle.includes('Page Not Found') ||
+      pageTitle.includes('Robot Check')
+    ) {
+      throw new Error('Amazon bloqueó la petición (bot detection)');
+    }
+
+    const bodyText = await page.textContent('body') ?? '';
+    if (
+      page.url().includes('validateCaptcha') ||
+      bodyText.includes('validateCaptcha') ||
+      bodyText.includes('Enter the characters you see below') ||
+      bodyText.includes('Introduce los caracteres que ves a continuación')
+    ) {
+      throw new Error('CAPTCHA detectado en Amazon');
+    }
+
+    // Scroll to bottom in a loop to lazy-load all wishlist items
+    let previousCount = 0;
+    for (let i = 0; i < 20; i++) {
+      await page.evaluate('window.scrollTo(0, document.body.scrollHeight)');
+      await randomDelay(900, 1200);
+      const currentCount = await page.$$eval('a[href*="/dp/"]', els => els.length);
+      if (currentCount === previousCount) break;
+      previousCount = currentCount;
+    }
+
+    // Extract all hrefs with /dp/ASIN pattern
+    const hrefs: string[] = await page.$$eval('a[href*="/dp/"]', els =>
+      (els as { href: string }[]).map(el => el.href),
+    );
+
+    const asinPattern = /\/dp\/([A-Z0-9]{10})/i;
+    const seen = new Set<string>();
+    const results: string[] = [];
+
+    for (const href of hrefs) {
+      const match = href.match(asinPattern);
+      if (match) {
+        const asin = match[1].toUpperCase();
+        if (!seen.has(asin)) {
+          seen.add(asin);
+          results.push(`https://www.amazon.es/dp/${asin}`);
+        }
+      }
+    }
+
+    if (results.length === 0) {
+      throw new Error(
+        'La wishlist está vacía o es privada. Asegúrate de que la wishlist es pública en Amazon.',
+      );
+    }
+
+    return results;
+  } finally {
+    await browser.close();
+  }
+}

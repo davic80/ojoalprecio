@@ -132,6 +132,21 @@ const MIGRATIONS = [
   `
   UPDATE products SET is_public = TRUE WHERE is_on_sale = TRUE;
   `,
+  // Migration 14: alert event history table
+  `
+  CREATE TABLE IF NOT EXISTS alert_events (
+    id             SERIAL PRIMARY KEY,
+    alert_id       INTEGER REFERENCES alerts(id) ON DELETE SET NULL,
+    product_id     INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    alert_type     VARCHAR(20) NOT NULL,
+    price_at_time  NUMERIC(10,2) NOT NULL,
+    threshold_label TEXT,
+    triggered_at   TIMESTAMP DEFAULT NOW() NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_alert_events_user_id ON alert_events(user_id);
+  CREATE INDEX IF NOT EXISTS idx_alert_events_triggered_at ON alert_events(triggered_at DESC);
+  `,
 ];
 
 export async function migrate(): Promise<void> {

@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 import { db } from '../db/client';
-import { products, priceHistory, alerts, users } from '../db/schema';
+import { products, priceHistory, alerts, alertEvents, users } from '../db/schema';
 import { eq, and, desc, min, isNull, sql } from 'drizzle-orm';
 import { scrapeProduct, affiliateUrl, ProductUnavailableError } from '../scraper/amazon';
 import { sendPriceAlert, sendBackInStockAlert } from '../mailer';
@@ -254,6 +254,14 @@ async function processAlerts(
       }
 
       await db.update(alerts).set({ notifiedAt: new Date() }).where(eq(alerts.id, alert.id));
+      await db.insert(alertEvents).values({
+        alertId: alert.id,
+        productId,
+        userId: alert.userId,
+        alertType: type,
+        priceAtTime: String(currentPrice),
+        thresholdLabel,
+      });
     } catch (err) {
       console.error(`[scheduler] Failed to send alert ${alert.id}:`, err);
     }

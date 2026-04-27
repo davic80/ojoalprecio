@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { db } from '../db/client';
 import { categories, products } from '../db/schema';
-import { eq, sql, asc } from 'drizzle-orm';
+import { eq, sql, asc, desc } from 'drizzle-orm';
 import { requireAuth } from '../middleware/auth';
 import { requireAdmin } from '../middleware/admin';
 
@@ -61,6 +61,33 @@ router.post('/admin/categories/:id/rename', requireAuth, requireAdmin, async (re
   const slug = toSlug(name);
   await db.update(categories).set({ name, slug }).where(eq(categories.id, id));
   res.redirect('/admin/categories');
+});
+
+// ── GET /admin/alerts ─────────────────────────────────────────────────────────
+router.get('/admin/alerts', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const events = await db.execute(sql`
+    SELECT
+      ae.id,
+      ae.alert_type     AS "alertType",
+      ae.price_at_time  AS "priceAtTime",
+      ae.threshold_label AS "thresholdLabel",
+      ae.triggered_at   AS "triggeredAt",
+      p.id              AS "productId",
+      p.name            AS "productName",
+      p.asin            AS "productAsin",
+      u.email           AS "userEmail"
+    FROM alert_events ae
+    JOIN products p ON p.id = ae.product_id
+    JOIN users   u ON u.id = ae.user_id
+    ORDER BY ae.triggered_at DESC
+    LIMIT 200
+  `);
+
+  res.render('admin-alerts', {
+    events: events.rows,
+    user: { email: req.session.userEmail },
+    isAdmin: true,
+  });
 });
 
 // ── DELETE /admin/categories/:id ──────────────────────────────────────────────
