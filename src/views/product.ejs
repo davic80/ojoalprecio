@@ -123,7 +123,8 @@
     </div>
   </div>
 
-  <!-- Manual refresh -->
+  <!-- Manual refresh (admin only) -->
+  <% if (isAdmin) { %>
   <div class="toolbar">
     <button
       class="btn btn-outline btn-sm"
@@ -135,6 +136,7 @@
     </button>
     <span id="refresh-spinner" class="htmx-indicator spinner"></span>
   </div>
+  <% } %>
 
   <!-- Price chart -->
   <% if (history.length > 0) { %>

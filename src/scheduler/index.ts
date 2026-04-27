@@ -18,10 +18,19 @@ async function checkAllProducts(): Promise<void> {
   isRunning = true;
 
   try {
-    const activeProducts = await db.select().from(products).where(eq(products.isActive, true));
-    console.log(`[scheduler] Checking ${activeProducts.length} products…`);
+    const activeProducts = await db.execute(sql`
+      SELECT p.id, p.url, p.name, p.asin,
+        (SELECT ph.scraped_at FROM price_history ph WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1) AS "lastScrapedAt"
+      FROM products p
+      WHERE p.is_active = TRUE
+    `);
+    const toCheck = (activeProducts.rows as any[]).filter(p => {
+      if (!p.lastScrapedAt) return true;
+      return Date.now() - new Date(p.lastScrapedAt).getTime() >= 59 * 60 * 1000;
+    });
+    console.log(`[scheduler] ${toCheck.length}/${activeProducts.rows.length} products due for check…`);
 
-    for (const product of activeProducts) {
+    for (const product of toCheck) {
       await checkProduct(product.id, product.url, product.name ?? product.asin);
       const delay = 5000 + Math.random() * 10000;
       await new Promise((r) => setTimeout(r, delay));

@@ -5,7 +5,7 @@ import { products, priceHistory, alerts, categories } from '../db/schema';
 import { eq, and, desc, sql, asc } from 'drizzle-orm';
 import { extractAsin, normaliseAmazonUrl, scrapeProduct, affiliateUrl, ProductUnavailableError } from '../scraper/amazon';
 import { requireAuth } from '../middleware/auth';
-import { isAdmin } from '../middleware/admin';
+import { isAdmin, requireAdmin } from '../middleware/admin';
 
 const router = Router();
 
@@ -192,8 +192,8 @@ router.get('/products/:id', requireAuth, async (req: Request, res: Response) => 
   });
 });
 
-// ── POST /products/:id/refresh — Manual refresh ───────────────────────────────
-router.post('/products/:id/refresh', requireAuth, async (req: Request, res: Response) => {
+// ── POST /products/:id/refresh — Manual refresh (admin only) ─────────────────
+router.post('/products/:id/refresh', requireAuth, requireAdmin, async (req: Request, res: Response) => {
   const productId = parseInt(String(req.params.id), 10);
   const userId = req.session.userId!;
 
