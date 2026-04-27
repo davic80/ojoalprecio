@@ -16,6 +16,7 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
   const q          = String(req.query.q ?? '').trim();
   const catFilter  = String(req.query.category ?? '').trim();
   const status     = String(req.query.status ?? 'all').trim();
+  const sortBy     = ['recent', 'price_desc', 'price_asc', 'discount'].includes(String(req.query.sort ?? '')) ? String(req.query.sort) : 'recent';
   const perPage    = [10, 20, 50].includes(Number(req.query.per_page)) ? Number(req.query.per_page) : 20;
   const page       = Math.max(1, parseInt(String(req.query.page ?? '1'), 10));
   const offset     = (page - 1) * perPage;
@@ -49,10 +50,17 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
         (SELECT COUNT(*)       FROM price_history ph4 WHERE ph4.product_id = p.id) AS "checkCount",
         (SELECT json_agg(sub.price ORDER BY sub.scraped_at ASC)
          FROM (SELECT price, scraped_at FROM price_history WHERE product_id = p.id ORDER BY scraped_at DESC LIMIT 20) sub
-        ) AS "sparklineData"
+        ) AS "sparklineData",
+        (SELECT ph.price  FROM price_history ph WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1)::float AS "_sortPrice",
+        (SELECT MAX(ph3.price) FROM price_history ph3 WHERE ph3.product_id = p.id)::float AS "_sortMax"
       FROM products p
       WHERE ${where}
-      ORDER BY p.created_at DESC
+      ORDER BY ${
+        sortBy === 'price_desc' ? sql`"_sortPrice" DESC NULLS LAST` :
+        sortBy === 'price_asc'  ? sql`"_sortPrice" ASC  NULLS LAST` :
+        sortBy === 'discount'   ? sql`CASE WHEN "_sortMax" > 0 THEN ("_sortMax" - "_sortPrice") / "_sortMax" ELSE 0 END DESC NULLS LAST` :
+        sql`p.created_at DESC`
+      }
       LIMIT ${perPage} OFFSET ${offset}
     `),
     db.select().from(categories).orderBy(asc(categories.name)),
@@ -81,7 +89,7 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
 
   res.render('dashboard', {
     products: prods, stats,
-    filters: { q, category: catFilter, status, perPage },
+    filters: { q, category: catFilter, status, sort: sortBy, perPage },
     page, totalPages, totalCount,
     allCategories,
     user: { email: req.session.userEmail },

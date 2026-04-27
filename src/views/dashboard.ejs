@@ -148,6 +148,12 @@ function trendBadge(current, previous) {
       <option value="unavailable" <%= filters.status === 'unavailable' ? 'selected' : '' %>>Sin stock</option>
       <option value="error"       <%= filters.status === 'error'       ? 'selected' : '' %>>Con error</option>
     </select>
+    <select name="sort" class="input input-sm" style="width:auto">
+      <option value="recent"     <%= filters.sort === 'recent'     ? 'selected' : '' %>>Más recientes</option>
+      <option value="price_desc" <%= filters.sort === 'price_desc' ? 'selected' : '' %>>Precio: mayor a menor</option>
+      <option value="price_asc"  <%= filters.sort === 'price_asc'  ? 'selected' : '' %>>Precio: menor a mayor</option>
+      <option value="discount"   <%= filters.sort === 'discount'   ? 'selected' : '' %>>Mayor descuento %</option>
+    </select>
     <select name="per_page" class="input input-sm" style="width:auto">
       <% [10,20,50].forEach(function(n) { %>
         <option value="<%= n %>" <%= filters.perPage === n ? 'selected' : '' %>><%= n %> / pág.</option>
@@ -239,12 +245,13 @@ function trendBadge(current, previous) {
   <!-- Pagination -->
   <% if (totalPages > 1) { %>
   <div class="pagination">
+    <% const pageBase = '/?q=' + encodeURIComponent(filters.q) + '&category=' + filters.category + '&status=' + filters.status + '&sort=' + filters.sort + '&per_page=' + filters.perPage; %>
     <% if (page > 1) { %>
-      <a href="/?q=<%= encodeURIComponent(filters.q) %>&category=<%= filters.category %>&status=<%= filters.status %>&per_page=<%= filters.perPage %>&page=<%= page - 1 %>" class="btn btn-sm btn-outline">← Anterior</a>
+      <a href="<%= pageBase %>&page=<%= page - 1 %>" class="btn btn-sm btn-outline">← Anterior</a>
     <% } %>
     <span class="hint" style="align-self:center">Página <%= page %> de <%= totalPages %> (<%= totalCount %> productos)</span>
     <% if (page < totalPages) { %>
-      <a href="/?q=<%= encodeURIComponent(filters.q) %>&category=<%= filters.category %>&status=<%= filters.status %>&per_page=<%= filters.perPage %>&page=<%= page + 1 %>" class="btn btn-sm btn-outline">Siguiente →</a>
+      <a href="<%= pageBase %>&page=<%= page + 1 %>" class="btn btn-sm btn-outline">Siguiente →</a>
     <% } %>
   </div>
   <% } %>
