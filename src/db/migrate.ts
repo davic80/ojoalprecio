@@ -89,6 +89,24 @@ const MIGRATIONS = [
   ALTER TABLE products ADD COLUMN IF NOT EXISTS is_on_sale BOOLEAN DEFAULT FALSE NOT NULL;
   CREATE INDEX IF NOT EXISTS idx_products_is_on_sale ON products(is_on_sale) WHERE is_on_sale = TRUE;
   `,
+  // Migration 11: backfill is_on_sale from existing price history
+  `
+  UPDATE products p
+  SET is_on_sale = TRUE
+  WHERE is_active = TRUE
+    AND is_available = TRUE
+    AND (
+      SELECT ph1.price FROM price_history ph1
+      WHERE ph1.product_id = p.id
+      ORDER BY ph1.scraped_at DESC
+      LIMIT 1
+    ) < (
+      SELECT ph2.price FROM price_history ph2
+      WHERE ph2.product_id = p.id
+      ORDER BY ph2.scraped_at DESC
+      OFFSET 1 LIMIT 1
+    ) * 0.93;
+  `,
 ];
 
 export async function migrate(): Promise<void> {
