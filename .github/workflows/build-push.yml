@@ -2,24 +2,95 @@ name: Build & Push Docker Image
 
 on:
   push:
-    tags:
-      - "v*"
+    branches:
+      - main
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: davic80/ojoalprecio
 
 jobs:
-  # ── Job 1: Build & Push ──────────────────────────────────────────────────────
+  # ── Job 1: Compute version and push semver tag ───────────────────────────────
+  version:
+    name: Bump version and tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Skip if HEAD already tagged
+        id: check
+        run: |
+          if git tag --points-at HEAD | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            EXISTING=$(git tag --points-at HEAD | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "tag=$EXISTING" >> "$GITHUB_OUTPUT"
+            echo "version=${EXISTING#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Determine bump type from commit message
+        if: steps.check.outputs.skip == 'false'
+        id: bump
+        run: |
+          MSG=$(git log -1 --pretty=%B)
+          if printf '%s' "$MSG" | grep -qE '^feat!:|^[a-z]+(\([^)]+\))?!:|BREAKING CHANGE'; then
+            echo "type=major" >> "$GITHUB_OUTPUT"
+          elif printf '%s' "$MSG" | grep -qE '^feat(\([^)]+\))?:'; then
+            echo "type=minor" >> "$GITHUB_OUTPUT"
+          else
+            echo "type=patch" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compute new semver tag
+        if: steps.check.outputs.skip == 'false'
+        id: version
+        run: |
+          LATEST=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+          LATEST=${LATEST:-v0.0.0}
+          VER=${LATEST#v}
+          MAJOR=$(echo "$VER" | cut -d. -f1)
+          MINOR=$(echo "$VER" | cut -d. -f2)
+          PATCH=$(echo "$VER" | cut -d. -f3)
+          case "${{ steps.bump.outputs.type }}" in
+            major) MAJOR=$((MAJOR+1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR+1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH+1)) ;;
+          esac
+          NEW_TAG="v${MAJOR}.${MINOR}.${PATCH}"
+          echo "tag=$NEW_TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${MAJOR}.${MINOR}.${PATCH}" >> "$GITHUB_OUTPUT"
+          echo "Bumping $LATEST → $NEW_TAG (${{ steps.bump.outputs.type }})"
+
+      - name: Push tag
+        if: steps.check.outputs.skip == 'false'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "${{ steps.version.outputs.tag }}"
+          git push origin "${{ steps.version.outputs.tag }}"
+
+  # ── Job 2: Build & Push Docker image ────────────────────────────────────────
   build-push:
     name: Build multi-arch image and push to GHCR
     runs-on: ubuntu-latest
+    needs: version
     permissions:
       contents: read
       packages: write
     outputs:
       digest: ${{ steps.build.outputs.digest }}
-      tags: ${{ steps.meta.outputs.tags }}
 
     steps:
       - name: Checkout
@@ -46,15 +117,9 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
-            type=sha,prefix=,format=short,enable={{is_default_branch}}
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-
-      - name: Derive app version
-        id: appver
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+            type=raw,value=latest
+            type=raw,value=${{ needs.version.outputs.tag }}
+            type=raw,value=${{ needs.version.outputs.version }}
 
       - name: Build and push
         id: build
@@ -67,16 +132,15 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             GIT_COMMIT=${{ github.sha }}
-            APP_VERSION=${{ steps.appver.outputs.version }}
+            APP_VERSION=${{ needs.version.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # ── Job 2: GitHub Release (only on version tags) ─────────────────────────────
+  # ── Job 3: GitHub Release ────────────────────────────────────────────────────
   release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: build-push
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [version, build-push]
     permissions:
       contents: write
 
@@ -84,40 +148,29 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Extract version from tag
-        id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-
       - name: Compose release notes
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
+          VERSION="${{ needs.version.outputs.version }}"
           DIGEST="${{ needs.build-push.outputs.digest }}"
 
-          # Extract changelog section for this version
           awk "/^## \[${VERSION}\]/{found=1; next} found && /^## \[/{exit} found{print}" \
             CHANGELOG.md > /tmp/release_notes.md
 
-          # Append Docker section
           printf '\n---\n\n## Docker\n\n```\ndocker pull ghcr.io/davic80/ojoalprecio:%s\n```\n\n' \
             "${VERSION}" >> /tmp/release_notes.md
-
           printf '| | |\n|---|---|\n' >> /tmp/release_notes.md
           printf '| **Image** | `ghcr.io/davic80/ojoalprecio:%s` |\n' "${VERSION}" >> /tmp/release_notes.md
           printf '| **Tags** | `%s`, `latest` |\n' "${VERSION}" >> /tmp/release_notes.md
           printf '| **Platforms** | `linux/amd64`, `linux/arm64` |\n' >> /tmp/release_notes.md
           printf '| **Digest** | `%s` |\n' "${DIGEST}" >> /tmp/release_notes.md
-
-          printf '\n### Deploy en Raspberry Pi\n```bash\ndocker compose pull && docker compose up -d\n\n# O fijar esta versión concreta\nIMAGE_TAG=%s docker compose up -d\n```\n' \
-            "${VERSION}" >> /tmp/release_notes.md
-
-          echo "--- Release notes preview ---"
-          cat /tmp/release_notes.md
+          printf '\n### Deploy en Raspberry Pi\n```bash\ndocker compose pull && docker compose up -d\n```\n' \
+            >> /tmp/release_notes.md
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ github.ref_name }}" \
-            --title "${{ github.ref_name }}" \
+          gh release create "${{ needs.version.outputs.tag }}" \
+            --title "${{ needs.version.outputs.tag }}" \
             --notes-file /tmp/release_notes.md \
             --verify-tag
