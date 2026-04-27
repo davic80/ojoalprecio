@@ -81,7 +81,7 @@ a:hover { text-decoration: underline; }
 .container-wide {
   max-width: 1400px;
   margin: 0 auto;
-  padding: 32px 20px;
+  padding: 32px 100px;
   flex: 1;
 }
 
@@ -440,6 +440,7 @@ body.auth-page {
 /* ── Responsive ──────────────────────────────────────────────────────────────── */
 @media (max-width: 600px) {
   .product-grid { grid-template-columns: 1fr; }
+  .container-wide { padding-left: 16px; padding-right: 16px; }
   .price-stats { flex-direction: column; }
   .stat-box { text-align: left; }
   .product-header { flex-direction: column; }
