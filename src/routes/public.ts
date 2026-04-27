@@ -21,7 +21,7 @@ router.get('/ofertas', async (_req: Request, res: Response) => {
       (SELECT COUNT(*) FROM price_history ph4 WHERE ph4.product_id = p.id) AS "checkCount"
     FROM products p
     LEFT JOIN categories c ON c.id = p.category_id
-    WHERE p.is_public = TRUE AND p.is_active = TRUE AND p.is_available = TRUE
+    WHERE p.is_public = TRUE AND p.is_active = TRUE AND p.is_available = TRUE AND p.is_on_sale = TRUE
     ORDER BY c.name ASC NULLS LAST, p.created_at DESC
   `);
 
@@ -33,7 +33,7 @@ router.get('/ofertas', async (_req: Request, res: Response) => {
       discountFromMax: p.maxPrice
         ? Math.round((1 - parseFloat(p.currentPrice) / parseFloat(p.maxPrice)) * 100)
         : 0,
-      isAtLow: parseFloat(p.currentPrice) <= parseFloat(p.minPrice) + 0.01,
+      isAtLow: parseInt(p.checkCount, 10) >= 360 && parseFloat(p.currentPrice) <= parseFloat(p.minPrice) + 0.01,
     }));
 
   // Group by category; uncategorized goes last under "Otros"

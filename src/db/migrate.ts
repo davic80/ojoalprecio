@@ -84,6 +84,11 @@ const MIGRATIONS = [
   ALTER TABLE products ADD COLUMN IF NOT EXISTS category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL;
   CREATE INDEX IF NOT EXISTS idx_products_category_id ON products(category_id);
   `,
+  // Migration 10: automatic sale detection (>7% price drop record-to-record)
+  `
+  ALTER TABLE products ADD COLUMN IF NOT EXISTS is_on_sale BOOLEAN DEFAULT FALSE NOT NULL;
+  CREATE INDEX IF NOT EXISTS idx_products_is_on_sale ON products(is_on_sale) WHERE is_on_sale = TRUE;
+  `,
 ];
 
 export async function migrate(): Promise<void> {

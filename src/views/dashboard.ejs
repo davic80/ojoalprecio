@@ -125,7 +125,7 @@ function trendBadge(current, previous) {
     </div>
   <% } else { %>
     <% products.forEach(function(p) {
-      const isAtLow = p.isAvailable && p.currentPrice && p.minPrice && parseFloat(p.currentPrice) <= parseFloat(p.minPrice) + 0.01;
+      const isAtLow = p.isAvailable && p.currentPrice && p.minPrice && parseInt(p.checkCount, 10) >= 360 && parseFloat(p.currentPrice) <= parseFloat(p.minPrice) + 0.01;
     %>
     <div class="product-card" id="product-<%= p.id %>">
       <a href="/products/<%= p.id %>" class="product-card-link">
@@ -137,6 +137,8 @@ function trendBadge(current, previous) {
           <% } %>
           <% if (isAtLow) { %>
             <span class="badge-low" title="Precio en mínimo desde que se inició el seguimiento">Precio mínimo</span>
+          <% } else if (p.isOnSale) { %>
+            <span class="badge-sale" title="Bajada superior al 7% respecto al registro anterior">Oferta</span>
           <% } else if (!p.isAvailable) { %>
             <span class="badge-unavailable" title="Actualmente sin stock en Amazon">Sin stock</span>
           <% } %>

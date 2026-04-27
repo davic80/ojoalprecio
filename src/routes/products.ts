@@ -26,6 +26,7 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
       p.is_active    AS "isActive",
       p.is_public    AS "isPublic",
       p.is_available AS "isAvailable",
+      p.is_on_sale   AS "isOnSale",
       p.last_error   AS "lastError",
       p.created_at  AS "createdAt",
       (
@@ -54,7 +55,7 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
   const prods = rows.rows as any[];
   const stats = {
     total: prods.length,
-    atLow: prods.filter(p => p.currentPrice && p.minPrice &&
+    atLow: prods.filter(p => p.currentPrice && p.minPrice && parseInt(p.checkCount, 10) >= 360 &&
       parseFloat(p.currentPrice) <= parseFloat(p.minPrice) + 0.01).length,
     withError: prods.filter(p => p.lastError).length,
     unavailable: prods.filter(p => !p.isAvailable).length,

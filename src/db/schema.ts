@@ -32,6 +32,7 @@ export const products = pgTable('products', {
   isActive: boolean('is_active').default(true).notNull(),
   isPublic: boolean('is_public').default(false).notNull(),
   isAvailable: boolean('is_available').default(true).notNull(),
+  isOnSale: boolean('is_on_sale').default(false).notNull(),
   lastError: text('last_error'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });

@@ -40,16 +40,38 @@ async function checkProduct(productId: number, url: string, label: string): Prom
   const [current] = await db.select({ isAvailable: products.isAvailable }).from(products).where(eq(products.id, productId)).limit(1);
   const wasUnavailable = current ? !current.isAvailable : false;
 
+  // Fetch previous price before inserting the new record
+  const [prevRow] = await db
+    .select({ price: priceHistory.price })
+    .from(priceHistory)
+    .where(eq(priceHistory.productId, productId))
+    .orderBy(desc(priceHistory.scrapedAt))
+    .limit(1);
+  const previousPrice = prevRow ? parseFloat(String(prevRow.price)) : null;
+
   try {
     console.log(`[scheduler] Scraping: ${label}`);
     const result = await scrapeProduct(url);
 
     await db.insert(priceHistory).values({ productId, price: String(result.price), currency: result.currency });
+
+    // Detect sale: >7% drop from previous record → on sale; any price increase → off sale
+    let isOnSale: boolean | undefined;
+    if (previousPrice !== null) {
+      if (result.price < previousPrice * 0.93) {
+        isOnSale = true;
+        console.log(`[scheduler] ${label} → sale detected (${previousPrice} → ${result.price})`);
+      } else if (result.price > previousPrice) {
+        isOnSale = false;
+      }
+    }
+
     await db.update(products).set({
       name: result.name,
       imageUrl: result.imageUrl,
       lastError: null,
       isAvailable: true,
+      ...(isOnSale !== undefined ? { isOnSale } : {}),
     }).where(eq(products.id, productId));
 
     console.log(`[scheduler] ${label} → ${result.price} ${result.currency}`);
