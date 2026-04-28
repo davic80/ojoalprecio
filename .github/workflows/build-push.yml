@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
@@ -17,8 +18,8 @@ jobs:
     permissions:
       contents: write
     outputs:
-      tag: ${{ steps.version.outputs.tag }}
-      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag || steps.check.outputs.tag }}
+      version: ${{ steps.version.outputs.version || steps.check.outputs.version }}
 
     steps:
       - name: Checkout
@@ -170,7 +171,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ needs.version.outputs.tag }}" \
-            --title "${{ needs.version.outputs.tag }}" \
-            --notes-file /tmp/release_notes.md \
-            --verify-tag
+          TAG="${{ needs.version.outputs.tag }}"
+          if gh release view "$TAG" &>/dev/null; then
+            gh release edit "$TAG" \
+              --title "$TAG" \
+              --notes-file /tmp/release_notes.md
+          else
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --notes-file /tmp/release_notes.md \
+              --verify-tag
+          fi
