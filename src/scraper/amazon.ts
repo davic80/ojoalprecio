@@ -172,27 +172,30 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
       timeout: 30000,
     });
 
-    // Check for bot detection before anything else
+    // Check for bot detection / redirects before anything else
     const pageTitle = await page.title();
-    if (
-      pageTitle.includes('Documento no encontrado') ||
-      pageTitle.includes('Page Not Found') ||
-      pageTitle.includes('Robot Check')
-    ) {
-      throw new Error('Amazon bloqueó la petición (bot detection)');
-    }
-
-    // Check for CAPTCHA — use URL pattern and specific strings, not generic words
-    // ("robot" appears in normal Amazon.es page content and causes false positives)
     const currentUrl = page.url();
     const bodyText = await page.textContent('body') ?? '';
+
+    if (
+      pageTitle.includes('Robot Check') ||
+      pageTitle.includes('Documento no encontrado') ||
+      pageTitle.includes('Page Not Found') ||
+      pageTitle.includes('503') ||
+      pageTitle.includes('Service Unavailable')
+    ) {
+      throw new Error(`Amazon bloqueó la petición (${pageTitle})`);
+    }
+
     if (
       currentUrl.includes('validateCaptcha') ||
+      currentUrl.includes('ap/signin') ||
+      currentUrl.includes('errors/validateCaptcha') ||
       bodyText.includes('Enter the characters you see below') ||
       bodyText.includes('Introduce los caracteres que ves a continuación') ||
       bodyText.includes('validateCaptcha')
     ) {
-      throw new Error('CAPTCHA detectado en Amazon');
+      throw new Error(currentUrl.includes('ap/signin') ? 'Amazon redirigió al login (sesión expirada)' : 'CAPTCHA detectado en Amazon');
     }
 
     // ── Extract product title ────────────────────────────────────────────────
@@ -203,7 +206,7 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
       .then((t) => t?.trim() ?? '')
       .catch(() => '');
 
-    if (!name) throw new Error('No se encontró el título del producto');
+    if (!name) throw new Error(`Título no encontrado (url: ${page.url().split('?')[0]})`);
 
     // ── Check availability ───────────────────────────────────────────────────
     const availabilityText = await page

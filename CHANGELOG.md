@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.2] - 2026-04-29
+
+### Fixed
+- Scraper: detección más precisa de bloqueos de Amazon — cubre signin redirect, 503, validateCaptcha en URL y errores de CAPTCHA en subdirectorios; el mensaje de error ahora incluye la URL/título de la página recibida para facilitar el diagnóstico
+
 ## [1.10.1] - 2026-04-29
 
 ### Fixed
