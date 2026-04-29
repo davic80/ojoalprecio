@@ -78,7 +78,7 @@ async function checkProduct(productId: number, url: string, label: string): Prom
       lastError: null,
       isAvailable: true,
       ...(isOnSale !== undefined ? { isOnSale } : {}),
-      ...(isOnSale === true ? { isPublic: true } : {}),
+      ...(isOnSale === true ? { isPublic: true } : isOnSale === false ? { isPublic: false } : {}),
     }).where(eq(products.id, productId));
 
     console.log(`[scheduler] ${label} → ${result.price} ${result.currency}`);
