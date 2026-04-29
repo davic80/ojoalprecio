@@ -424,6 +424,84 @@ export async function scrapeWishlist(url: string): Promise<string[]> {
 }
 
 /**
+ * Extract Amazon.es product ASINs from any URL (Amazon pages, blogs, comparativas, etc.).
+ * Returns up to `limit` unique canonical product URLs.
+ */
+export async function scrapeUrlForAsins(url: string, limit = 200): Promise<string[]> {
+  const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
+
+  const browser: Browser = await chromium.launch({
+    headless: true,
+    executablePath: executablePath || undefined,
+    args: [
+      '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas', '--disable-gpu', '--no-first-run',
+      '--disable-blink-features=AutomationControlled', '--disable-infobars',
+    ],
+  });
+
+  try {
+    const context = await browser.newContext({
+      userAgent: randomUserAgent(),
+      viewport: { width: 1366, height: 768 },
+      locale: 'es-ES',
+      timezoneId: 'Europe/Madrid',
+      extraHTTPHeaders: {
+        'Accept-Language': 'es-ES,es;q=0.9',
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+      },
+    });
+
+    await context.addInitScript(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+      // @ts-ignore — browser context
+      window.chrome = { runtime: {}, app: { isInstalled: false } };
+    });
+
+    const page = await context.newPage();
+
+    await page.route('**/*', route => {
+      if (['font', 'media'].includes(route.request().resourceType())) route.abort();
+      else route.continue();
+    });
+
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await randomDelay(800, 1500);
+
+    // Scroll to trigger lazy-load
+    for (let i = 0; i < 3; i++) {
+      await page.evaluate('window.scrollTo(0, document.body.scrollHeight)');
+      await randomDelay(600, 1000);
+    }
+
+    // Collect ASINs from hrefs AND data-asin attributes
+    const rawAsins: string[] = await page.evaluate(() => {
+      const win = globalThis as any;
+      const asinRe = /\/dp\/([A-Z0-9]{10})/i;
+      const seen = new Set<string>();
+
+      // From links
+      (win.document.querySelectorAll('a[href]') as any[]).forEach((el: any) => {
+        const m = (el.href as string).match(asinRe);
+        if (m) seen.add(m[1].toUpperCase());
+      });
+
+      // From data-asin attributes (Amazon result cards)
+      (win.document.querySelectorAll('[data-asin]') as any[]).forEach((el: any) => {
+        const a = (el.dataset.asin as string ?? '').toUpperCase();
+        if (a && a.length === 10) seen.add(a);
+      });
+
+      return Array.from(seen);
+    });
+
+    return rawAsins.slice(0, limit).map(asin => `https://www.amazon.es/dp/${asin}`);
+  } finally {
+    await browser.close();
+  }
+}
+
+/**
  * Scrape up to `limit` product ASINs from an Amazon.es category / bestsellers page.
  * Returns canonical product URLs.
  */

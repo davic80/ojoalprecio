@@ -1,9 +1,12 @@
 import { Router, type Request, type Response } from 'express';
 import { db } from '../db/client';
-import { categories, products } from '../db/schema';
+import { categories, products, users } from '../db/schema';
 import { eq, sql, asc, desc } from 'drizzle-orm';
 import { requireAuth } from '../middleware/auth';
 import { requireAdmin } from '../middleware/admin';
+import { scrapeUrlForAsins, extractAsin, normaliseAmazonUrl } from '../scraper/amazon';
+
+const SYSTEM_EMAIL = 'system@ojoalprecio.local';
 
 const router = Router();
 
@@ -88,6 +91,102 @@ router.get('/admin/alerts', requireAuth, requireAdmin, async (req: Request, res:
     user: { email: req.session.userEmail },
     isAdmin: true,
   });
+});
+
+// ── GET /admin/import-url ─────────────────────────────────────────────────────
+router.get('/admin/import-url', requireAuth, requireAdmin, (req: Request, res: Response) => {
+  res.render('admin-import', {
+    user: { email: req.session.userEmail },
+    isAdmin: true,
+  });
+});
+
+// ── GET /admin/import-url/stream — SSE progress stream ───────────────────────
+router.get('/admin/import-url/stream', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const url = String(req.query.url ?? '').trim();
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  let closed = false;
+  req.on('close', () => { closed = true; });
+
+  const send = (type: string, msg: string, extra: Record<string, unknown> = {}) => {
+    if (closed) return;
+    res.write(`data: ${JSON.stringify({ type, msg, ...extra })}\n\n`);
+  };
+  const done = (summary: Record<string, unknown>) => {
+    if (closed) return;
+    res.write(`event: done\ndata: ${JSON.stringify(summary)}\n\n`);
+    res.end();
+  };
+
+  if (!url) {
+    send('error', 'URL no proporcionada.');
+    done({ added: 0, skipped: 0, errors: 0 });
+    return;
+  }
+
+  try {
+    send('info', `Cargando: ${url}`);
+
+    const productUrls = await scrapeUrlForAsins(url);
+
+    if (closed) return;
+    send('found', `${productUrls.length} ASINs encontrados`, { count: productUrls.length });
+
+    if (productUrls.length === 0) {
+      done({ added: 0, skipped: 0, errors: 0 });
+      return;
+    }
+
+    // Get system user
+    const [sysUser] = await db.select({ id: users.id }).from(users).where(eq(users.email, SYSTEM_EMAIL)).limit(1);
+    const systemUserId = sysUser?.id;
+    if (!systemUserId) {
+      send('error', 'Usuario sistema no encontrado. Ejecuta las migraciones.');
+      done({ added: 0, skipped: 0, errors: 0 });
+      return;
+    }
+
+    let added = 0, skipped = 0, errors = 0;
+
+    for (const productUrl of productUrls) {
+      if (closed) return;
+
+      const asin = extractAsin(productUrl);
+      if (!asin) { errors++; continue; }
+
+      const [existing] = await db.select({ id: products.id }).from(products).where(eq(products.asin, asin)).limit(1);
+      if (existing) {
+        skipped++;
+        send('skip', `${asin} — ya existe`);
+        continue;
+      }
+
+      try {
+        await db.insert(products).values({
+          userId: systemUserId,
+          asin,
+          url: normaliseAmazonUrl(asin),
+          isPublic: false,
+        });
+        added++;
+        send('add', `${asin} — añadido`);
+      } catch {
+        errors++;
+        send('error', `${asin} — error al insertar`);
+      }
+    }
+
+    done({ added, skipped, errors });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    send('error', `Error durante el scraping: ${msg}`);
+    done({ added: 0, skipped: 0, errors: 1 });
+  }
 });
 
 // ── DELETE /admin/categories/:id ──────────────────────────────────────────────

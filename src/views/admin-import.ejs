@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Importar URL — Admin OjoAlPrecio</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <a href="/" class="navbar-brand">
+    <span class="brand-icon">👁</span>
+    <span class="brand-name">OjoAlPrecio</span>
+  </a>
+  <div class="navbar-actions">
+    <a href="/admin/categories" class="nav-link">Categorías</a>
+    <a href="/admin/alerts" class="nav-link">Alertas</a>
+    <a href="/admin/import-url" class="nav-link nav-link-active">Importar URL</a>
+    <span class="user-email"><%= user.email %></span>
+    <form action="/auth/logout" method="POST" style="display:inline">
+      <button type="submit" class="btn btn-ghost btn-sm">Salir</button>
+    </form>
+  </div>
+</nav>
+
+<main class="container">
+
+  <div class="page-header">
+    <h1>Importar desde URL</h1>
+    <p class="subtitle">Pega cualquier URL — blog, comparativa, página Amazon, wishlist — y extraemos todos los productos Amazon.es que contenga.</p>
+  </div>
+
+  <div class="card" style="max-width:720px">
+    <form id="import-form" autocomplete="off">
+      <div class="form-group">
+        <label for="url-input" class="form-label">URL a escanear</label>
+        <input
+          id="url-input"
+          type="url"
+          class="form-input"
+          placeholder="https://…"
+          required
+          style="font-size:14px"
+        >
+      </div>
+      <button id="import-btn" type="submit" class="btn btn-primary">
+        Importar
+      </button>
+    </form>
+  </div>
+
+  <div id="progress-wrap" class="card" style="max-width:720px;display:none;margin-top:16px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <strong id="progress-title">Progreso</strong>
+      <span id="progress-summary" style="font-size:13px;color:var(--gray-500)"></span>
+    </div>
+    <div id="progress-log" class="import-log"></div>
+  </div>
+
+</main>
+
+<footer class="footer">
+  <p>OjoAlPrecio v<%= process.env['APP_VERSION'] ?? 'dev' %> Admin &nbsp;·&nbsp; <a href="/ofertas">Ver ofertas públicas</a></p>
+</footer>
+
+<style>
+.import-log {
+  font-family: monospace;
+  font-size: 13px;
+  max-height: 420px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.log-line {
+  padding: 3px 8px;
+  border-radius: 4px;
+  line-height: 1.5;
+}
+.log-info  { color: var(--gray-600); }
+.log-found { background: #eff6ff; color: #1d4ed8; font-weight: 600; }
+.log-add   { background: #f0fdf4; color: #166534; }
+.log-skip  { color: var(--gray-400); }
+.log-error { background: #fef2f2; color: #991b1b; }
+.log-done  { background: #f0fdf4; color: #166534; font-weight: 700; padding: 8px 12px; margin-top: 6px; border-radius: 6px; }
+</style>
+
+<script>
+(function () {
+  const form    = document.getElementById('import-form');
+  const btn     = document.getElementById('import-btn');
+  const wrap    = document.getElementById('progress-wrap');
+  const log     = document.getElementById('progress-log');
+  const summary = document.getElementById('progress-summary');
+  let es        = null;
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    const url = document.getElementById('url-input').value.trim();
+    if (!url) return;
+
+    // Reset UI
+    log.innerHTML = '';
+    summary.textContent = '';
+    wrap.style.display = '';
+    btn.disabled = true;
+    btn.textContent = 'Importando…';
+
+    if (es) { es.close(); es = null; }
+
+    es = new EventSource('/admin/import-url/stream?url=' + encodeURIComponent(url));
+
+    es.addEventListener('message', function (e) {
+      const d = JSON.parse(e.data);
+      appendLine(d.type, d.msg);
+      log.scrollTop = log.scrollHeight;
+    });
+
+    es.addEventListener('done', function (e) {
+      const d = JSON.parse(e.data);
+      const line = document.createElement('div');
+      line.className = 'log-line log-done';
+      line.textContent = `✓ Completado — ${d.added} añadidos · ${d.skipped} ya existían · ${d.errors} errores`;
+      log.appendChild(line);
+      log.scrollTop = log.scrollHeight;
+      summary.textContent = `+${d.added} / ~${d.skipped} / ✗${d.errors}`;
+      btn.disabled = false;
+      btn.textContent = 'Importar';
+      es.close(); es = null;
+    });
+
+    es.onerror = function () {
+      appendLine('error', 'Conexión perdida con el servidor.');
+      btn.disabled = false;
+      btn.textContent = 'Importar';
+      if (es) { es.close(); es = null; }
+    };
+  });
+
+  function appendLine(type, msg) {
+    const div = document.createElement('div');
+    div.className = 'log-line log-' + type;
+    const icons = { info: '→', found: '●', add: '+', skip: '~', error: '✗' };
+    div.textContent = (icons[type] || '·') + ' ' + msg;
+    log.appendChild(div);
+  }
+})();
+</script>
+
+</body>
+</html>
