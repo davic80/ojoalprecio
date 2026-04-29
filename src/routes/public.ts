@@ -10,7 +10,7 @@ const router = Router();
 router.get('/ofertas', async (_req: Request, res: Response) => {
   const rows = await db.execute(sql`
     SELECT
-      p.id, p.asin, p.name, p.image_url AS "imageUrl", p.url,
+      p.id, p.asin, p.name, p.image_url AS "imageUrl", p.extra_images AS "extraImages", p.url,
       c.name AS "categoryName", c.slug AS "categorySlug",
       (
         SELECT ph.price FROM price_history ph
@@ -18,7 +18,14 @@ router.get('/ofertas', async (_req: Request, res: Response) => {
       ) AS "currentPrice",
       (SELECT MIN(ph2.price) FROM price_history ph2 WHERE ph2.product_id = p.id) AS "minPrice",
       (SELECT MAX(ph3.price) FROM price_history ph3 WHERE ph3.product_id = p.id) AS "maxPrice",
-      (SELECT COUNT(*) FROM price_history ph4 WHERE ph4.product_id = p.id) AS "checkCount",
+      (
+        SELECT json_agg(sub.price)
+        FROM (
+          SELECT price FROM price_history
+          WHERE product_id = p.id
+          ORDER BY scraped_at DESC LIMIT 20
+        ) sub
+      ) AS "sparkline",
       p.is_on_sale AS "isOnSale"
     FROM products p
     LEFT JOIN categories c ON c.id = p.category_id
@@ -34,7 +41,9 @@ router.get('/ofertas', async (_req: Request, res: Response) => {
       discountFromMax: p.maxPrice
         ? Math.round((1 - parseFloat(p.currentPrice) / parseFloat(p.maxPrice)) * 100)
         : 0,
-      isAtLow: parseInt(p.checkCount, 10) >= 360 && p.minPrice && parseFloat(p.currentPrice) <= parseFloat(p.minPrice) + 0.01,
+      isAtLow: p.minPrice && parseFloat(p.currentPrice) <= parseFloat(p.minPrice) + 0.01,
+      sparkline: Array.isArray(p.sparkline) ? p.sparkline.map(Number) : [],
+      extraImages: (() => { try { return JSON.parse(p.extraImages ?? '[]'); } catch { return []; } })(),
     }));
 
   // Group by category; uncategorized goes last under "Otros"

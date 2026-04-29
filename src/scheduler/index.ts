@@ -74,6 +74,7 @@ async function checkProduct(productId: number, url: string, label: string): Prom
     await db.update(products).set({
       name: result.name,
       imageUrl: result.imageUrl,
+      extraImages: result.extraImages.length ? JSON.stringify(result.extraImages) : null,
       lastError: null,
       isAvailable: true,
       ...(isOnSale !== undefined ? { isOnSale } : {}),

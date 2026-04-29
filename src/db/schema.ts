@@ -49,6 +49,7 @@ export const products = pgTable('products', {
   url: text('url').notNull(),
   name: text('name'),
   imageUrl: text('image_url'),
+  extraImages: text('extra_images'),
   categoryId: integer('category_id').references(() => categories.id, { onDelete: 'set null' }),
   isActive: boolean('is_active').default(true).notNull(),
   isPublic: boolean('is_public').default(false).notNull(),

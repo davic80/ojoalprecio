@@ -171,6 +171,10 @@ const MIGRATIONS = [
   );
   CREATE INDEX IF NOT EXISTS idx_password_resets_token ON password_resets(token);
   `,
+  // Migration 17: extra product images (JSON array, up to 2 alt images)
+  `
+  ALTER TABLE products ADD COLUMN IF NOT EXISTS extra_images TEXT;
+  `,
 ];
 
 export async function migrate(): Promise<void> {

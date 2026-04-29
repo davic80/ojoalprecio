@@ -144,7 +144,7 @@ router.post(
       .then(async (result) => {
         await db
           .update(products)
-          .set({ name: result.name, imageUrl: result.imageUrl, lastError: null })
+          .set({ name: result.name, imageUrl: result.imageUrl, extraImages: result.extraImages.length ? JSON.stringify(result.extraImages) : null, lastError: null })
           .where(eq(products.id, product.id));
 
         await db.insert(priceHistory).values({
@@ -247,7 +247,7 @@ router.post('/products/:id/refresh', requireAuth, requireAdmin, async (req: Requ
     const result = await scrapeProduct(product.url);
     await db
       .update(products)
-      .set({ name: result.name, imageUrl: result.imageUrl, lastError: null, isAvailable: true })
+      .set({ name: result.name, imageUrl: result.imageUrl, extraImages: result.extraImages.length ? JSON.stringify(result.extraImages) : null, lastError: null, isAvailable: true })
       .where(eq(products.id, productId));
     await db.insert(priceHistory).values({
       productId,
@@ -355,7 +355,7 @@ router.post('/products/import-wishlist', requireAuth, async (req: Request, res: 
     added++;
 
     scrapeProduct(canonicalUrl).then(async result => {
-      await db.update(products).set({ name: result.name, imageUrl: result.imageUrl, lastError: null }).where(eq(products.id, product.id));
+      await db.update(products).set({ name: result.name, imageUrl: result.imageUrl, extraImages: result.extraImages.length ? JSON.stringify(result.extraImages) : null, lastError: null }).where(eq(products.id, product.id));
       await db.insert(priceHistory).values({ productId: product.id, price: String(result.price), currency: result.currency });
     }).catch(async err => {
       const msg = err instanceof Error ? err.message : String(err);

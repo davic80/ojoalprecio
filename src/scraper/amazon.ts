@@ -13,6 +13,7 @@ export interface ScrapeResult {
   price: number;
   currency: string;
   imageUrl: string | null;
+  extraImages: string[];
   url: string;
 }
 
@@ -263,14 +264,30 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
       throw new Error(`Precio inválido extraído: "${rawPrice}"`);
     }
 
-    // ── Extract image ────────────────────────────────────────────────────────
+    // ── Extract images ───────────────────────────────────────────────────────
     const imageUrl = await page
       .locator('#imgTagWrappingLink img, #landingImage')
       .first()
       .getAttribute('src', { timeout: 5000 })
       .catch(() => null);
 
-    return { asin, name, price, currency: 'EUR', imageUrl, url: canonicalUrl };
+    const extraImages: string[] = await page.evaluate((mainSrc: string | null): string[] => {
+      const win = globalThis as any;
+      const normalize = (s: string) => s.replace(/\._[^.]+_\./, '.').split('/I/')[1] ?? '';
+      const mainKey = normalize(mainSrc ?? '');
+      return Array.from(
+        win.document.querySelectorAll('#altImages .imageThumbnail img, #altImages li img') as any[]
+      )
+        .map((el: any) => String(el.src).replace(/\._[^.]+_\./, '._SL500_.'))
+        .filter((src: string) =>
+          src.startsWith('https://') &&
+          !src.includes('transparent-pixel') &&
+          normalize(src) !== mainKey
+        )
+        .slice(0, 2);
+    }, imageUrl);
+
+    return { asin, name, price, currency: 'EUR', imageUrl, extraImages, url: canonicalUrl };
   } finally {
     await browser.close();
   }

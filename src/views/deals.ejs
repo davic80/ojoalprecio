@@ -39,8 +39,9 @@
 
     <% if (groups.length > 1) { %>
     <nav class="category-nav">
+      <button class="category-nav-link active" onclick="filterDeals(null, this)">Todas</button>
       <% groups.forEach(function(g) { %>
-        <a href="#cat-<%= g.slug ?? 'otros' %>" class="category-nav-link"><%= g.name %></a>
+        <button class="category-nav-link" onclick="filterDeals('<%= g.slug ?? 'otros' %>', this)"><%= g.name %></button>
       <% }); %>
     </nav>
     <% } %>
@@ -51,10 +52,13 @@
           <h2 class="category-section-title"><%= group.name %></h2>
         <% } %>
         <div class="product-grid">
-          <% group.deals.forEach(function(d) { %>
+          <% group.deals.forEach(function(d) {
+            const allImages = [d.imageUrl, ...d.extraImages].filter(Boolean).slice(0, 3);
+            const hasCarousel = allImages.length > 1;
+          %>
             <div class="product-card">
               <a href="/p/<%= d.asin %>" class="product-card-link">
-                <div class="product-img-wrap">
+                <div class="product-img-wrap"<% if (hasCarousel) { %> data-images="<%- JSON.stringify(allImages).replace(/"/g, '&quot;') %>"<% } %>>
                   <% if (d.imageUrl) { %>
                     <img src="<%= d.imageUrl %>" alt="<%= d.name ?? d.asin %>" class="product-img" loading="lazy">
                   <% } else { %>
@@ -68,7 +72,6 @@
                 </div>
                 <div class="product-info">
                   <p class="product-name"><%= d.name ?? d.asin %></p>
-                  <p class="product-asin">ASIN: <%= d.asin %></p>
                 </div>
               </a>
               <div class="product-prices">
@@ -84,7 +87,20 @@
                     <span class="price-max">↑ <%= parseFloat(d.maxPrice).toFixed(2) %> €</span>
                   </div>
                 <% } %>
-                <div class="price-checks"><%= d.checkCount %> registros</div>
+                <% if (d.sparkline && d.sparkline.length >= 2) {
+                  const pts = [...d.sparkline].reverse();
+                  const mn = Math.min(...pts), mx = Math.max(...pts), rng = mx - mn || 1;
+                  const W = 120, H = 36, pad = 3;
+                  const svgPts = pts.map(function(v, i) {
+                    return (pad + (i / (pts.length - 1)) * (W - 2*pad)).toFixed(1) + ',' +
+                           (H - pad - ((v - mn) / rng) * (H - 2*pad)).toFixed(1);
+                  }).join(' ');
+                  const color = pts[pts.length-1] < pts[0] ? '#22c55e' : pts[pts.length-1] > pts[0] ? '#ef4444' : '#94a3b8';
+                %>
+                <svg class="sparkline-svg" viewBox="0 0 <%= W %> <%= H %>" width="<%= W %>" height="<%= H %>" aria-hidden="true">
+                  <polyline points="<%= svgPts %>" fill="none" stroke="<%= color %>" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <% } %>
               </div>
               <div class="product-actions">
                 <a href="/p/<%= d.asin %>" class="btn btn-sm btn-outline">Ver historial</a>
@@ -104,5 +120,40 @@
   <p>OjoAlPrecio v<%= process.env['APP_VERSION'] ?? 'dev' %> &nbsp;·&nbsp; <a href="/auth/login">Añade tus productos</a></p>
 </footer>
 
+<style>
+.sparkline-svg { display: block; margin-top: 6px; }
+.product-img-wrap[data-images] { cursor: pointer; }
+</style>
+<script>
+function filterDeals(slug, btn) {
+  document.querySelectorAll('.category-section').forEach(s => {
+    s.style.display = (!slug || s.id === 'cat-' + slug) ? '' : 'none';
+  });
+  document.querySelectorAll('.category-nav-link').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+(function() {
+  document.querySelectorAll('.product-img-wrap[data-images]').forEach(function(wrap) {
+    const images = JSON.parse(wrap.dataset.images);
+    if (images.length < 2) return;
+    const img = wrap.querySelector('.product-img');
+    if (!img) return;
+    let idx = 0, timer = null;
+    wrap.addEventListener('mouseenter', function() {
+      timer = setInterval(function() {
+        idx = (idx + 1) % images.length;
+        img.src = images[idx];
+      }, 2000);
+    });
+    wrap.addEventListener('mouseleave', function() {
+      clearInterval(timer);
+      timer = null;
+      idx = 0;
+      img.src = images[0];
+    });
+  });
+})();
+</script>
 </body>
 </html>
