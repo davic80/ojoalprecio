@@ -1,5 +1,4 @@
 <%
-// Build a map of day → views for the last 30 days
 const dayMap = {};
 daily.forEach(function(r) { dayMap[r.day] = parseInt(r.views, 10); });
 const days = [];
@@ -9,6 +8,7 @@ for (let i = 29; i >= 0; i--) {
   days.push({ key, views: dayMap[key] ?? 0 });
 }
 const maxViews = Math.max(...days.map(d => d.views), 1);
+const last30 = days.reduce((s, d) => s + d.views, 0);
 %>
 <!DOCTYPE html>
 <html lang="es">
@@ -43,33 +43,33 @@ const maxViews = Math.max(...days.map(d => d.views), 1);
 
   <div class="page-header">
     <h1>Estadísticas de visitas</h1>
-    <p class="subtitle">Páginas vistas (excluye admin, auth y assets estáticos)</p>
+    <p class="subtitle">Páginas vistas en rutas públicas (excluye admin, auth y assets)</p>
   </div>
 
   <div class="stats-bar" style="margin-bottom:24px">
     <div class="stat-pill">
-      <span class="stat-pill-value"><%= total.toLocaleString('es-ES') %></span>
+      <span class="stat-pill-value"><%= parseInt(total, 10).toLocaleString('es-ES') %></span>
       <span class="stat-pill-label">visitas totales</span>
     </div>
     <div class="stat-pill">
-      <span class="stat-pill-value"><%= days.reduce((s, d) => s + d.views, 0).toLocaleString('es-ES') %></span>
+      <span class="stat-pill-value"><%= last30.toLocaleString('es-ES') %></span>
       <span class="stat-pill-label">últimos 30 días</span>
     </div>
     <div class="stat-pill">
-      <span class="stat-pill-value"><%= (days.reduce((s, d) => s + d.views, 0) / 30).toFixed(0) %></span>
+      <span class="stat-pill-value"><%= (last30 / 30).toFixed(0) %></span>
       <span class="stat-pill-label">media/día</span>
     </div>
   </div>
 
-  <!-- Bar chart: last 30 days -->
+  <!-- Bar chart -->
   <div class="card" style="margin-bottom:16px">
     <h2>Visitas por día — últimos 30 días</h2>
-    <div style="display:flex;align-items:flex-end;gap:3px;height:100px;margin-top:16px;padding:0 4px">
+    <div style="display:flex;align-items:flex-end;gap:3px;height:80px;margin-top:16px;padding:0 2px">
       <% days.forEach(function(d) {
-        const h = Math.max(2, Math.round((d.views / maxViews) * 90));
+        const h = Math.max(2, Math.round((d.views / maxViews) * 72));
         const isToday = d.key === new Date().toISOString().slice(0, 10);
       %>
-        <div title="<%= d.key %>: <%= d.views %> visitas"
+        <div title="<%= d.key %>: <%= d.views %>"
              style="flex:1;height:<%=h%>px;background:<%= isToday ? 'var(--primary)' : '#cbd5e1' %>;border-radius:2px 2px 0 0;min-width:4px;cursor:default">
         </div>
       <% }); %>
@@ -80,31 +80,58 @@ const maxViews = Math.max(...days.map(d => d.views), 1);
     </div>
   </div>
 
-  <!-- Top pages -->
-  <div class="card">
-    <h2>Páginas más vistas</h2>
-    <div class="table-wrap" style="margin-top:16px">
-      <table class="price-table">
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>Ruta</th>
-            <th style="text-align:right">Visitas</th>
-          </tr>
-        </thead>
-        <tbody>
-          <% top.forEach(function(row, i) { %>
-            <tr>
-              <td style="color:var(--gray-400);width:32px"><%= i + 1 %></td>
-              <td>
-                <a href="<%= row.path %>" class="hint-link" target="_blank"><%= row.path %></a>
-              </td>
-              <td style="text-align:right"><%= parseInt(row.views, 10).toLocaleString('es-ES') %></td>
-            </tr>
-          <% }); %>
-        </tbody>
-      </table>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+
+    <!-- Top products -->
+    <div class="card">
+      <h2>Productos más vistos <span class="hint">(página pública /p/…)</span></h2>
+      <% if (topProducts.length === 0) { %>
+        <p class="hint" style="margin-top:12px">Sin datos todavía.</p>
+      <% } else { %>
+      <div class="table-wrap" style="margin-top:12px">
+        <table class="price-table">
+          <thead><tr><th>#</th><th>Producto</th><th style="text-align:right">Vistas</th></tr></thead>
+          <tbody>
+            <% topProducts.forEach(function(row, i) { %>
+              <tr>
+                <td style="color:var(--gray-400);width:28px"><%= i + 1 %></td>
+                <td>
+                  <a href="/p/<%= row.asin %>" class="hint-link" target="_blank" style="font-size:12px">
+                    <%= row.name ? (row.name.length > 50 ? row.name.slice(0,50) + '…' : row.name) : row.asin %>
+                  </a>
+                </td>
+                <td style="text-align:right;font-weight:600"><%= parseInt(row.views, 10).toLocaleString('es-ES') %></td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+      <% } %>
     </div>
+
+    <!-- Top other paths -->
+    <div class="card">
+      <h2>Otras rutas más visitadas</h2>
+      <% if (topPaths.length === 0) { %>
+        <p class="hint" style="margin-top:12px">Sin datos todavía.</p>
+      <% } else { %>
+      <div class="table-wrap" style="margin-top:12px">
+        <table class="price-table">
+          <thead><tr><th>#</th><th>Ruta</th><th style="text-align:right">Vistas</th></tr></thead>
+          <tbody>
+            <% topPaths.forEach(function(row, i) { %>
+              <tr>
+                <td style="color:var(--gray-400);width:28px"><%= i + 1 %></td>
+                <td><a href="<%= row.path %>" class="hint-link" target="_blank"><%= row.path %></a></td>
+                <td style="text-align:right;font-weight:600"><%= parseInt(row.views, 10).toLocaleString('es-ES') %></td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+      <% } %>
+    </div>
+
   </div>
 
   <div style="margin-top:12px">

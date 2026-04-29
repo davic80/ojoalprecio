@@ -204,16 +204,7 @@ const MIGRATIONS = [
   VALUES ('system@ojoalprecio.local', '$system-no-login$', TRUE)
   ON CONFLICT (email) DO NOTHING;
   `,
-  // Migration 19: page view aggregates (path + day → count)
-  `
-  CREATE TABLE IF NOT EXISTS page_views (
-    path  VARCHAR(500) NOT NULL,
-    day   TEXT NOT NULL,
-    count INTEGER NOT NULL DEFAULT 1,
-    PRIMARY KEY (path, day)
-  );
-  `,
-  // Migration 20: recommendation lists + items
+  // Migration 19: recommendation lists + items (v2.0.0)
   `
   CREATE TABLE IF NOT EXISTS recommendation_lists (
     id          SERIAL PRIMARY KEY,
@@ -234,6 +225,17 @@ const MIGRATIONS = [
   );
 
   CREATE INDEX IF NOT EXISTS idx_recommendation_items_list_id ON recommendation_items(list_id);
+  `,
+  // Migration 20: no-op placeholder (idx 20 was applied in v2.1.0 deploy as duplicate recommendation_lists)
+  `SELECT 1`,
+  // Migration 21: page view aggregates (path + day → count)
+  `
+  CREATE TABLE IF NOT EXISTS page_views (
+    path  VARCHAR(500) NOT NULL,
+    day   TEXT NOT NULL,
+    count INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (path, day)
+  );
   `,
 ];
 

@@ -206,7 +206,7 @@ router.delete('/admin/categories/:id', requireAuth, requireAdmin, async (req: Re
 
 // ── GET /admin/stats ──────────────────────────────────────────────────────────
 router.get('/admin/stats', requireAuth, requireAdmin, async (req: Request, res: Response) => {
-  const [totalRow, dailyRows, topRows] = await Promise.all([
+  const [totalRow, dailyRows, topProductRows, topPathRows] = await Promise.all([
     db.execute(sql`SELECT COALESCE(SUM(count), 0) AS total FROM page_views`),
     db.execute(sql`
       SELECT day, SUM(count) AS views
@@ -215,16 +215,29 @@ router.get('/admin/stats', requireAuth, requireAdmin, async (req: Request, res: 
       GROUP BY day ORDER BY day ASC
     `),
     db.execute(sql`
+      SELECT
+        p.asin, p.name,
+        COALESCE(SUM(pv.count), 0) AS views
+      FROM products p
+      LEFT JOIN page_views pv ON pv.path = '/p/' || p.asin
+      GROUP BY p.asin, p.name
+      HAVING COALESCE(SUM(pv.count), 0) > 0
+      ORDER BY views DESC
+      LIMIT 20
+    `),
+    db.execute(sql`
       SELECT path, SUM(count) AS views
       FROM page_views
-      GROUP BY path ORDER BY views DESC LIMIT 20
+      WHERE path NOT LIKE '/p/%'
+      GROUP BY path ORDER BY views DESC LIMIT 10
     `),
   ]);
 
   res.render('admin-stats', {
     total: parseInt(String((totalRow.rows[0] as any)?.total ?? '0'), 10),
     daily: dailyRows.rows,
-    top: topRows.rows,
+    topProducts: topProductRows.rows,
+    topPaths: topPathRows.rows,
     user: { email: req.session.userEmail },
     isAdmin: true,
   });

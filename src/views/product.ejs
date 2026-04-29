@@ -54,6 +54,9 @@
         <% if (product.isPublic) { %>
           <a href="/p/<%= product.asin %>" target="_blank" class="hint-link">Ver página pública ↗</a>
         <% } %>
+        <% if (typeof isAdmin !== 'undefined' && isAdmin && viewCount > 0) { %>
+          <span class="hint" style="color:var(--gray-400)">· <%= viewCount %> vista<%= viewCount === 1 ? '' : 's' %> en página pública</span>
+        <% } %>
       </div>
 
       <% if ((categories && categories.length > 0) || isAdmin) { %>

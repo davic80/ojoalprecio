@@ -218,7 +218,10 @@ router.get('/products/:id', requireAuth, async (req: Request, res: Response) => 
     .from(alerts)
     .where(and(eq(alerts.productId, productId), eq(alerts.userId, userId)));
 
-  const allCategories = await db.select().from(categories).orderBy(asc(categories.name));
+  const [allCategories, viewCountRow] = await Promise.all([
+    db.select().from(categories).orderBy(asc(categories.name)),
+    db.execute(sql`SELECT COALESCE(SUM(count),0) AS views FROM page_views WHERE path = ${'/p/' + product.asin}`),
+  ]);
 
   res.render('product', {
     product,
@@ -228,6 +231,7 @@ router.get('/products/:id', requireAuth, async (req: Request, res: Response) => 
     user: { email: req.session.userEmail },
     amazonUrl: affiliateUrl(product.url),
     isAdmin: isAdmin(req),
+    viewCount: parseInt(String((viewCountRow.rows[0] as any)?.views ?? '0'), 10),
   });
 });
 
