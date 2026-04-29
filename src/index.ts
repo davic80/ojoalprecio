@@ -1,4 +1,12 @@
 import 'dotenv/config';
+
+const ts = () => new Date().toISOString().replace('T', ' ').slice(0, 19);
+const _log = console.log.bind(console);
+const _err = console.error.bind(console);
+console.log   = (...a) => _log(`[${ts()}]`, ...a);
+console.error = (...a) => _err(`[${ts()}]`, ...a);
+console.warn  = (...a) => _err(`[${ts()}]`, ...a);
+
 import { createApp } from './server';
 import { pool } from './db/client';
 import { migrate } from './db/migrate';
