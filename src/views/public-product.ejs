@@ -45,6 +45,14 @@
       <div class="stat-box stat-current">
         <div class="stat-label">Precio actual</div>
         <div class="stat-value"><%= currentPrice ? currentPrice.toFixed(2) + ' €' : '—' %></div>
+        <% if (currentPrice && minPrice && currentPrice > minPrice + 0.01) {
+             const diffAbs = (currentPrice - minPrice).toFixed(2);
+             const diffPct = Math.round((currentPrice - minPrice) / minPrice * 100);
+        %>
+          <div class="stat-sublabel stat-above-min">+<%= diffAbs %> € vs mínimo (<%= diffPct %>%)</div>
+        <% } else if (currentPrice && minPrice && currentPrice <= minPrice + 0.01) { %>
+          <div class="stat-sublabel stat-at-min">Precio mínimo histórico</div>
+        <% } %>
       </div>
       <div class="stat-box stat-min">
         <div class="stat-label">Precio mínimo</div>
@@ -75,6 +83,51 @@
       <div class="chart-wrap">
         <canvas id="priceChart"></canvas>
       </div>
+    </div>
+
+    <%
+      const tableRows = history.slice(0, 50);
+      const tablePrices = tableRows.map(h => parseFloat(h.price));
+      const tableMin = Math.min(...tablePrices);
+      const tableMax = Math.max(...tablePrices);
+    %>
+    <div class="card history-table-card">
+      <h2>Últimos registros</h2>
+      <div class="history-table-wrap">
+        <table class="history-table">
+          <thead>
+            <tr><th>Fecha</th><th>Precio</th><th>Variación</th></tr>
+          </thead>
+          <tbody>
+            <% tableRows.forEach(function(h, i) {
+              const price = parseFloat(h.price);
+              const prev  = i + 1 < tableRows.length ? parseFloat(tableRows[i + 1].price) : null;
+              const delta = prev !== null ? price - prev : null;
+              const isMin = Math.abs(price - tableMin) < 0.005;
+              const isMax = Math.abs(price - tableMax) < 0.005;
+            %>
+            <tr class="<%= isMin ? 'row-min' : isMax ? 'row-max' : '' %>">
+              <td><%= new Date(h.scrapedAt).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) %></td>
+              <td class="price-cell">
+                <%= price.toFixed(2) %> €
+                <% if (isMin) { %><span class="badge-min-inline">mín</span><% } %>
+                <% if (isMax) { %><span class="badge-max-inline">máx</span><% } %>
+              </td>
+              <td class="delta-cell">
+                <% if (delta !== null) { %>
+                  <span class="<%= delta < 0 ? 'delta-down' : delta > 0 ? 'delta-up' : 'delta-flat' %>">
+                    <%= delta > 0 ? '+' : '' %><%= delta.toFixed(2) %> €
+                  </span>
+                <% } else { %>—<% } %>
+              </td>
+            </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+      <% if (history.length > 50) { %>
+        <p class="table-note">Mostrando los 50 registros más recientes de <%= history.length %> totales.</p>
+      <% } %>
     </div>
 
     <script>

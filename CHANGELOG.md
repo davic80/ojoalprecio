@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-04-29
+
+### Added
+- Página de producto: diferencia del precio actual al mínimo histórico en el stat box ("+X € vs mínimo (Y%)") y badge "Precio mínimo histórico" cuando está en el suelo
+- Página de producto: tabla de últimos 50 registros con highlight verde para el precio mínimo y naranja para el máximo, y columna de variación registro a registro
+- Auto-import de categorías Amazon: cada hora a las :10 se escanea la categoría menos reciente de `amazon_category_sources` y se añaden hasta 40 productos nuevos, uno por minuto
+- Función `scrapeAmazonCategory()` en el scraper — extrae hasta N ASINs de cualquier página de Amazon.es (bestsellers, búsquedas, etc.)
+- Tabla `amazon_category_sources` con 10 categorías de Amazon.es preconfiguradas (Electrónica, Informática, Hogar, Deportes, Juguetes, Cámara, Bricolaje, Salud, Ropa, Jardín)
+- Usuario sistema `system@ojoalprecio.local` como propietario de los productos auto-importados
+
 ## [1.10.2] - 2026-04-29
 
 ### Fixed

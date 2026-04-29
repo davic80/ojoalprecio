@@ -422,3 +422,93 @@ export async function scrapeWishlist(url: string): Promise<string[]> {
     await browser.close();
   }
 }
+
+/**
+ * Scrape up to `limit` product ASINs from an Amazon.es category / bestsellers page.
+ * Returns canonical product URLs.
+ */
+export async function scrapeAmazonCategory(categoryUrl: string, limit = 40): Promise<string[]> {
+  const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
+
+  const browser: Browser = await chromium.launch({
+    headless: true,
+    executablePath: executablePath || undefined,
+    args: [
+      '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas', '--disable-gpu', '--no-first-run',
+      '--disable-blink-features=AutomationControlled', '--disable-infobars',
+    ],
+  });
+
+  try {
+    const context = await browser.newContext({
+      userAgent: randomUserAgent(),
+      viewport: { width: 1366, height: 768 },
+      locale: 'es-ES',
+      timezoneId: 'Europe/Madrid',
+      extraHTTPHeaders: {
+        'Accept-Language': 'es-ES,es;q=0.9',
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Upgrade-Insecure-Requests': '1',
+      },
+    });
+
+    await context.addInitScript(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+      // @ts-ignore — browser context
+      window.chrome = { runtime: {}, app: { isInstalled: false } };
+    });
+
+    const page = await context.newPage();
+
+    await page.route('**/*', route => {
+      if (['font', 'media'].includes(route.request().resourceType())) route.abort();
+      else route.continue();
+    });
+
+    await page.goto('https://www.amazon.es', { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await randomDelay(800, 1500);
+    await page.goto(categoryUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await randomDelay(1000, 2000);
+
+    const pageTitle = await page.title();
+    const currentUrl = page.url();
+    if (
+      pageTitle.includes('Robot Check') || pageTitle.includes('503') ||
+      currentUrl.includes('validateCaptcha') || currentUrl.includes('ap/signin')
+    ) {
+      throw new Error(`Amazon bloqueó la petición de categoría (${pageTitle})`);
+    }
+
+    // Scroll to trigger lazy-load (bestsellers pages paginate via scroll)
+    for (let i = 0; i < 3; i++) {
+      await page.evaluate('window.scrollTo(0, document.body.scrollHeight)');
+      await randomDelay(800, 1200);
+    }
+
+    const hrefs: string[] = await page.$$eval('a[href*="/dp/"]', els =>
+      (els as { href: string }[]).map(el => el.href),
+    );
+
+    const asinPattern = /\/dp\/([A-Z0-9]{10})/i;
+    const seen = new Set<string>();
+    const results: string[] = [];
+
+    for (const href of hrefs) {
+      if (results.length >= limit) break;
+      const match = href.match(asinPattern);
+      if (match) {
+        const asin = match[1].toUpperCase();
+        if (!seen.has(asin)) {
+          seen.add(asin);
+          results.push(`https://www.amazon.es/dp/${asin}`);
+        }
+      }
+    }
+
+    return results;
+  } finally {
+    await browser.close();
+  }
+}

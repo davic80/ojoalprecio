@@ -126,3 +126,15 @@ export type NewPriceHistory = typeof priceHistory.$inferInsert;
 
 export type Alert = typeof alerts.$inferSelect;
 export type NewAlert = typeof alerts.$inferInsert;
+
+// ── Amazon Category Sources ───────────────────────────────────────────────────
+
+export const amazonCategorySources = pgTable('amazon_category_sources', {
+  id: serial('id').primaryKey(),
+  name: varchar('name', { length: 100 }).notNull(),
+  amazonUrl: text('amazon_url').notNull(),
+  categoryId: integer('category_id').references(() => categories.id, { onDelete: 'set null' }),
+  isActive: boolean('is_active').default(true).notNull(),
+  lastImportedAt: timestamp('last_imported_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});

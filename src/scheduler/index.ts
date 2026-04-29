@@ -273,6 +273,9 @@ export function startScheduler(): void {
   console.log(`[scheduler] Starting with schedule: "${CHECK_INTERVAL}"`);
   checkAllProducts();
   cron.schedule(CHECK_INTERVAL, () => { checkAllProducts(); });
+
+  const { startCategoryImportScheduler } = require('./category-import');
+  startCategoryImportScheduler();
 }
 
 export { checkProduct };

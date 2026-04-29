@@ -175,6 +175,35 @@ const MIGRATIONS = [
   `
   ALTER TABLE products ADD COLUMN IF NOT EXISTS extra_images TEXT;
   `,
+  // Migration 18: Amazon category sources for hourly auto-import
+  `
+  CREATE TABLE IF NOT EXISTS amazon_category_sources (
+    id               SERIAL PRIMARY KEY,
+    name             VARCHAR(100) NOT NULL,
+    amazon_url       TEXT NOT NULL,
+    category_id      INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+    is_active        BOOLEAN DEFAULT TRUE NOT NULL,
+    last_imported_at TIMESTAMP,
+    created_at       TIMESTAMP DEFAULT NOW() NOT NULL
+  );
+
+  INSERT INTO amazon_category_sources (name, amazon_url) VALUES
+    ('Electrónica',      'https://www.amazon.es/gp/bestsellers/electronics/'),
+    ('Informática',      'https://www.amazon.es/gp/bestsellers/computers/'),
+    ('Hogar y cocina',   'https://www.amazon.es/gp/bestsellers/kitchen/'),
+    ('Deportes',         'https://www.amazon.es/gp/bestsellers/sports/'),
+    ('Juguetes',         'https://www.amazon.es/gp/bestsellers/toys/'),
+    ('Cámara y foto',    'https://www.amazon.es/gp/bestsellers/photo/'),
+    ('Bricolaje',        'https://www.amazon.es/gp/bestsellers/diy/'),
+    ('Salud y belleza',  'https://www.amazon.es/gp/bestsellers/drugstore/'),
+    ('Ropa',             'https://www.amazon.es/gp/bestsellers/apparel/'),
+    ('Jardín',           'https://www.amazon.es/gp/bestsellers/garden/')
+  ON CONFLICT DO NOTHING;
+
+  INSERT INTO users (email, password_hash, email_verified)
+  VALUES ('system@ojoalprecio.local', '$system-no-login$', TRUE)
+  ON CONFLICT (email) DO NOTHING;
+  `,
 ];
 
 export async function migrate(): Promise<void> {
