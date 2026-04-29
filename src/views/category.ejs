@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= category.name %> — OjoAlPrecio</title>
+  <meta name="description" content="Productos de <%= category.name %> en Amazon.es con seguimiento de precios.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <a href="/" class="navbar-brand">
+    <span class="brand-icon">👁</span>
+    <span class="brand-name">OjoAlPrecio</span>
+  </a>
+  <div class="navbar-actions">
+    <a href="/ofertas" class="nav-link">Ofertas</a>
+    <a href="/auth/login" class="btn btn-outline btn-sm">Entrar</a>
+  </div>
+</nav>
+
+<main class="container-wide">
+
+  <div class="page-header">
+    <h1><%= category.name %></h1>
+    <p class="subtitle">
+      <a href="/ofertas" class="hint-link">← Ver todas las ofertas</a>
+    </p>
+  </div>
+
+  <% if (deals.length === 0) { %>
+    <div class="empty-state">
+      <div class="empty-icon">🔍</div>
+      <h3>Sin productos publicados en esta categoría</h3>
+      <p>Cuando haya productos en oferta en esta categoría aparecerán aquí.</p>
+    </div>
+  <% } else { %>
+    <div class="product-grid">
+      <% deals.forEach(function(d) {
+        const allImages = [d.imageUrl, ...d.extraImages].filter(Boolean).slice(0, 3);
+        const hasCarousel = allImages.length > 1;
+      %>
+        <div class="product-card">
+          <a href="/p/<%= d.asin %>" class="product-card-link">
+            <div class="product-img-wrap"<% if (hasCarousel) { %> data-images="<%- JSON.stringify(allImages).replace(/"/g, '&quot;') %>"<% } %>>
+              <% if (d.imageUrl) { %>
+                <img src="<%= d.imageUrl %>" alt="<%= d.name ?? d.asin %>" class="product-img" loading="lazy">
+              <% } else { %>
+                <div class="product-img-placeholder">📦</div>
+              <% } %>
+              <% if (d.isAtLow) { %>
+                <span class="badge-low">Precio mínimo</span>
+              <% } else if (d.isOnSale) { %>
+                <span class="badge-sale">Oferta</span>
+              <% } %>
+            </div>
+            <div class="product-info">
+              <p class="product-name"><%= d.name ?? d.asin %></p>
+            </div>
+          </a>
+          <div class="product-prices">
+            <div class="price-row">
+              <div class="price-current"><%= parseFloat(d.currentPrice).toFixed(2) %> €</div>
+              <% if (d.discountFromMax > 0) { %>
+                <span class="trend-down">↓ <%= d.discountFromMax %>% vs max</span>
+              <% } %>
+            </div>
+            <% if (d.minPrice && d.maxPrice) { %>
+              <div class="price-range">
+                <span class="price-min">↓ <%= parseFloat(d.minPrice).toFixed(2) %> €</span>
+                <span class="price-max">↑ <%= parseFloat(d.maxPrice).toFixed(2) %> €</span>
+              </div>
+            <% } %>
+            <% if (d.sparkline && d.sparkline.length >= 2) {
+              const pts = [...d.sparkline].reverse();
+              const mn = Math.min(...pts), mx = Math.max(...pts), rng = mx - mn || 1;
+              const W = 120, H = 36, pad = 3;
+              const svgPts = pts.map(function(v, i) {
+                return (pad + (i / (pts.length - 1)) * (W - 2*pad)).toFixed(1) + ',' +
+                       (H - pad - ((v - mn) / rng) * (H - 2*pad)).toFixed(1);
+              }).join(' ');
+              const color = pts[pts.length-1] < pts[0] ? '#22c55e' : pts[pts.length-1] > pts[0] ? '#ef4444' : '#94a3b8';
+            %>
+            <svg class="sparkline-svg" viewBox="0 0 <%= W %> <%= H %>" width="<%= W %>" height="<%= H %>" aria-hidden="true">
+              <polyline points="<%= svgPts %>" fill="none" stroke="<%= color %>" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <% } %>
+          </div>
+          <div class="product-actions">
+            <a href="/p/<%= d.asin %>" class="btn btn-sm btn-outline">Ver historial</a>
+            <a href="<%= d.amazonUrl %>" target="_blank" rel="noopener sponsored" class="btn btn-sm btn-primary">Amazon ↗</a>
+          </div>
+        </div>
+      <% }); %>
+    </div>
+  <% } %>
+
+</main>
+
+<footer class="footer">
+  <p>OjoAlPrecio v<%= process.env['APP_VERSION'] ?? 'dev' %> &nbsp;·&nbsp; <a href="/auth/login">Añade tus productos</a></p>
+</footer>
+
+<style>
+.sparkline-svg { display: block; margin-top: 6px; }
+.product-img-wrap[data-images] { cursor: pointer; }
+</style>
+<script>
+(function() {
+  document.querySelectorAll('.product-img-wrap[data-images]').forEach(function(wrap) {
+    const images = JSON.parse(wrap.dataset.images);
+    if (images.length < 2) return;
+    const img = wrap.querySelector('.product-img');
+    if (!img) return;
+    let idx = 0, timer = null;
+    wrap.addEventListener('mouseenter', function() {
+      timer = setInterval(function() {
+        idx = (idx + 1) % images.length;
+        img.src = images[idx];
+      }, 2000);
+    });
+    wrap.addEventListener('mouseleave', function() {
+      clearInterval(timer);
+      timer = null;
+      idx = 0;
+      img.src = images[0];
+    });
+  });
+})();
+</script>
+</body>
+</html>

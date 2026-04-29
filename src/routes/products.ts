@@ -41,6 +41,7 @@ router.get('/', (req: Request, res: Response, next) => {
         p.image_url   AS "imageUrl",
         p.category_id  AS "categoryId",
         (SELECT c.name FROM categories c WHERE c.id = p.category_id) AS "categoryName",
+        (SELECT c.slug FROM categories c WHERE c.id = p.category_id) AS "categorySlug",
         p.is_active    AS "isActive",
         p.is_public    AS "isPublic",
         p.is_available AS "isAvailable",

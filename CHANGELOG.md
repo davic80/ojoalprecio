@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-04-28
+
+### Added
+- URLs limpias para categorías: `/c/:slug` (ej. `/c/foto`) — página pública con todos los productos en oferta de esa categoría
+- Sistema de listas de recomendación: rutas `/:slug` en la raíz (ej. `/alberto`) muestran una lista curada de productos con notas opcionales y enlace a Amazon
+- Panel admin en `/admin/lists` para crear, editar y eliminar listas; `/admin/lists/:id` para añadir/quitar productos con nota y ver precio actual
+- Migración 19: tablas `recommendation_lists` y `recommendation_items`
+- Nav admin actualizado: enlace "Listas" en todas las páginas de administración
+
+### Changed
+- Los tags de categoría en las tarjetas del dashboard ahora enlazan a `/c/:slug` en lugar de `/?category=ID`
+- Los nombres de categoría en la página de admin ahora enlazan a `/c/:slug`
+- El slug de la categoría se incluye en la consulta del dashboard
+
 ## [1.11.0] - 2026-04-29
 
 ### Added

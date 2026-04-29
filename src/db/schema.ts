@@ -127,6 +127,25 @@ export type NewPriceHistory = typeof priceHistory.$inferInsert;
 export type Alert = typeof alerts.$inferSelect;
 export type NewAlert = typeof alerts.$inferInsert;
 
+// ── Recommendation Lists ──────────────────────────────────────────────────────
+
+export const recommendationLists = pgTable('recommendation_lists', {
+  id: serial('id').primaryKey(),
+  slug: varchar('slug', { length: 100 }).notNull().unique(),
+  name: varchar('name', { length: 200 }).notNull(),
+  description: text('description'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const recommendationItems = pgTable('recommendation_items', {
+  id: serial('id').primaryKey(),
+  listId: integer('list_id').notNull().references(() => recommendationLists.id, { onDelete: 'cascade' }),
+  productId: integer('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
+  note: text('note'),
+  position: integer('position').default(0).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
 // ── Amazon Category Sources ───────────────────────────────────────────────────
 
 export const amazonCategorySources = pgTable('amazon_category_sources', {

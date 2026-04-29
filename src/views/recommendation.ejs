@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= list.name %> — OjoAlPrecio</title>
+  <% if (list.description) { %>
+  <meta name="description" content="<%= list.description %>">
+  <% } %>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <a href="/" class="navbar-brand">
+    <span class="brand-icon">👁</span>
+    <span class="brand-name">OjoAlPrecio</span>
+  </a>
+  <div class="navbar-actions">
+    <a href="/ofertas" class="nav-link">Ofertas</a>
+    <a href="/auth/login" class="btn btn-outline btn-sm">Entrar</a>
+  </div>
+</nav>
+
+<main class="container-wide">
+
+  <div class="page-header">
+    <h1><%= list.name %></h1>
+    <% if (list.description) { %>
+    <p class="subtitle"><%= list.description %></p>
+    <% } %>
+  </div>
+
+  <% if (items.length === 0) { %>
+    <div class="empty-state">
+      <div class="empty-icon">📋</div>
+      <h3>Lista vacía</h3>
+      <p>Esta lista no tiene productos todavía.</p>
+    </div>
+  <% } else { %>
+    <div class="product-grid">
+      <% items.forEach(function(item) { %>
+        <div class="product-card">
+          <a href="/p/<%= item.asin %>" class="product-card-link">
+            <div class="product-img-wrap">
+              <% if (item.imageUrl) { %>
+                <img src="<%= item.imageUrl %>" alt="<%= item.name ?? item.asin %>" class="product-img" loading="lazy">
+              <% } else { %>
+                <div class="product-img-placeholder">📦</div>
+              <% } %>
+              <% if (!item.isAvailable) { %>
+                <span class="badge-unavailable">Sin stock</span>
+              <% } else if (item.isAtLow) { %>
+                <span class="badge-low">Precio mínimo</span>
+              <% } %>
+            </div>
+            <div class="product-info">
+              <p class="product-name"><%= item.name ?? item.asin %></p>
+              <% if (item.note) { %>
+                <p class="product-error" style="color:var(--gray-600);background:none;padding:0">💬 <%= item.note %></p>
+              <% } %>
+            </div>
+          </a>
+          <div class="product-prices">
+            <% if (!item.isAvailable) { %>
+              <div class="price-unavailable">Sin stock</div>
+            <% } else if (item.currentPrice) { %>
+              <div class="price-current"><%= item.currentPrice.toFixed(2) %> €</div>
+              <% if (item.minPrice && item.maxPrice) { %>
+                <div class="price-range">
+                  <span class="price-min">↓ <%= item.minPrice.toFixed(2) %> €</span>
+                  <span class="price-max">↑ <%= item.maxPrice.toFixed(2) %> €</span>
+                </div>
+              <% } %>
+            <% } else { %>
+              <div class="price-pending">Sin precio</div>
+            <% } %>
+          </div>
+          <div class="product-actions">
+            <a href="/p/<%= item.asin %>" class="btn btn-sm btn-outline">Ver historial</a>
+            <% if (item.isAvailable !== false) { %>
+              <a href="<%= item.amazonUrl %>" target="_blank" rel="noopener sponsored" class="btn btn-sm btn-primary">Amazon ↗</a>
+            <% } %>
+          </div>
+        </div>
+      <% }); %>
+    </div>
+  <% } %>
+
+</main>
+
+<footer class="footer">
+  <p>OjoAlPrecio v<%= process.env['APP_VERSION'] ?? 'dev' %> &nbsp;·&nbsp; <a href="/auth/login">Añade tus productos</a></p>
+</footer>
+
+</body>
+</html>

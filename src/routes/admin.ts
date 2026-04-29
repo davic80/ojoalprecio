@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { db } from '../db/client';
-import { categories, products, users } from '../db/schema';
+import { categories, products, users, recommendationLists, recommendationItems } from '../db/schema';
 import { eq, sql, asc, desc } from 'drizzle-orm';
 import { requireAuth } from '../middleware/auth';
 import { requireAdmin } from '../middleware/admin';
@@ -202,6 +202,114 @@ router.delete('/admin/categories/:id', requireAuth, requireAdmin, async (req: Re
 
   if (req.headers['hx-request']) return res.send('');
   res.redirect('/admin/categories');
+});
+
+// ── GET /admin/lists ──────────────────────────────────────────────────────────
+router.get('/admin/lists', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const lists = await db.execute(sql`
+    SELECT rl.id, rl.slug, rl.name, rl.description,
+      (SELECT COUNT(*) FROM recommendation_items ri WHERE ri.list_id = rl.id) AS "itemCount"
+    FROM recommendation_lists rl
+    ORDER BY rl.name ASC
+  `);
+
+  res.render('admin-lists', {
+    lists: lists.rows,
+    user: { email: req.session.userEmail },
+    isAdmin: true,
+  });
+});
+
+// ── POST /admin/lists ─────────────────────────────────────────────────────────
+router.post('/admin/lists', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const name = String(req.body.name ?? '').trim();
+  const description = String(req.body.description ?? '').trim() || null;
+  if (!name) return res.redirect('/admin/lists');
+
+  const slug = toSlug(name);
+  if (!slug) return res.redirect('/admin/lists');
+
+  await db.insert(recommendationLists).values({ name, slug, description } as any).onConflictDoNothing();
+  res.redirect('/admin/lists');
+});
+
+// ── GET /admin/lists/:id ──────────────────────────────────────────────────────
+router.get('/admin/lists/:id', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params.id), 10);
+
+  const [listRow, itemRows, allProducts] = await Promise.all([
+    db.execute(sql`SELECT id, slug, name, description FROM recommendation_lists WHERE id = ${id} LIMIT 1`),
+    db.execute(sql`
+      SELECT ri.id AS "itemId", ri.note, ri.position, p.id, p.asin, p.name,
+        (SELECT ph.price FROM price_history ph WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1) AS "currentPrice"
+      FROM recommendation_items ri
+      JOIN products p ON p.id = ri.product_id
+      WHERE ri.list_id = ${id}
+      ORDER BY ri.position ASC, ri.created_at ASC
+    `),
+    db.execute(sql`
+      SELECT p.id, p.asin, p.name,
+        (SELECT ph.price FROM price_history ph WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1) AS "currentPrice"
+      FROM products p
+      WHERE p.is_active = TRUE
+        AND p.id NOT IN (SELECT product_id FROM recommendation_items WHERE list_id = ${id})
+      ORDER BY p.name ASC NULLS LAST
+      LIMIT 200
+    `),
+  ]);
+
+  const list = (listRow.rows as any[])[0];
+  if (!list) return res.status(404).render('404', { user: { email: req.session.userEmail } });
+
+  res.render('admin-list-edit', {
+    list,
+    items: itemRows.rows,
+    allProducts: allProducts.rows,
+    user: { email: req.session.userEmail },
+    isAdmin: true,
+  });
+});
+
+// ── POST /admin/lists/:id/items ───────────────────────────────────────────────
+router.post('/admin/lists/:id/items', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const listId = parseInt(String(req.params.id), 10);
+  const productId = parseInt(String(req.body.productId ?? ''), 10);
+  const note = String(req.body.note ?? '').trim() || null;
+
+  if (productId) {
+    const maxPos = await db.execute(sql`
+      SELECT COALESCE(MAX(position), -1) AS pos FROM recommendation_items WHERE list_id = ${listId}
+    `);
+    const nextPos = parseInt(String((maxPos.rows[0] as any)?.pos ?? '-1'), 10) + 1;
+    await db.execute(sql`
+      INSERT INTO recommendation_items (list_id, product_id, note, position)
+      VALUES (${listId}, ${productId}, ${note}, ${nextPos})
+      ON CONFLICT (list_id, product_id) DO NOTHING
+    `);
+  }
+  res.redirect(`/admin/lists/${listId}`);
+});
+
+// ── DELETE /admin/lists/:id/items/:productId ──────────────────────────────────
+router.delete('/admin/lists/:id/items/:productId', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const listId = parseInt(String(req.params.id), 10);
+  const productId = parseInt(String(req.params.productId), 10);
+
+  await db.execute(sql`
+    DELETE FROM recommendation_items WHERE list_id = ${listId} AND product_id = ${productId}
+  `);
+
+  if (req.headers['hx-request']) return res.send('');
+  res.redirect(`/admin/lists/${listId}`);
+});
+
+// ── DELETE /admin/lists/:id ───────────────────────────────────────────────────
+router.delete('/admin/lists/:id', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params.id), 10);
+  await db.delete(recommendationLists).where(eq(recommendationLists.id, id));
+
+  if (req.headers['hx-request']) return res.send('');
+  res.redirect('/admin/lists');
 });
 
 export default router;

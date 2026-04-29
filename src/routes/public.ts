@@ -71,6 +71,54 @@ router.get('/ofertas', async (_req: Request, res: Response) => {
   res.render('deals', { groups });
 });
 
+// ── GET /c/:slug — Public category page ──────────────────────────────────────
+router.get('/c/:slug', async (req: Request, res: Response) => {
+  const slug = String(req.params.slug).toLowerCase();
+
+  const catRow = await db.execute(sql`SELECT id, name, slug FROM categories WHERE slug = ${slug} LIMIT 1`);
+  const cat = (catRow.rows as any[])[0];
+  if (!cat) return res.status(404).render('404', { user: null });
+
+  const rows = await db.execute(sql`
+    SELECT
+      p.id, p.asin, p.name, p.image_url AS "imageUrl", p.extra_images AS "extraImages", p.url,
+      (
+        SELECT ph.price FROM price_history ph
+        WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1
+      ) AS "currentPrice",
+      (SELECT MIN(ph2.price) FROM price_history ph2 WHERE ph2.product_id = p.id) AS "minPrice",
+      (SELECT MAX(ph3.price) FROM price_history ph3 WHERE ph3.product_id = p.id) AS "maxPrice",
+      (
+        SELECT json_agg(sub.price)
+        FROM (
+          SELECT price FROM price_history
+          WHERE product_id = p.id
+          ORDER BY scraped_at DESC LIMIT 20
+        ) sub
+      ) AS "sparkline",
+      p.is_on_sale AS "isOnSale"
+    FROM products p
+    WHERE p.category_id = ${cat.id}
+      AND p.is_public = TRUE AND p.is_active = TRUE AND p.is_available = TRUE
+    ORDER BY p.is_on_sale DESC, p.created_at DESC
+  `);
+
+  const deals = (rows.rows as any[])
+    .filter(p => p.currentPrice)
+    .map(p => ({
+      ...p,
+      amazonUrl: affiliateUrl(p.url),
+      discountFromMax: p.maxPrice
+        ? Math.round((1 - parseFloat(p.currentPrice) / parseFloat(p.maxPrice)) * 100)
+        : 0,
+      isAtLow: p.minPrice && parseFloat(p.currentPrice) <= parseFloat(p.minPrice) + 0.01,
+      sparkline: Array.isArray(p.sparkline) ? p.sparkline.map(Number) : [],
+      extraImages: (() => { try { return JSON.parse(p.extraImages ?? '[]'); } catch { return []; } })(),
+    }));
+
+  res.render('category', { category: cat, deals });
+});
+
 // ── GET /p/:asin — Public product page ───────────────────────────────────────
 router.get('/p/:asin', async (req: Request, res: Response) => {
   const asin = String(req.params.asin).toUpperCase();

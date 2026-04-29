@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= list.name %> — Admin OjoAlPrecio</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js" defer></script>
+</head>
+<body>
+
+<nav class="navbar">
+  <a href="/" class="navbar-brand">
+    <span class="brand-icon">👁</span>
+    <span class="brand-name">OjoAlPrecio</span>
+  </a>
+  <div class="navbar-actions">
+    <a href="/admin/categories" class="nav-link">Categorías</a>
+    <a href="/admin/lists" class="nav-link nav-link-active">Listas</a>
+    <a href="/admin/alerts" class="nav-link">Alertas</a>
+    <a href="/admin/import-url" class="nav-link">Importar URL</a>
+    <span class="user-email"><%= user.email %></span>
+    <form action="/auth/logout" method="POST" style="display:inline">
+      <button type="submit" class="btn btn-ghost btn-sm">Salir</button>
+    </form>
+  </div>
+</nav>
+
+<main class="container">
+
+  <div class="page-header">
+    <h1><%= list.name %></h1>
+    <p class="subtitle">
+      URL pública: <a href="/<%= list.slug %>" target="_blank" class="hint-link">/<%= list.slug %></a>
+      <% if (list.description) { %>&nbsp;·&nbsp; <%= list.description %><% } %>
+    </p>
+  </div>
+
+  <!-- Current items -->
+  <div class="card">
+    <h2>Productos en la lista (<%= items.length %>)</h2>
+    <% if (items.length === 0) { %>
+      <p class="hint" style="margin-top:12px">Sin productos todavía. Añade uno abajo.</p>
+    <% } else { %>
+      <div class="table-wrap" style="margin-top:16px">
+        <table class="price-table">
+          <thead>
+            <tr>
+              <th>Producto</th>
+              <th>ASIN</th>
+              <th style="text-align:right">Precio actual</th>
+              <th>Nota</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% items.forEach(function(item) { %>
+              <tr id="item-<%= item.id %>-<%= item.itemId %>">
+                <td><%= item.name ?? item.asin %></td>
+                <td><code class="hint"><%= item.asin %></code></td>
+                <td style="text-align:right">
+                  <% if (item.currentPrice) { %><%= parseFloat(item.currentPrice).toFixed(2) %> €<% } else { %>—<% } %>
+                </td>
+                <td><span class="hint"><%= item.note ?? '' %></span></td>
+                <td style="text-align:right">
+                  <button
+                    class="btn btn-sm btn-danger"
+                    hx-delete="/admin/lists/<%= list.id %>/items/<%= item.id %>"
+                    hx-target="closest tr"
+                    hx-swap="outerHTML"
+                    hx-confirm="¿Quitar '<%= item.name ?? item.asin %>' de la lista?"
+                  >Quitar</button>
+                </td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+    <% } %>
+  </div>
+
+  <!-- Add product -->
+  <div class="card add-card" style="margin-top:12px">
+    <h2>Añadir producto</h2>
+    <form action="/admin/lists/<%= list.id %>/items" method="POST" class="add-form">
+      <div class="input-group">
+        <select name="productId" class="input" required>
+          <option value="">— Selecciona un producto —</option>
+          <% allProducts.forEach(function(p) { %>
+            <option value="<%= p.id %>">
+              <%= p.name ?? p.asin %><% if (p.currentPrice) { %> · <%= parseFloat(p.currentPrice).toFixed(2) %> €<% } %>
+            </option>
+          <% }); %>
+        </select>
+        <button type="submit" class="btn btn-primary">Añadir</button>
+      </div>
+      <input type="text" name="note" placeholder="Nota opcional (ej: 'La mejor relación calidad-precio')" class="input" style="margin-top:8px" maxlength="500">
+    </form>
+  </div>
+
+  <div style="margin-top:12px;display:flex;gap:12px;align-items:center">
+    <a href="/admin/lists" class="hint-link">← Volver a listas</a>
+    <a href="/<%= list.slug %>" target="_blank" class="btn btn-sm btn-outline">Ver página pública ↗</a>
+  </div>
+
+</main>
+
+<footer class="footer">
+  <p>OjoAlPrecio v<%= process.env['APP_VERSION'] ?? 'dev' %> Admin &nbsp;·&nbsp; <a href="/ofertas">Ver ofertas públicas</a></p>
+</footer>
+
+</body>
+</html>

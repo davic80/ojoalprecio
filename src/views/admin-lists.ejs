@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Categorías — Admin OjoAlPrecio</title>
+  <title>Listas de recomendación — Admin OjoAlPrecio</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
   <link rel="stylesheet" href="/css/style.css">
   <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js" defer></script>
@@ -16,8 +16,8 @@
     <span class="brand-name">OjoAlPrecio</span>
   </a>
   <div class="navbar-actions">
-    <a href="/admin/categories" class="nav-link nav-link-active">Categorías</a>
-    <a href="/admin/lists" class="nav-link">Listas</a>
+    <a href="/admin/categories" class="nav-link">Categorías</a>
+    <a href="/admin/lists" class="nav-link nav-link-active">Listas</a>
     <a href="/admin/alerts" class="nav-link">Alertas</a>
     <a href="/admin/import-url" class="nav-link">Importar URL</a>
     <span class="user-email"><%= user.email %></span>
@@ -30,63 +30,59 @@
 <main class="container">
 
   <div class="page-header">
-    <h1>Gestión de categorías</h1>
-    <p class="subtitle">Las categorías que crees aquí estarán disponibles para todos los usuarios.</p>
+    <h1>Listas de recomendación</h1>
+    <p class="subtitle">Comparte listas de productos con una URL limpia: dominio.com/alberto</p>
   </div>
 
-  <!-- Add category -->
+  <!-- Create list -->
   <div class="card add-card">
-    <h2>Nueva categoría</h2>
-    <form action="/admin/categories" method="POST" class="add-form">
+    <h2>Nueva lista</h2>
+    <form action="/admin/lists" method="POST" class="add-form">
       <div class="input-group">
-        <input type="text" name="name" placeholder="Nombre de la categoría" required
-          class="input" autocomplete="off" maxlength="100">
+        <input type="text" name="name" placeholder="Nombre de la lista (ej: Alberto)" required
+          class="input" autocomplete="off" maxlength="200">
         <button type="submit" class="btn btn-primary">Crear</button>
       </div>
-      <p class="hint">El slug se genera automáticamente. Ejemplo: "Audio y sonido" → audio-y-sonido</p>
+      <input type="text" name="description" placeholder="Descripción opcional" class="input" style="margin-top:8px" maxlength="500">
+      <p class="hint">El slug se genera del nombre. Ejemplo: "Para Alberto" → para-alberto → dominio.com/para-alberto</p>
     </form>
   </div>
 
-  <!-- Category list -->
+  <!-- Lists table -->
   <div class="card">
-    <h2>Categorías existentes (<%= categories.length %>)</h2>
-    <% if (categories.length === 0) { %>
-      <p class="hint" style="margin-top:12px">No hay categorías todavía. Crea la primera arriba.</p>
+    <h2>Listas existentes (<%= lists.length %>)</h2>
+    <% if (lists.length === 0) { %>
+      <p class="hint" style="margin-top:12px">No hay listas todavía. Crea la primera arriba.</p>
     <% } else { %>
       <div class="table-wrap" style="margin-top:16px">
         <table class="price-table">
           <thead>
             <tr>
               <th>Nombre</th>
-              <th>Slug</th>
+              <th>URL</th>
               <th style="text-align:right">Productos</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
-            <tr>
-              <td>
-                <a href="/?category=none&status=all&sort=recent&per_page=20" class="category-link-admin" style="color:var(--gray-500);font-style:italic">Sin categoría</a>
-                <span style="font-size:11px;color:var(--gray-400)"> (dashboard)</span>
-              </td>
-              <td><code class="hint">—</code></td>
-              <td style="text-align:right"><%= uncategorizedCount %></td>
-              <td></td>
-            </tr>
-            <% categories.forEach(function(cat) { %>
-              <tr id="cat-<%= cat.id %>">
+            <% lists.forEach(function(lst) { %>
+              <tr id="list-<%= lst.id %>">
                 <td>
-                  <a href="/c/<%= cat.slug %>" class="category-link-admin"><strong><%= cat.name %></strong></a>
+                  <a href="/admin/lists/<%= lst.id %>" class="category-link-admin"><strong><%= lst.name %></strong></a>
+                  <% if (lst.description) { %><br><span class="hint"><%= lst.description %></span><% } %>
                 </td>
-                <td><code class="hint"><%= cat.slug %></code></td>
-                <td style="text-align:right"><%= cat.productCount %></td>
+                <td>
+                  <a href="/<%= lst.slug %>" class="hint" target="_blank">/<%= lst.slug %></a>
+                </td>
+                <td style="text-align:right"><%= lst.itemCount %></td>
                 <td style="text-align:right">
+                  <a href="/admin/lists/<%= lst.id %>" class="btn btn-sm btn-outline" style="margin-right:4px">Editar</a>
                   <button
                     class="btn btn-sm btn-danger"
-                    hx-delete="/admin/categories/<%= cat.id %>"
-                    hx-target="#cat-<%= cat.id %>"
+                    hx-delete="/admin/lists/<%= lst.id %>"
+                    hx-target="#list-<%= lst.id %>"
                     hx-swap="outerHTML"
-                    hx-confirm="¿Eliminar '<%= cat.name %>'? Los productos quedarán sin categoría."
+                    hx-confirm="¿Eliminar la lista '<%= lst.name %>'?"
                   >Eliminar</button>
                 </td>
               </tr>

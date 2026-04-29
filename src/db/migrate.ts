@@ -204,6 +204,28 @@ const MIGRATIONS = [
   VALUES ('system@ojoalprecio.local', '$system-no-login$', TRUE)
   ON CONFLICT (email) DO NOTHING;
   `,
+  // Migration 19: recommendation lists + items
+  `
+  CREATE TABLE IF NOT EXISTS recommendation_lists (
+    id          SERIAL PRIMARY KEY,
+    slug        VARCHAR(100) NOT NULL UNIQUE,
+    name        VARCHAR(200) NOT NULL,
+    description TEXT,
+    created_at  TIMESTAMP DEFAULT NOW() NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS recommendation_items (
+    id          SERIAL PRIMARY KEY,
+    list_id     INTEGER NOT NULL REFERENCES recommendation_lists(id) ON DELETE CASCADE,
+    product_id  INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    note        TEXT,
+    position    INTEGER DEFAULT 0 NOT NULL,
+    created_at  TIMESTAMP DEFAULT NOW() NOT NULL,
+    UNIQUE(list_id, product_id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_recommendation_items_list_id ON recommendation_items(list_id);
+  `,
 ];
 
 export async function migrate(): Promise<void> {
