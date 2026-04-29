@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.1] - 2026-04-29
+
+### Fixed
+- Productos que suben de precio ya no permanecen en /ofertas — el filtro ahora exige `is_on_sale = TRUE` además de `is_public`
+
 ## [1.10.0] - 2026-04-29
 
 ### Added

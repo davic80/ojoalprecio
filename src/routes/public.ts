@@ -29,7 +29,7 @@ router.get('/ofertas', async (_req: Request, res: Response) => {
       p.is_on_sale AS "isOnSale"
     FROM products p
     LEFT JOIN categories c ON c.id = p.category_id
-    WHERE p.is_public = TRUE AND p.is_active = TRUE AND p.is_available = TRUE
+    WHERE p.is_public = TRUE AND p.is_active = TRUE AND p.is_available = TRUE AND p.is_on_sale = TRUE
     ORDER BY c.name ASC NULLS LAST, p.created_at DESC
   `);
 
