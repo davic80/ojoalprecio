@@ -63,9 +63,19 @@
             </tr>
           </thead>
           <tbody>
+            <tr>
+              <td>
+                <a href="/?category=none&status=all&sort=recent&per_page=20" class="category-link-admin" style="color:var(--gray-500);font-style:italic">Sin categoría</a>
+              </td>
+              <td><code class="hint">—</code></td>
+              <td style="text-align:right"><%= uncategorizedCount %></td>
+              <td></td>
+            </tr>
             <% categories.forEach(function(cat) { %>
               <tr id="cat-<%= cat.id %>">
-                <td><strong><%= cat.name %></strong></td>
+                <td>
+                  <a href="/?category=<%= cat.id %>&status=all&sort=recent&per_page=20" class="category-link-admin"><strong><%= cat.name %></strong></a>
+                </td>
                 <td><code class="hint"><%= cat.slug %></code></td>
                 <td style="text-align:right"><%= cat.productCount %></td>
                 <td style="text-align:right">

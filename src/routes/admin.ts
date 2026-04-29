@@ -23,15 +23,21 @@ function toSlug(name: string): string {
 
 // ── GET /admin/categories ─────────────────────────────────────────────────────
 router.get('/admin/categories', requireAuth, requireAdmin, async (req: Request, res: Response) => {
-  const cats = await db.execute(sql`
-    SELECT c.id, c.name, c.slug,
-      (SELECT COUNT(*) FROM products p WHERE p.category_id = c.id) AS "productCount"
-    FROM categories c
-    ORDER BY c.name ASC
-  `);
+  const [cats, uncatRow] = await Promise.all([
+    db.execute(sql`
+      SELECT c.id, c.name, c.slug,
+        (SELECT COUNT(*) FROM products p WHERE p.category_id = c.id) AS "productCount"
+      FROM categories c
+      ORDER BY c.name ASC
+    `),
+    db.execute(sql`
+      SELECT COUNT(*) AS count FROM products WHERE category_id IS NULL AND is_active = TRUE
+    `),
+  ]);
 
   res.render('admin-categories', {
     categories: cats.rows,
+    uncategorizedCount: parseInt(String((uncatRow.rows[0] as any)?.count ?? '0'), 10),
     user: { email: req.session.userEmail },
     isAdmin: true,
   });

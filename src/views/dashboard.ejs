@@ -20,10 +20,13 @@ function trendBadge(current, previous) {
   const cur = parseFloat(current);
   const prev = parseFloat(previous);
   if (prev === 0) return '';
-  const pct = ((cur - prev) / prev * 100);
+  const diff = cur - prev;
+  const pct = (diff / prev * 100);
   if (Math.abs(pct) < 0.1) return '<span class="trend-neutral">—</span>';
-  if (pct < 0) return `<span class="trend-down">↓ ${Math.abs(pct).toFixed(1)}%</span>`;
-  return `<span class="trend-up">↑ ${pct.toFixed(1)}%</span>`;
+  const absPct = Math.abs(pct).toFixed(1);
+  const absDiff = Math.abs(diff).toFixed(2);
+  if (diff < 0) return `<span class="trend-down">↓ ${absPct}% · −${absDiff} €</span>`;
+  return `<span class="trend-up">↑ ${absPct}% · +${absDiff} €</span>`;
 }
 %>
 <!DOCTYPE html>
@@ -159,6 +162,10 @@ function trendBadge(current, previous) {
         <option value="<%= n %>" <%= filters.perPage === n ? 'selected' : '' %>><%= n %> / pág.</option>
       <% }); %>
     </select>
+    <% const isFiltered = filters.q || filters.category || filters.status !== 'all' || filters.sort !== 'recent'; %>
+    <% if (isFiltered) { %>
+      <a href="/" class="btn btn-sm btn-ghost" title="Limpiar filtros" style="padding:0 8px;font-size:16px;line-height:1">×</a>
+    <% } %>
   </form>
   <% } %>
 
@@ -193,7 +200,7 @@ function trendBadge(current, previous) {
         <div class="product-info">
           <p class="product-name"><%= p.name ?? p.asin %></p>
           <p class="product-asin">ASIN: <%= p.asin %><% if (p.isPublic) { %> · <span class="public-tag">público</span><% } %></p>
-          <% if (p.categoryName) { %><span class="category-tag"><%= p.categoryName %></span><% } %>
+          <% if (p.categoryName) { %><a href="/?category=<%= p.categoryId %>" class="category-tag"><%= p.categoryName %></a><% } %>
           <% if (p.lastError) { %>
             <p class="product-error">⚠ <%= p.lastError %></p>
           <% } %>

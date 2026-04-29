@@ -31,7 +31,7 @@
 <main class="container">
 
   <div class="back-link">
-    <a href="/">← Volver al dashboard</a>
+    <a href="/" onclick="if(history.length>1){event.preventDefault();history.back()}">← Volver al dashboard</a>
   </div>
 
   <!-- Product header -->
@@ -180,7 +180,17 @@
               legend: { display: false },
               tooltip: {
                 callbacks: {
-                  label: ctx => ctx.parsed.y.toFixed(2) + ' €'
+                  label: ctx => {
+                    const price = ctx.parsed.y.toFixed(2) + ' €';
+                    const idx = ctx.dataIndex;
+                    if (idx === 0) return price;
+                    const prev = chartData[idx - 1].y;
+                    const diff = ctx.parsed.y - prev;
+                    const pct = (diff / prev * 100);
+                    if (Math.abs(pct) < 0.1) return price;
+                    const sign = diff >= 0 ? '+' : '−';
+                    return `${price}   ${sign}${Math.abs(diff).toFixed(2)} € (${sign}${Math.abs(pct).toFixed(1)}%)`;
+                  }
                 }
               }
             },
@@ -212,13 +222,25 @@
             <tr>
               <th>Fecha</th>
               <th>Precio</th>
+              <th>Variación</th>
             </tr>
           </thead>
           <tbody>
-            <% history.slice(0, 50).forEach(function(h) { %>
+            <% history.slice(0, 50).forEach(function(h, i, arr) {
+              const prev = arr[i + 1];
+              const diff = prev ? parseFloat(h.price) - parseFloat(prev.price) : null;
+              const pct = (prev && parseFloat(prev.price) !== 0) ? diff / parseFloat(prev.price) * 100 : null;
+            %>
               <tr>
                 <td><%= new Date(h.scrapedAt).toLocaleString('es-ES') %></td>
                 <td class="price-cell"><%= parseFloat(h.price).toFixed(2) %> €</td>
+                <td class="price-cell">
+                  <% if (diff !== null && Math.abs(pct) >= 0.1) { %>
+                    <span class="<%= diff < 0 ? 'trend-down' : 'trend-up' %>">
+                      <%= diff >= 0 ? '+' : '−' %><%= Math.abs(diff).toFixed(2) %> € (<%= diff >= 0 ? '+' : '−' %><%= Math.abs(pct).toFixed(1) %>%)
+                    </span>
+                  <% } else { %>—<% } %>
+                </td>
               </tr>
             <% }); %>
           </tbody>
