@@ -127,6 +127,14 @@ export type NewPriceHistory = typeof priceHistory.$inferInsert;
 export type Alert = typeof alerts.$inferSelect;
 export type NewAlert = typeof alerts.$inferInsert;
 
+// ── Page Views ────────────────────────────────────────────────────────────────
+
+export const pageViews = pgTable('page_views', {
+  path: varchar('path', { length: 500 }).notNull(),
+  day: text('day').notNull(),
+  count: integer('count').default(1).notNull(),
+});
+
 // ── Recommendation Lists ──────────────────────────────────────────────────────
 
 export const recommendationLists = pgTable('recommendation_lists', {

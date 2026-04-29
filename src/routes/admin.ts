@@ -204,6 +204,32 @@ router.delete('/admin/categories/:id', requireAuth, requireAdmin, async (req: Re
   res.redirect('/admin/categories');
 });
 
+// ── GET /admin/stats ──────────────────────────────────────────────────────────
+router.get('/admin/stats', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const [totalRow, dailyRows, topRows] = await Promise.all([
+    db.execute(sql`SELECT COALESCE(SUM(count), 0) AS total FROM page_views`),
+    db.execute(sql`
+      SELECT day, SUM(count) AS views
+      FROM page_views
+      WHERE day >= TO_CHAR(NOW() - INTERVAL '29 days', 'YYYY-MM-DD')
+      GROUP BY day ORDER BY day ASC
+    `),
+    db.execute(sql`
+      SELECT path, SUM(count) AS views
+      FROM page_views
+      GROUP BY path ORDER BY views DESC LIMIT 20
+    `),
+  ]);
+
+  res.render('admin-stats', {
+    total: parseInt(String((totalRow.rows[0] as any)?.total ?? '0'), 10),
+    daily: dailyRows.rows,
+    top: topRows.rows,
+    user: { email: req.session.userEmail },
+    isAdmin: true,
+  });
+});
+
 // ── GET /admin/lists ──────────────────────────────────────────────────────────
 router.get('/admin/lists', requireAuth, requireAdmin, async (req: Request, res: Response) => {
   const lists = await db.execute(sql`

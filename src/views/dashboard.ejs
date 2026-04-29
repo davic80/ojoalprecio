@@ -50,6 +50,7 @@ function trendBadge(current, previous) {
     <a href="/ofertas" class="nav-link">Ofertas</a>
     <% if (typeof isAdmin !== 'undefined' && isAdmin) { %>
       <a href="/admin/categories" class="nav-link">Admin</a>
+      <a href="/admin/stats" class="nav-link">Stats</a>
     <% } %>
     <span class="user-email"><%= user.email %></span>
     <form action="/auth/logout" method="POST" style="display:inline">

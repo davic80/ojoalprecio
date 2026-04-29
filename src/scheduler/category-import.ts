@@ -1,7 +1,7 @@
 import cron from 'node-cron';
 import { db } from '../db/client';
 import { products, users, amazonCategorySources } from '../db/schema';
-import { eq, asc, isNull, or } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { scrapeAmazonCategory, normaliseAmazonUrl, extractAsin } from '../scraper/amazon';
 
 const SYSTEM_EMAIL = 'system@ojoalprecio.local';
@@ -28,7 +28,7 @@ async function importNextCategory(): Promise<void> {
     .select()
     .from(amazonCategorySources)
     .where(eq(amazonCategorySources.isActive, true))
-    .orderBy(asc(amazonCategorySources.lastImportedAt))
+    .orderBy(sql`${amazonCategorySources.lastImportedAt} ASC NULLS FIRST`)
     .limit(1);
 
   if (!source) {

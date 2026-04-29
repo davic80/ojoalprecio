@@ -204,7 +204,16 @@ const MIGRATIONS = [
   VALUES ('system@ojoalprecio.local', '$system-no-login$', TRUE)
   ON CONFLICT (email) DO NOTHING;
   `,
-  // Migration 19: recommendation lists + items
+  // Migration 19: page view aggregates (path + day → count)
+  `
+  CREATE TABLE IF NOT EXISTS page_views (
+    path  VARCHAR(500) NOT NULL,
+    day   TEXT NOT NULL,
+    count INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (path, day)
+  );
+  `,
+  // Migration 20: recommendation lists + items
   `
   CREATE TABLE IF NOT EXISTS recommendation_lists (
     id          SERIAL PRIMARY KEY,

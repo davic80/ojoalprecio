@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-04-29
+
+### Added
+- Contador de páginas vistas (solo admin): middleware fire-and-forget registra visitas en tabla `page_views` (path + día); `/admin/stats` muestra total, gráfico de barras de los últimos 30 días y top 20 páginas
+- Enlace "Stats" en la barra de navegación del admin y del dashboard (solo para admin)
+
+### Fixed
+- Scheduler de importación de categorías: `ORDER BY last_imported_at ASC NULLS FIRST` — antes los NULL iban al final (comportamiento por defecto de PostgreSQL), haciendo que siempre se escogiera la misma categoría ya importada en lugar de rotar por las que aún no tenían fecha
+
 ## [2.0.0] - 2026-04-28
 
 ### Added

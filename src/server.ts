@@ -45,6 +45,28 @@ export function createApp() {
     }),
   );
 
+  // ── Page view tracking (fire-and-forget, excludes static/HTMX/admin) ─────────
+  app.use((req, _res, next) => {
+    const skip =
+      req.method !== 'GET' ||
+      req.headers['hx-request'] ||
+      req.path.startsWith('/admin') ||
+      req.path.startsWith('/auth') ||
+      req.path.startsWith('/css') ||
+      req.path.startsWith('/js') ||
+      req.path.includes('.');
+    if (!skip) {
+      const day = new Date().toISOString().slice(0, 10);
+      const p = req.path || '/';
+      pool.query(
+        `INSERT INTO page_views (path, day, count) VALUES ($1, $2, 1)
+         ON CONFLICT (path, day) DO UPDATE SET count = page_views.count + 1`,
+        [p, day],
+      ).catch(() => { /* ignore */ });
+    }
+    next();
+  });
+
   // ── Routes ───────────────────────────────────────────────────────────────────
   app.use('/auth', authRouter);
   app.use('/', adminRouter);
