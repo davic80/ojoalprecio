@@ -5,7 +5,7 @@ import { body, validationResult } from 'express-validator';
 import { db } from '../db/client';
 import { users, emailVerifications, passwordResets } from '../db/schema';
 import { eq, and, gt } from 'drizzle-orm';
-import { sendVerificationEmail, sendPasswordResetEmail } from '../mailer/index';
+import { sendVerificationEmail, sendPasswordResetEmail, sendWelcomeEmail } from '../mailer/index';
 
 const router = Router();
 
@@ -157,8 +157,13 @@ router.get('/verify', async (req: Request, res: Response) => {
     });
   }
 
+  const [verifiedUser] = await db.select().from(users).where(eq(users.id, row.userId)).limit(1);
   await db.update(users).set({ emailVerified: true }).where(eq(users.id, row.userId));
   await db.delete(emailVerifications).where(eq(emailVerifications.userId, row.userId));
+
+  sendWelcomeEmail({ to: verifiedUser.email }).catch(err =>
+    console.error('[auth] sendWelcomeEmail failed:', err),
+  );
 
   // Update session if this user is logged in
   if (req.session.userId === row.userId) {

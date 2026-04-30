@@ -33,6 +33,7 @@ router.get('/', (req: Request, res: Response, next) => {
   if (status === 'on_sale')    whereClauses.push(sql`p.is_on_sale = TRUE`);
   if (status === 'unavailable') whereClauses.push(sql`p.is_available = FALSE`);
   if (status === 'error')      whereClauses.push(sql`p.last_error IS NOT NULL`);
+  if (status === 'pending')    whereClauses.push(sql`NOT EXISTS (SELECT 1 FROM price_history ph WHERE ph.product_id = p.id)`);
   const where = whereClauses.length ? sql.join(whereClauses, sql` AND `) : sql`TRUE`;
 
   const [countRow, rows, allCategories] = await Promise.all([

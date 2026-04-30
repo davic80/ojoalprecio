@@ -151,6 +151,7 @@ function trendBadge(current, previous) {
       <option value="on_sale"     <%= filters.status === 'on_sale'     ? 'selected' : '' %>>En oferta</option>
       <option value="unavailable" <%= filters.status === 'unavailable' ? 'selected' : '' %>>Sin stock</option>
       <option value="error"       <%= filters.status === 'error'       ? 'selected' : '' %>>Con error</option>
+      <option value="pending"     <%= filters.status === 'pending'     ? 'selected' : '' %>>Sin scrapear</option>
     </select>
     <select name="sort" class="input input-sm" style="width:auto">
       <option value="recent"     <%= filters.sort === 'recent'     ? 'selected' : '' %>>Más recientes</option>
@@ -163,7 +164,7 @@ function trendBadge(current, previous) {
         <option value="<%= n %>" <%= filters.perPage === n ? 'selected' : '' %>><%= n %> / pág.</option>
       <% }); %>
     </select>
-    <% const isFiltered = filters.q || filters.category || filters.status !== 'all' || filters.sort !== 'recent'; %>
+    <% const isFiltered = filters.q || filters.category || (filters.status !== 'all') || filters.sort !== 'recent'; %>
     <% if (isFiltered) { %>
       <a href="/" class="btn btn-sm btn-ghost" title="Limpiar filtros" style="padding:0 8px;font-size:16px;line-height:1">×</a>
     <% } %>

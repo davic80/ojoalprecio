@@ -310,6 +310,67 @@ export async function sendPasswordResetEmail(opts: PasswordResetEmailOptions): P
   console.log(`[mailer] Password reset email sent to ${opts.to}`);
 }
 
+export interface WelcomeEmailOptions {
+  to: string;
+}
+
+export async function sendWelcomeEmail(opts: WelcomeEmailOptions): Promise<void> {
+  const cfg = getConfig();
+  if (!cfg.user || !cfg.password) return;
+
+  const transporter = createTransporter();
+  const siteUrl = process.env.SITE_URL ?? 'http://localhost:3000';
+
+  const html = `
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bienvenido a OjoAlPrecio</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; margin: 0; padding: 20px;">
+  <div style="max-width: 540px; margin: 0 auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.08);">
+    <div style="background: #e63946; padding: 28px 32px; text-align: center;">
+      <div style="font-size: 48px; margin-bottom: 8px;">👁</div>
+      <h1 style="color: #fff; margin: 0; font-size: 22px; letter-spacing: -0.3px;">¡Bienvenido a OjoAlPrecio!</h1>
+    </div>
+    <div style="padding: 32px;">
+      <p style="color: #333; font-size: 15px; margin: 0 0 16px;">
+        Tu cuenta está activa. Ya puedes empezar a seguir los precios de tus productos favoritos de Amazon.es.
+      </p>
+      <p style="color: #555; font-size: 14px; margin: 0 0 28px;">
+        Pega la URL de cualquier artículo de Amazon.es y OjoAlPrecio registrará el precio cada hora. Cuando baje, te avisamos.
+      </p>
+      <a href="${siteUrl}"
+         style="display:block; background:#e63946; color:#fff; text-decoration:none; text-align:center; padding:14px 24px; border-radius:8px; font-weight:600; font-size:15px; margin-bottom:24px;">
+        Añadir mi primer producto →
+      </a>
+      <div style="background:#f9fafb; border-radius:8px; padding:16px 20px; font-size:13px; color:#555;">
+        <strong style="display:block; margin-bottom:8px; color:#333;">¿Qué puedes hacer?</strong>
+        <div style="margin-bottom:6px;">📊 Ver el historial de precios de cualquier producto</div>
+        <div style="margin-bottom:6px;">🔔 Crear alertas para que te avisemos cuando baje el precio</div>
+        <div>🛒 Seguir las ofertas del día en la página pública</div>
+      </div>
+    </div>
+    <div style="background:#f9fafb; padding:16px 32px; text-align:center; font-size:12px; color:#9ca3af; border-top:1px solid #f0f0f0;">
+      OjoAlPrecio — Seguimiento de precios en Amazon.es
+    </div>
+  </div>
+</body>
+</html>
+  `.trim();
+
+  await transporter.sendMail({
+    from: `"OjoAlPrecio" <${cfg.from}>`,
+    to: opts.to,
+    subject: '¡Bienvenido a OjoAlPrecio! 👁',
+    html,
+  });
+
+  console.log(`[mailer] Welcome email sent to ${opts.to}`);
+}
+
 export async function verifyMailer(): Promise<boolean> {
   const cfg = getConfig();
   if (!cfg.user || !cfg.password) return false;
