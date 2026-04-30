@@ -32,7 +32,7 @@ body {
 }
 
 a { color: var(--red); text-decoration: none; }
-a:hover { text-decoration: underline; }
+a:hover { text-decoration: none; }
 
 /* ── Navbar ──────────────────────────────────────────────────────────────────── */
 .navbar {
