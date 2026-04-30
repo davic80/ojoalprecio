@@ -51,6 +51,7 @@
           <th style="text-align:right">Mediana 30d</th>
           <th style="text-align:right">vs mediana</th>
           <th style="text-align:right">vs mínimo</th>
+          <th style="text-align:center">Público</th>
           <th></th>
         </tr>
       </thead>
@@ -97,6 +98,14 @@
               <span style="color:var(--gray-400);font-size:13px;">+<%= Math.abs(pctMin).toFixed(1) %>%</span>
             <% } %>
           </td>
+          <td style="text-align:center;white-space:nowrap">
+            <button
+              class="btn btn-sm public-toggle"
+              data-id="<%= d.id %>"
+              data-public="<%= d.isPublic ? '1' : '0' %>"
+              style="font-size:12px;<%= d.isPublic ? 'background:#16a34a;color:#fff;border-color:#16a34a' : '' %>"
+            ><%= d.isPublic ? 'Público' : 'Privado' %></button>
+          </td>
           <td style="white-space:nowrap">
             <a href="<%= d.url %>?tag=canidrone-21" target="_blank" rel="noopener" class="btn btn-sm btn-ghost" style="font-size:12px">Amazon ↗</a>
           </td>
@@ -120,5 +129,23 @@
   <p>OjoAlPrecio v<%= process.env['APP_VERSION'] ?? 'dev' %> Admin &nbsp;·&nbsp; <a href="/ofertas">Ver ofertas públicas</a></p>
 </footer>
 
+<script>
+document.querySelectorAll('.public-toggle').forEach(function(btn) {
+  btn.addEventListener('click', async function() {
+    const id = btn.dataset.id;
+    btn.disabled = true;
+    try {
+      const res = await fetch('/products/' + id + '/toggle-public', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+      const data = await res.json();
+      btn.dataset.public = data.isPublic ? '1' : '0';
+      btn.textContent = data.isPublic ? 'Público' : 'Privado';
+      btn.style.background = data.isPublic ? '#16a34a' : '';
+      btn.style.color = data.isPublic ? '#fff' : '';
+      btn.style.borderColor = data.isPublic ? '#16a34a' : '';
+    } catch(e) { console.error(e); }
+    btn.disabled = false;
+  });
+});
+</script>
 </body>
 </html>

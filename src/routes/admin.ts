@@ -222,6 +222,7 @@ router.get('/admin/deals', requireAuth, requireAdmin, async (req: Request, res: 
       p.name,
       p.image_url        AS "imageUrl",
       p.url,
+      p.is_public        AS "isPublic",
       ph_last.price      AS "currentPrice",
       ph_min.min_price   AS "minPrice",
       ph_med.median_price AS "medianPrice",
