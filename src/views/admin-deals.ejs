@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mejores chollos — Admin OjoAlPrecio</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <a href="/" class="navbar-brand">
+    <span class="brand-icon">👁</span>
+    <span class="brand-name">OjoAlPrecio</span>
+  </a>
+  <div class="navbar-actions">
+    <a href="/admin/categories" class="nav-link">Categorías</a>
+    <a href="/admin/lists" class="nav-link">Listas</a>
+    <a href="/admin/deals" class="nav-link nav-link-active">Chollos</a>
+    <a href="/admin/stats" class="nav-link">Stats</a>
+    <a href="/admin/alerts" class="nav-link">Alertas</a>
+    <a href="/admin/import-url" class="nav-link">Importar URL</a>
+    <a href="/account" class="user-email user-email-link"><%= user.email %></a>
+    <form action="/auth/logout" method="POST" style="display:inline">
+      <button type="submit" class="btn btn-ghost btn-sm">Salir</button>
+    </form>
+  </div>
+</nav>
+
+<main class="container">
+
+  <div class="page-header">
+    <h1>Mejores chollos</h1>
+    <p class="subtitle">Productos en o cerca de su mínimo histórico, ordenados por bajada vs mediana de los últimos 30 días. Mínimo 20 registros.</p>
+  </div>
+
+  <% if (deals.length === 0) { %>
+    <div class="card">
+      <p class="hint" style="margin:0">No hay productos que cumplan los criterios ahora mismo. Vuelve cuando haya más historial de precios.</p>
+    </div>
+  <% } else { %>
+  <div class="table-wrap">
+    <table class="price-table">
+      <thead>
+        <tr>
+          <th style="width:48px"></th>
+          <th>Producto</th>
+          <th style="text-align:right">Actual</th>
+          <th style="text-align:right">Mínimo</th>
+          <th style="text-align:right">Mediana 30d</th>
+          <th style="text-align:right">vs mediana</th>
+          <th style="text-align:right">vs mínimo</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <% deals.forEach(function(d) {
+          const pctMedian = parseFloat(d.pctOffMedian);
+          const pctMin    = parseFloat(d.pctOffMin);
+          const atMin     = Math.abs(pctMin) < 0.5;
+        %>
+        <tr>
+          <td>
+            <% if (d.imageUrl) { %>
+              <img src="<%= d.imageUrl %>" alt="" style="width:40px;height:40px;object-fit:contain;border-radius:4px;">
+            <% } %>
+          </td>
+          <td style="max-width:280px">
+            <a href="/products/<%= d.id %>" class="hint-link" style="font-size:13px;font-weight:500;">
+              <%= d.name ? (d.name.length > 70 ? d.name.slice(0,70) + '…' : d.name) : d.asin %>
+            </a>
+            <% if (atMin) { %>
+              <span class="badge badge-sale" style="margin-left:6px;font-size:10px;vertical-align:middle;">Mínimo histórico</span>
+            <% } %>
+          </td>
+          <td style="text-align:right;font-weight:700;color:#e63946;white-space:nowrap">
+            <%= parseFloat(d.currentPrice).toFixed(2) %> €
+          </td>
+          <td style="text-align:right;color:var(--gray-500);font-size:13px;white-space:nowrap">
+            <%= parseFloat(d.minPrice).toFixed(2) %> €
+          </td>
+          <td style="text-align:right;color:var(--gray-500);font-size:13px;white-space:nowrap">
+            <%= parseFloat(d.medianPrice).toFixed(2) %> €
+          </td>
+          <td style="text-align:right;white-space:nowrap">
+            <% if (pctMedian > 0) { %>
+              <span style="color:#16a34a;font-weight:600;">−<%= pctMedian.toFixed(1) %>%</span>
+            <% } else { %>
+              <span style="color:var(--gray-400);font-size:13px;"><%= pctMedian.toFixed(1) %>%</span>
+            <% } %>
+          </td>
+          <td style="text-align:right;white-space:nowrap">
+            <% if (atMin) { %>
+              <span style="color:#e63946;font-weight:600;">0%</span>
+            <% } else { %>
+              <span style="color:var(--gray-400);font-size:13px;">+<%= Math.abs(pctMin).toFixed(1) %>%</span>
+            <% } %>
+          </td>
+          <td style="white-space:nowrap">
+            <a href="<%= d.url %>?tag=canidrone-21" target="_blank" rel="noopener" class="btn btn-sm btn-ghost" style="font-size:12px">Amazon ↗</a>
+          </td>
+        </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </div>
+  <p class="hint" style="margin-top:12px">
+    Se muestran hasta 50 productos con precio ≤ 110% del mínimo histórico y al menos 20 registros.
+  </p>
+  <% } %>
+
+  <div style="margin-top:16px">
+    <a href="/" class="hint-link">← Volver al dashboard</a>
+  </div>
+
+</main>
+
+<footer class="footer">
+  <p>OjoAlPrecio v<%= process.env['APP_VERSION'] ?? 'dev' %> Admin &nbsp;·&nbsp; <a href="/ofertas">Ver ofertas públicas</a></p>
+</footer>
+
+</body>
+</html>

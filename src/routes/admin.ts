@@ -204,6 +204,50 @@ router.delete('/admin/categories/:id', requireAuth, requireAdmin, async (req: Re
   res.redirect('/admin/categories');
 });
 
+// ── GET /admin/deals ──────────────────────────────────────────────────────────
+router.get('/admin/deals', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const rows = await db.execute(sql`
+    SELECT
+      p.id,
+      p.asin,
+      p.name,
+      p.image_url        AS "imageUrl",
+      p.url,
+      ph_last.price      AS "currentPrice",
+      ph_min.min_price   AS "minPrice",
+      ph_med.median_price AS "medianPrice",
+      ph_count.cnt       AS "recordCount",
+      ROUND((1 - ph_last.price / NULLIF(ph_med.median_price, 0)) * 100, 1) AS "pctOffMedian",
+      ROUND((1 - ph_last.price / NULLIF(ph_min.min_price, 0)) * 100, 1)    AS "pctOffMin"
+    FROM products p
+    JOIN LATERAL (
+      SELECT price::float FROM price_history WHERE product_id = p.id ORDER BY scraped_at DESC LIMIT 1
+    ) ph_last ON true
+    JOIN LATERAL (
+      SELECT MIN(price::float) AS min_price FROM price_history WHERE product_id = p.id
+    ) ph_min ON true
+    JOIN LATERAL (
+      SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY price::float) AS median_price
+      FROM price_history WHERE product_id = p.id AND scraped_at >= NOW() - INTERVAL '30 days'
+    ) ph_med ON true
+    JOIN LATERAL (
+      SELECT COUNT(*) AS cnt FROM price_history WHERE product_id = p.id
+    ) ph_count ON true
+    WHERE p.is_available = TRUE
+      AND ph_count.cnt >= 20
+      AND ph_med.median_price IS NOT NULL
+      AND ph_last.price <= ph_min.min_price * 1.10
+    ORDER BY "pctOffMedian" DESC
+    LIMIT 50
+  `);
+
+  res.render('admin-deals', {
+    deals: rows.rows,
+    user: { email: req.session.userEmail },
+    isAdmin: true,
+  });
+});
+
 // ── GET /admin/stats ──────────────────────────────────────────────────────────
 router.get('/admin/stats', requireAuth, requireAdmin, async (req: Request, res: Response) => {
   const [totalRow, dailyRows, topProductRows, topPathRows,
