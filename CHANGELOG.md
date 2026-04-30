@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.6.2] - 2026-04-30
+
+### Fixed
+- Correo de alerta de precio: emoji 👁 en cabecera y asunto, imagen y título del producto enlazados a Amazon, muestra la bajada en % y euros vs precio anterior, botón "Ver historial" lleva a la ficha del producto en OjoAlPrecio, enlace "Gestionar mis alertas" apunta a /account
+
 ## [2.6.1] - 2026-04-30
 
 ### Added
