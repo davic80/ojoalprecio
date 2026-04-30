@@ -37,10 +37,12 @@
   <!-- Product header -->
   <div class="product-header">
     <% if (product.imageUrl) { %>
-      <img src="<%= product.imageUrl %>" alt="<%= product.name %>" class="product-detail-img">
+      <a href="<%= amazonUrl %>" target="_blank" rel="noopener sponsored">
+        <img src="<%= product.imageUrl %>" alt="<%= product.name %>" class="product-detail-img">
+      </a>
     <% } %>
     <div class="product-header-info">
-      <h1><%= product.name ?? product.asin %></h1>
+      <h1><a href="<%= amazonUrl %>" target="_blank" rel="noopener sponsored" style="color:inherit; text-decoration:none;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'"><%= product.name ?? product.asin %></a></h1>
       <p class="product-asin">ASIN: <strong><%= product.asin %></strong></p>
       <a href="<%= amazonUrl %>" target="_blank" rel="noopener sponsored" class="amazon-link">
         Ver en Amazon.es ↗
@@ -106,10 +108,10 @@
       const maxPrice = prices.length ? Math.max(...prices) : null;
     %>
     <div class="price-stats">
-      <div class="stat-box stat-current">
-        <div class="stat-label">Precio actual</div>
+      <a href="<%= amazonUrl %>" target="_blank" rel="noopener sponsored" class="stat-box stat-current stat-box-link" title="Ver en Amazon.es">
+        <div class="stat-label">Precio actual ↗</div>
         <div class="stat-value"><%= !product.isAvailable ? 'Sin stock' : (currentPrice ? currentPrice.toFixed(2) + ' €' : '—') %></div>
-      </div>
+      </a>
       <div class="stat-box stat-min">
         <div class="stat-label">Precio mínimo</div>
         <div class="stat-value"><%= minPrice ? minPrice.toFixed(2) + ' €' : '—' %></div>

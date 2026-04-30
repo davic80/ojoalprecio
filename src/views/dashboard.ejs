@@ -170,6 +170,23 @@ function trendBadge(current, previous) {
   </form>
   <% } %>
 
+  <!-- Bulk action bar (admin only) -->
+  <% if (typeof isAdmin !== 'undefined' && isAdmin && stats.total > 0) { %>
+  <div class="bulk-bar" id="bulk-bar">
+    <button type="button" onclick="selectAllVisible()" class="btn btn-sm btn-ghost">Todos</button>
+    <button type="button" onclick="clearSelection()" class="btn btn-sm btn-ghost">Ninguno</button>
+    <span id="bulk-count" class="hint" style="min-width:90px"></span>
+    <select id="bulk-category" class="input input-sm" style="max-width:200px">
+      <option value="">— Sin categoría —</option>
+      <% allCategories.forEach(function(cat) { %>
+        <option value="<%= cat.id %>"><%= cat.name %></option>
+      <% }); %>
+    </select>
+    <button type="button" id="bulk-assign-btn" onclick="assignBulkCategory()" class="btn btn-sm btn-primary" disabled>Asignar categoría</button>
+    <span id="bulk-result" class="hint" style="color:var(--green)"></span>
+  </div>
+  <% } %>
+
   <!-- Products grid -->
   <div class="product-grid" id="product-list">
   <% if (products.length === 0) { %>
@@ -182,7 +199,12 @@ function trendBadge(current, previous) {
     <% products.forEach(function(p) {
       const isAtLow = p.isAvailable && p.currentPrice && p.minPrice && parseInt(p.checkCount, 10) >= 360 && parseFloat(p.currentPrice) <= parseFloat(p.minPrice) + 0.01;
     %>
-    <div class="product-card" id="product-<%= p.id %>">
+    <div class="product-card" id="product-<%= p.id %>" data-product-id="<%= p.id %>">
+      <% if (typeof isAdmin !== 'undefined' && isAdmin) { %>
+      <label class="product-select-label" onclick="event.stopPropagation()">
+        <input type="checkbox" class="product-checkbox" data-id="<%= p.id %>">
+      </label>
+      <% } %>
       <a href="/products/<%= p.id %>" class="product-card-link">
         <div class="product-img-wrap">
           <% if (p.imageUrl) { %>
@@ -269,6 +291,129 @@ function trendBadge(current, previous) {
 <footer class="footer">
   <p>OjoAlPrecio v<%= process.env['APP_VERSION'] ?? 'dev' %> &nbsp;·&nbsp; Amazon.es Price Tracker</p>
 </footer>
+
+<% if (typeof isAdmin !== 'undefined' && isAdmin) { %>
+<script>
+(function () {
+  const selectedIds = new Set();
+  let dragActive = false;
+  let dragAction = null; // 'add' | 'remove'
+  let dragStartPos = null;
+  const DRAG_THRESHOLD = 6;
+
+  function updateUI() {
+    // Clean up ids whose cards were removed from the DOM
+    document.querySelectorAll('.product-card[data-product-id]').forEach(() => {});
+    const domIds = new Set([...document.querySelectorAll('.product-card[data-product-id]')]
+      .map(c => parseInt(c.dataset.productId)));
+    for (const id of selectedIds) { if (!domIds.has(id)) selectedIds.delete(id); }
+
+    const count = selectedIds.size;
+    const countEl = document.getElementById('bulk-count');
+    const assignBtn = document.getElementById('bulk-assign-btn');
+    if (countEl) countEl.textContent = count > 0 ? count + ' seleccionado' + (count !== 1 ? 's' : '') : '';
+    if (assignBtn) assignBtn.disabled = count === 0;
+
+    document.querySelectorAll('.product-checkbox').forEach(cb => {
+      const id = parseInt(cb.dataset.id);
+      cb.checked = selectedIds.has(id);
+      const card = cb.closest('.product-card');
+      if (card) card.classList.toggle('bulk-selected', selectedIds.has(id));
+    });
+  }
+
+  window.selectAllVisible = function () {
+    document.querySelectorAll('.product-checkbox').forEach(cb => selectedIds.add(parseInt(cb.dataset.id)));
+    updateUI();
+  };
+
+  window.clearSelection = function () {
+    selectedIds.clear();
+    document.getElementById('bulk-result').textContent = '';
+    updateUI();
+  };
+
+  window.assignBulkCategory = async function () {
+    if (!selectedIds.size) return;
+    const categoryId = document.getElementById('bulk-category').value;
+    const btn = document.getElementById('bulk-assign-btn');
+    btn.disabled = true;
+    btn.textContent = 'Asignando…';
+
+    try {
+      const res = await fetch('/products/bulk-set-category', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: [...selectedIds], categoryId })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        document.getElementById('bulk-result').textContent = '✓ ' + data.updated + ' actualizado' + (data.updated !== 1 ? 's' : '');
+        clearSelection();
+        setTimeout(() => location.reload(), 900);
+      }
+    } finally {
+      btn.textContent = 'Asignar categoría';
+    }
+  };
+
+  // Checkbox change
+  document.addEventListener('change', function (e) {
+    if (!e.target.classList.contains('product-checkbox')) return;
+    const id = parseInt(e.target.dataset.id);
+    if (e.target.checked) selectedIds.add(id); else selectedIds.delete(id);
+    updateUI();
+  });
+
+  // Drag-to-select
+  function cardAt(x, y) {
+    const el = document.elementFromPoint(x, y);
+    return el ? el.closest('.product-card[data-product-id]') : null;
+  }
+
+  document.addEventListener('mousedown', function (e) {
+    if (e.button !== 0) return;
+    if (e.target.closest('button') || e.target.closest('.product-actions')) return;
+    const card = e.target.closest('.product-card[data-product-id]');
+    if (!card) return;
+    dragStartPos = { x: e.clientX, y: e.clientY };
+    const id = parseInt(card.dataset.productId);
+    dragAction = selectedIds.has(id) ? 'remove' : 'add';
+  });
+
+  document.addEventListener('mousemove', function (e) {
+    if (!dragStartPos) return;
+    const dx = Math.abs(e.clientX - dragStartPos.x);
+    const dy = Math.abs(e.clientY - dragStartPos.y);
+    if (!dragActive && (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD)) {
+      dragActive = true;
+      dragStartPos = null;
+    }
+    if (!dragActive) return;
+    const card = cardAt(e.clientX, e.clientY);
+    if (card) {
+      const id = parseInt(card.dataset.productId);
+      if (!isNaN(id)) {
+        if (dragAction === 'add') selectedIds.add(id); else selectedIds.delete(id);
+        updateUI();
+      }
+    }
+  });
+
+  // Intercept click ONLY when a real drag happened, to prevent link navigation
+  document.addEventListener('click', function (e) {
+    if (dragActive) { e.preventDefault(); e.stopPropagation(); dragActive = false; }
+  }, true);
+
+  document.addEventListener('mouseup', function () { dragStartPos = null; dragActive = false; });
+
+  // Prevent native browser drag from interfering
+  document.querySelectorAll('.product-card').forEach(card => {
+    card.addEventListener('dragstart', e => e.preventDefault());
+  });
+})();
+</script>
+<% } %>
 
 </body>
 </html>

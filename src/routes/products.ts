@@ -2,7 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import { body, validationResult } from 'express-validator';
 import { db } from '../db/client';
 import { products, priceHistory, alerts, categories } from '../db/schema';
-import { eq, and, desc, sql, asc } from 'drizzle-orm';
+import { eq, and, desc, sql, asc, inArray } from 'drizzle-orm';
 import { extractAsin, normaliseAmazonUrl, scrapeProduct, scrapeWishlist, affiliateUrl, ProductUnavailableError } from '../scraper/amazon';
 import { requireAuth } from '../middleware/auth';
 import { isAdmin, requireAdmin } from '../middleware/admin';
@@ -377,6 +377,23 @@ router.post('/products/import-wishlist', requireAuth, async (req: Request, res: 
       ${added > 0 ? ' — <a href="/" style="color:var(--green)">Ver dashboard</a>' : ''}
     </div>
   `);
+});
+
+// ── POST /products/bulk-set-category (admin only) ─────────────────────────────
+router.post('/products/bulk-set-category', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const raw = req.body.ids;
+  const ids = (Array.isArray(raw) ? raw : [raw])
+    .map(Number)
+    .filter(n => Number.isFinite(n) && n > 0);
+
+  if (!ids.length) return res.status(400).json({ error: 'No hay productos seleccionados.' });
+
+  const rawCat = req.body.categoryId;
+  const categoryId = rawCat && rawCat !== '' ? parseInt(String(rawCat), 10) : null;
+
+  await db.update(products).set({ categoryId }).where(inArray(products.id, ids));
+
+  res.json({ success: true, updated: ids.length });
 });
 
 export default router;

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-04-30
+
+### Added
+- Dashboard (admin): selección múltiple de productos con checkboxes, botones "Todos" / "Ninguno", arrastrar para seleccionar, y asignación masiva de categoría desde la barra de acción
+- Ficha de producto: imagen, título y caja "Precio actual" son ahora enlaces a Amazon.es
+
+### Fixed
+- Badges de producto (Oferta, Precio mínimo, Sin stock) movidos al pie de la imagen con overlay de ancho completo — ya no se cortan con la imagen de 72×72 px
+- Pequeño margen izquierdo en la etiqueta de categoría de las tarjetas de producto
+- GitHub Actions: opt-in a Node.js 24 para eliminar warnings de deprecación
+- Correo electrónico: el campo SMTP_FROM ya estaba desacoplado de SMTP_USER; `.env.example` actualizado para documentar configuración con Resend (dominio @ojoalprecio.com)
+
 ## [2.3.0] - 2026-04-30
 
 ### Added
