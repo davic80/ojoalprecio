@@ -106,7 +106,12 @@ router.patch('/alerts/:id/reset', requireAuth, async (req: Request, res: Respons
   await db.update(alerts).set({ notifiedAt: null, isActive: true }).where(eq(alerts.id, alertId));
 
   if (req.headers['hx-request']) {
-    res.setHeader('HX-Redirect', `/products/${alert.productId}`);
+    const fromAccount = String(req.headers.referer ?? '').includes('/account');
+    if (fromAccount) {
+      res.setHeader('HX-Refresh', 'true');
+    } else {
+      res.setHeader('HX-Redirect', `/products/${alert.productId}`);
+    }
     return res.status(200).send('');
   }
   res.json({ success: true });

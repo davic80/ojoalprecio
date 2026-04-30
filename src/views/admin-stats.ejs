@@ -32,7 +32,7 @@ const last30 = days.reduce((s, d) => s + d.views, 0);
     <a href="/admin/stats" class="nav-link nav-link-active">Stats</a>
     <a href="/admin/alerts" class="nav-link">Alertas</a>
     <a href="/admin/import-url" class="nav-link">Importar URL</a>
-    <span class="user-email"><%= user.email %></span>
+    <a href="/account" class="user-email user-email-link"><%= user.email %></a>
     <form action="/auth/logout" method="POST" style="display:inline">
       <button type="submit" class="btn btn-ghost btn-sm">Salir</button>
     </form>

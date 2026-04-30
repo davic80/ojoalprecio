@@ -52,7 +52,7 @@ function trendBadge(current, previous) {
       <a href="/admin/categories" class="nav-link">Admin</a>
       <a href="/admin/stats" class="nav-link">Stats</a>
     <% } %>
-    <span class="user-email"><%= user.email %></span>
+    <a href="/account" class="user-email user-email-link"><%= user.email %></a>
     <form action="/auth/logout" method="POST" style="display:inline">
       <button type="submit" class="btn btn-ghost btn-sm">Salir</button>
     </form>

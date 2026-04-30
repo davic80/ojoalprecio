@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mi cuenta — OjoAlPrecio</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js" defer></script>
+</head>
+<body>
+
+<nav class="navbar">
+  <a href="/" class="navbar-brand">
+    <span class="brand-icon">👁</span>
+    <span class="brand-name">OjoAlPrecio</span>
+  </a>
+  <div class="navbar-actions">
+    <a href="/account" class="user-email user-email-link nav-link-active"><%= user.email %></a>
+    <form action="/auth/logout" method="POST" style="display:inline">
+      <button type="submit" class="btn btn-ghost btn-sm">Salir</button>
+    </form>
+  </div>
+</nav>
+
+<main class="container">
+
+  <div class="back-link">
+    <a href="/">← Volver al dashboard</a>
+  </div>
+
+  <div class="page-header">
+    <h1>Mi cuenta</h1>
+    <p class="subtitle"><%= user.email %></p>
+  </div>
+
+  <% if (success) { %>
+    <div class="alert-box" style="background:#f0fdf4; border:1px solid #bbf7d0; color:#166534; margin-bottom:20px">
+      Contraseña actualizada correctamente.
+    </div>
+  <% } %>
+
+  <!-- Change password -->
+  <div class="card" style="margin-bottom:20px; max-width:440px">
+    <h2>Cambiar contraseña</h2>
+    <% if (error) { %>
+      <div class="alert-box alert-error" style="margin-top:12px"><%= error %></div>
+    <% } %>
+    <form action="/account/change-password" method="POST" class="auth-form" style="margin-top:16px">
+      <div class="form-field">
+        <label for="currentPassword">Contraseña actual</label>
+        <input type="password" name="currentPassword" id="currentPassword" class="input" required autocomplete="current-password">
+      </div>
+      <div class="form-field">
+        <label for="newPassword">Nueva contraseña</label>
+        <input type="password" name="newPassword" id="newPassword" class="input" required autocomplete="new-password" minlength="8">
+      </div>
+      <div class="form-field">
+        <label for="confirmPassword">Repite la contraseña</label>
+        <input type="password" name="confirmPassword" id="confirmPassword" class="input" required autocomplete="new-password">
+      </div>
+      <button type="submit" class="btn btn-primary" style="margin-top:4px">Guardar contraseña</button>
+    </form>
+  </div>
+
+  <!-- Alerts -->
+  <div class="card">
+    <h2>Mis alertas</h2>
+    <p class="subtitle">Todas las alertas de precio activas e inactivas.</p>
+
+    <% if (alerts.length === 0) { %>
+      <p class="hint" style="margin-top:16px">No tienes alertas configuradas. Puedes crearlas desde la ficha de cada producto.</p>
+    <% } else { %>
+    <div class="table-wrap" style="margin-top:16px" id="alerts-list">
+      <table class="price-table">
+        <thead>
+          <tr>
+            <th>Producto</th>
+            <th>Condición</th>
+            <th>Notificación</th>
+            <th>Estado</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% alerts.forEach(function(a) {
+            const fired = !!a.notifiedAt;
+            let condition = '';
+            if (a.alertType === 'price' && a.thresholdPrice) {
+              condition = 'Precio < ' + parseFloat(a.thresholdPrice).toFixed(2) + ' €';
+            } else if (a.alertType === 'percent' && a.percentageDrop) {
+              condition = 'Bajada > ' + parseFloat(a.percentageDrop).toFixed(1) + '%';
+            } else if (a.alertType === 'alltime_low') {
+              condition = 'Nuevo mínimo histórico';
+            } else if (a.alertType === 'stock') {
+              condition = 'Vuelta en stock';
+            }
+          %>
+          <tr id="alert-row-<%= a.id %>">
+            <td>
+              <a href="/products/<%= a.productId %>" style="font-weight:500; font-size:13px">
+                <%= a.productName ? (a.productName.length > 50 ? a.productName.slice(0,50) + '…' : a.productName) : a.productAsin %>
+              </a>
+            </td>
+            <td style="font-size:13px"><%= condition %></td>
+            <td style="font-size:12px; color:var(--gray-500)">
+              <%= a.notificationChannel === 'telegram' ? 'Telegram' : a.notificationChannel === 'both' ? 'Email + TG' : a.notificationEmail %>
+            </td>
+            <td>
+              <% if (fired) { %>
+                <span class="alert-badge badge-triggered">Disparada</span>
+              <% } else if (a.isActive) { %>
+                <span class="alert-badge badge-active">Activa</span>
+              <% } else { %>
+                <span class="alert-badge badge-triggered">Inactiva</span>
+              <% } %>
+            </td>
+            <td>
+              <div class="alert-actions">
+                <% if (fired) { %>
+                  <button
+                    class="btn btn-sm btn-outline"
+                    hx-patch="/alerts/<%= a.id %>/reset"
+                    hx-target="#alert-row-<%= a.id %>"
+                    hx-swap="outerHTML"
+                    title="Reactivar alerta"
+                  >Reactivar</button>
+                <% } %>
+                <button
+                  class="btn btn-sm btn-danger"
+                  hx-delete="/alerts/<%= a.id %>"
+                  hx-target="#alert-row-<%= a.id %>"
+                  hx-swap="outerHTML"
+                  hx-confirm="¿Eliminar esta alerta?"
+                >Eliminar</button>
+              </div>
+            </td>
+          </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+    <% } %>
+  </div>
+
+</main>
+
+<footer class="footer">
+  <p>OjoAlPrecio v<%= process.env['APP_VERSION'] ?? 'dev' %> &nbsp;·&nbsp; <a href="/ofertas">Ver ofertas</a></p>
+</footer>
+
+</body>
+</html>

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-04-30
+
+### Added
+- Página "Mi cuenta" en `/account`: cambio de contraseña (con validación de contraseña actual) y listado completo de alertas con acciones de reactivar y eliminar
+- El email del usuario en la barra de navegación es ahora un enlace a `/account` en todas las páginas
+
 ## [2.2.0] - 2026-04-29
 
 ### Fixed
