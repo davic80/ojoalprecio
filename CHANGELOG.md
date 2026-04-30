@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-04-29
+
+### Fixed
+- El admin ya puede acceder a la ficha de cualquier producto (incluyendo los importados por el sistema): `/products/:id`, refresh, toggle-public, set-category y delete ya no filtran por `user_id` cuando el usuario es admin
+
 ## [2.1.0] - 2026-04-29
 
 ### Added

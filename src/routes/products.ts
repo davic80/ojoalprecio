@@ -184,7 +184,7 @@ router.delete('/products/:id', requireAuth, async (req: Request, res: Response) 
   const [product] = await db
     .select()
     .from(products)
-    .where(and(eq(products.id, productId), eq(products.userId, userId)))
+    .where(isAdmin(req) ? eq(products.id, productId) : and(eq(products.id, productId), eq(products.userId, userId)))
     .limit(1);
 
   if (!product) return res.status(404).json({ error: 'Producto no encontrado.' });
@@ -205,7 +205,7 @@ router.get('/products/:id', requireAuth, async (req: Request, res: Response) => 
   const [product] = await db
     .select()
     .from(products)
-    .where(and(eq(products.id, productId), eq(products.userId, userId)))
+    .where(isAdmin(req) ? eq(products.id, productId) : and(eq(products.id, productId), eq(products.userId, userId)))
     .limit(1);
 
   if (!product) return res.status(404).render('404', { user: { email: req.session.userEmail } });
@@ -242,12 +242,11 @@ router.get('/products/:id', requireAuth, async (req: Request, res: Response) => 
 // ── POST /products/:id/refresh — Manual refresh (admin only) ─────────────────
 router.post('/products/:id/refresh', requireAuth, requireAdmin, async (req: Request, res: Response) => {
   const productId = parseInt(String(req.params.id), 10);
-  const userId = req.session.userId!;
 
   const [product] = await db
     .select()
     .from(products)
-    .where(and(eq(products.id, productId), eq(products.userId, userId)))
+    .where(eq(products.id, productId))
     .limit(1);
 
   if (!product) return res.status(404).json({ error: 'Producto no encontrado.' });
@@ -289,7 +288,7 @@ router.post('/products/:id/toggle-public', requireAuth, async (req: Request, res
   const [product] = await db
     .select()
     .from(products)
-    .where(and(eq(products.id, productId), eq(products.userId, userId)))
+    .where(isAdmin(req) ? eq(products.id, productId) : and(eq(products.id, productId), eq(products.userId, userId)))
     .limit(1);
 
   if (!product) return res.status(404).json({ error: 'Producto no encontrado.' });
@@ -315,7 +314,7 @@ router.post('/products/:id/set-category', requireAuth, async (req: Request, res:
   const [product] = await db
     .select()
     .from(products)
-    .where(and(eq(products.id, productId), eq(products.userId, userId)))
+    .where(isAdmin(req) ? eq(products.id, productId) : and(eq(products.id, productId), eq(products.userId, userId)))
     .limit(1);
 
   if (!product) return res.status(404).json({ error: 'Producto no encontrado.' });
