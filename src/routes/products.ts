@@ -30,6 +30,7 @@ router.get('/', (req: Request, res: Response, next) => {
   const whereClauses = adminUser ? [] : [sql`p.user_id = ${userId}`];
   if (q)         whereClauses.push(sql`(p.name ILIKE ${'%' + q + '%'} OR p.asin ILIKE ${'%' + q + '%'})`);
   if (catFilter) whereClauses.push(catFilter === 'none' ? sql`p.category_id IS NULL` : sql`p.category_id = ${parseInt(catFilter, 10)}`);
+  if (status === 'scraped')    whereClauses.push(sql`EXISTS     (SELECT 1 FROM price_history ph WHERE ph.product_id = p.id)`);
   if (status === 'on_sale')    whereClauses.push(sql`p.is_on_sale = TRUE`);
   if (status === 'unavailable') whereClauses.push(sql`p.is_available = FALSE`);
   if (status === 'error')      whereClauses.push(sql`p.last_error IS NOT NULL`);

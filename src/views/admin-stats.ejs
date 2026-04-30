@@ -9,6 +9,12 @@ for (let i = 29; i >= 0; i--) {
 }
 const maxViews = Math.max(...days.map(d => d.views), 1);
 const last30 = days.reduce((s, d) => s + d.views, 0);
+
+const alertDayMap = {};
+alertDaily.forEach(function(r) { alertDayMap[r.day] = parseInt(r.count, 10); });
+const alertDays = days.map(function(d) { return { key: d.key, count: alertDayMap[d.key] ?? 0 }; });
+const maxAlerts = Math.max(...alertDays.map(function(d) { return d.count; }), 1);
+const totalAlerts = parseInt(alertTotals && alertTotals.total ? alertTotals.total : '0', 10);
 %>
 <!DOCTYPE html>
 <html lang="es">
@@ -124,6 +130,109 @@ const last30 = days.reduce((s, d) => s + d.views, 0);
                 <td style="color:var(--gray-400);width:28px"><%= i + 1 %></td>
                 <td><a href="<%= row.path %>" class="hint-link" target="_blank"><%= row.path %></a></td>
                 <td style="text-align:right;font-weight:600"><%= parseInt(row.views, 10).toLocaleString('es-ES') %></td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+      <% } %>
+    </div>
+
+  </div>
+
+  <!-- Alert stats -->
+  <div class="page-header" style="margin-top:40px">
+    <h1>Estadísticas de alertas</h1>
+    <p class="subtitle">Alertas disparadas y enviadas.</p>
+  </div>
+
+  <div class="stats-bar" style="margin-bottom:24px">
+    <div class="stat-pill">
+      <span class="stat-pill-value"><%= totalAlerts.toLocaleString('es-ES') %></span>
+      <span class="stat-pill-label">alertas totales</span>
+    </div>
+    <% if (alertTotals) { %>
+    <div class="stat-pill">
+      <span class="stat-pill-value"><%= parseInt(alertTotals.by_email || '0', 10).toLocaleString('es-ES') %></span>
+      <span class="stat-pill-label">por email</span>
+    </div>
+    <div class="stat-pill">
+      <span class="stat-pill-value"><%= parseInt(alertTotals.by_telegram || '0', 10).toLocaleString('es-ES') %></span>
+      <span class="stat-pill-label">por Telegram</span>
+    </div>
+    <div class="stat-pill">
+      <span class="stat-pill-value"><%= parseInt(alertTotals.by_both || '0', 10).toLocaleString('es-ES') %></span>
+      <span class="stat-pill-label">email + Telegram</span>
+    </div>
+    <% } %>
+  </div>
+
+  <!-- Alert bar chart -->
+  <div class="card" style="margin-bottom:16px">
+    <h2>Alertas disparadas — últimos 30 días</h2>
+    <% if (totalAlerts === 0) { %>
+      <p class="hint" style="margin-top:12px">Sin alertas disparadas todavía.</p>
+    <% } else { %>
+    <div style="display:flex;align-items:flex-end;gap:3px;height:80px;margin-top:16px;padding:0 2px">
+      <% alertDays.forEach(function(d) {
+        const h = Math.max(d.count > 0 ? 4 : 0, Math.round((d.count / maxAlerts) * 72));
+        const isToday = d.key === new Date().toISOString().slice(0, 10);
+      %>
+        <div title="<%= d.key %>: <%= d.count %>"
+             style="flex:1;height:<%=h%>px;background:<%= isToday ? '#e63946' : '#fca5a5' %>;border-radius:2px 2px 0 0;min-width:4px;cursor:default">
+        </div>
+      <% }); %>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:11px;color:var(--gray-400)">
+      <span><%= alertDays[0].key %></span><span>hoy</span>
+    </div>
+    <% } %>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+
+    <!-- Top products by alerts -->
+    <div class="card">
+      <h2>Productos con más alertas</h2>
+      <% if (alertByProduct.length === 0) { %>
+        <p class="hint" style="margin-top:12px">Sin datos todavía.</p>
+      <% } else { %>
+      <div class="table-wrap" style="margin-top:12px">
+        <table class="price-table">
+          <thead><tr><th>#</th><th>Producto</th><th style="text-align:right">Alertas</th></tr></thead>
+          <tbody>
+            <% alertByProduct.forEach(function(row, i) { %>
+              <tr>
+                <td style="color:var(--gray-400);width:28px"><%= i + 1 %></td>
+                <td>
+                  <a href="/products/<%= row.product_id %>" class="hint-link" style="font-size:12px">
+                    <%= row.name ? (row.name.length > 45 ? row.name.slice(0,45) + '…' : row.name) : row.asin %>
+                  </a>
+                </td>
+                <td style="text-align:right;font-weight:600"><%= parseInt(row.alert_count, 10).toLocaleString('es-ES') %></td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+      <% } %>
+    </div>
+
+    <!-- Top users by alerts -->
+    <div class="card">
+      <h2>Usuarios con más alertas recibidas</h2>
+      <% if (alertByUser.length === 0) { %>
+        <p class="hint" style="margin-top:12px">Sin datos todavía.</p>
+      <% } else { %>
+      <div class="table-wrap" style="margin-top:12px">
+        <table class="price-table">
+          <thead><tr><th>#</th><th>Usuario</th><th style="text-align:right">Alertas</th></tr></thead>
+          <tbody>
+            <% alertByUser.forEach(function(row, i) { %>
+              <tr>
+                <td style="color:var(--gray-400);width:28px"><%= i + 1 %></td>
+                <td style="font-size:12px"><%= row.email %></td>
+                <td style="text-align:right;font-weight:600"><%= parseInt(row.alert_count, 10).toLocaleString('es-ES') %></td>
               </tr>
             <% }); %>
           </tbody>

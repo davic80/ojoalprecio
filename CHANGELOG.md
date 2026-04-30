@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.6.1] - 2026-04-30
+
+### Added
+- Dashboard: filtro "Con precio" (oculta productos sin scrapear) y filtro "Sin scrapear" (muestra solo los pendientes)
+- Admin Stats: sección de estadísticas de alertas — totales por canal (email / Telegram / ambos), gráfico de barras de los últimos 30 días, top productos y top usuarios por alertas recibidas
+
+### Fixed
+- Filtros del dashboard: eliminado HTMX `hx-target="body"` que fallaba silenciosamente en HTMX 2.x; reemplazado por formulario GET nativo con auto-submit `onchange` y debounce JS para el buscador de texto
+
 ## [2.5.0] - 2026-04-30
 
 ### Added

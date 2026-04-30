@@ -206,7 +206,8 @@ router.delete('/admin/categories/:id', requireAuth, requireAdmin, async (req: Re
 
 // ── GET /admin/stats ──────────────────────────────────────────────────────────
 router.get('/admin/stats', requireAuth, requireAdmin, async (req: Request, res: Response) => {
-  const [totalRow, dailyRows, topProductRows, topPathRows] = await Promise.all([
+  const [totalRow, dailyRows, topProductRows, topPathRows,
+         alertTotalsRow, alertByProductRows, alertByUserRows, alertDailyRows] = await Promise.all([
     db.execute(sql`SELECT COALESCE(SUM(count), 0) AS total FROM page_views`),
     db.execute(sql`
       SELECT day, SUM(count) AS views
@@ -215,21 +216,47 @@ router.get('/admin/stats', requireAuth, requireAdmin, async (req: Request, res: 
       GROUP BY day ORDER BY day ASC
     `),
     db.execute(sql`
-      SELECT
-        p.asin, p.name,
-        COALESCE(SUM(pv.count), 0) AS views
+      SELECT p.asin, p.name, COALESCE(SUM(pv.count), 0) AS views
       FROM products p
       LEFT JOIN page_views pv ON pv.path = '/p/' || p.asin
       GROUP BY p.asin, p.name
       HAVING COALESCE(SUM(pv.count), 0) > 0
-      ORDER BY views DESC
-      LIMIT 20
+      ORDER BY views DESC LIMIT 20
     `),
     db.execute(sql`
       SELECT path, SUM(count) AS views
       FROM page_views
       WHERE path NOT LIKE '/p/%'
       GROUP BY path ORDER BY views DESC LIMIT 10
+    `),
+    db.execute(sql`
+      SELECT
+        COUNT(*)                                                            AS total,
+        COUNT(*) FILTER (WHERE COALESCE(a.notification_channel,'email') = 'email')    AS by_email,
+        COUNT(*) FILTER (WHERE a.notification_channel = 'telegram')        AS by_telegram,
+        COUNT(*) FILTER (WHERE a.notification_channel = 'both')            AS by_both
+      FROM alert_events ae
+      LEFT JOIN alerts a ON a.id = ae.alert_id
+    `),
+    db.execute(sql`
+      SELECT p.id AS product_id, p.asin, p.name, COUNT(*) AS alert_count
+      FROM alert_events ae
+      JOIN products p ON p.id = ae.product_id
+      GROUP BY p.id, p.asin, p.name
+      ORDER BY alert_count DESC LIMIT 10
+    `),
+    db.execute(sql`
+      SELECT u.email, COUNT(*) AS alert_count
+      FROM alert_events ae
+      JOIN users u ON u.id = ae.user_id
+      GROUP BY u.id, u.email
+      ORDER BY alert_count DESC LIMIT 10
+    `),
+    db.execute(sql`
+      SELECT TO_CHAR(triggered_at, 'YYYY-MM-DD') AS day, COUNT(*) AS count
+      FROM alert_events
+      WHERE triggered_at >= NOW() - INTERVAL '29 days'
+      GROUP BY day ORDER BY day ASC
     `),
   ]);
 
@@ -238,6 +265,10 @@ router.get('/admin/stats', requireAuth, requireAdmin, async (req: Request, res: 
     daily: dailyRows.rows,
     topProducts: topProductRows.rows,
     topPaths: topPathRows.rows,
+    alertTotals: alertTotalsRow.rows[0] as any,
+    alertByProduct: alertByProductRows.rows,
+    alertByUser: alertByUserRows.rows,
+    alertDaily: alertDailyRows.rows,
     user: { email: req.session.userEmail },
     isAdmin: true,
   });

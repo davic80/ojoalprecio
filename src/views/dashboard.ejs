@@ -136,39 +136,49 @@ function trendBadge(current, previous) {
 
   <!-- Filter bar -->
   <% if (stats.total > 0) { %>
-  <form class="filter-bar" method="get" action="/"
-    hx-get="/" hx-target="body" hx-push-url="true" hx-trigger="change, input delay:400ms">
-    <input type="text" name="q" value="<%= filters.q %>" placeholder="Buscar producto…" class="input input-sm" style="flex:1; min-width:160px">
-    <select name="category" class="input input-sm">
+  <form class="filter-bar" method="get" action="/" id="filter-form">
+    <input type="text" name="q" id="filter-q" value="<%= filters.q %>" placeholder="Buscar producto…" class="input input-sm" style="flex:1; min-width:160px" autocomplete="off">
+    <select name="category" class="input input-sm" onchange="this.form.submit()">
       <option value="">Todas las categorías</option>
       <option value="none" <%= filters.category === 'none' ? 'selected' : '' %>>Sin categoría</option>
       <% allCategories.forEach(function(cat) { %>
         <option value="<%= cat.id %>" <%= filters.category === String(cat.id) ? 'selected' : '' %>><%= cat.name %></option>
       <% }); %>
     </select>
-    <select name="status" class="input input-sm">
+    <select name="status" class="input input-sm" onchange="this.form.submit()">
       <option value="all"         <%= filters.status === 'all'         ? 'selected' : '' %>>Todos</option>
+      <option value="scraped"     <%= filters.status === 'scraped'     ? 'selected' : '' %>>Con precio</option>
       <option value="on_sale"     <%= filters.status === 'on_sale'     ? 'selected' : '' %>>En oferta</option>
       <option value="unavailable" <%= filters.status === 'unavailable' ? 'selected' : '' %>>Sin stock</option>
       <option value="error"       <%= filters.status === 'error'       ? 'selected' : '' %>>Con error</option>
       <option value="pending"     <%= filters.status === 'pending'     ? 'selected' : '' %>>Sin scrapear</option>
     </select>
-    <select name="sort" class="input input-sm" style="width:auto">
+    <select name="sort" class="input input-sm" style="width:auto" onchange="this.form.submit()">
       <option value="recent"     <%= filters.sort === 'recent'     ? 'selected' : '' %>>Más recientes</option>
       <option value="price_desc" <%= filters.sort === 'price_desc' ? 'selected' : '' %>>Precio: mayor a menor</option>
       <option value="price_asc"  <%= filters.sort === 'price_asc'  ? 'selected' : '' %>>Precio: menor a mayor</option>
       <option value="discount"   <%= filters.sort === 'discount'   ? 'selected' : '' %>>Mayor descuento %</option>
     </select>
-    <select name="per_page" class="input input-sm" style="width:auto">
+    <select name="per_page" class="input input-sm" style="width:auto" onchange="this.form.submit()">
       <% [10,20,50].forEach(function(n) { %>
         <option value="<%= n %>" <%= filters.perPage === n ? 'selected' : '' %>><%= n %> / pág.</option>
       <% }); %>
     </select>
-    <% const isFiltered = filters.q || filters.category || (filters.status !== 'all') || filters.sort !== 'recent'; %>
+    <% const isFiltered = filters.q || filters.category || filters.status !== 'all' || filters.sort !== 'recent'; %>
     <% if (isFiltered) { %>
       <a href="/" class="btn btn-sm btn-ghost" title="Limpiar filtros" style="padding:0 8px;font-size:16px;line-height:1">×</a>
     <% } %>
   </form>
+  <script>
+    (function () {
+      var t, input = document.getElementById('filter-q');
+      if (!input) return;
+      input.addEventListener('input', function () {
+        clearTimeout(t);
+        t = setTimeout(function () { document.getElementById('filter-form').submit(); }, 500);
+      });
+    })();
+  </script>
   <% } %>
 
   <!-- Bulk action bar (admin only) -->
