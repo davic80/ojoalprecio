@@ -53,15 +53,15 @@ export async function sendPriceAlert(opts: PriceAlertOptions): Promise<void> {
   const historyUrl = opts.productId ? `${siteUrl}/products/${opts.productId}` : siteUrl;
   const accountUrl = `${siteUrl}/account`;
 
-  const dropHtml = (() => {
-    if (!opts.previousPrice || opts.previousPrice <= opts.currentPrice) return '';
-    const absDrop = opts.previousPrice - opts.currentPrice;
-    const pctDrop = (absDrop / opts.previousPrice) * 100;
-    return `
+  const hasDrop = !!opts.previousPrice && opts.previousPrice > opts.currentPrice;
+  const absDrop = hasDrop ? opts.previousPrice! - opts.currentPrice : 0;
+  const pctDrop = hasDrop ? (absDrop / opts.previousPrice!) * 100 : 0;
+  const dropSuffix = hasDrop ? ` −${pctDrop.toFixed(1)}%` : '';
+
+  const dropHtml = hasDrop ? `
       <div style="background:#f0fdf4; border:1px solid #86efac; border-radius:8px; padding:12px 16px; text-align:center; margin-bottom:20px; font-size:14px; color:#166534; font-weight:600;">
         ↓ −${pctDrop.toFixed(1)}% &nbsp;·&nbsp; −${absDrop.toFixed(2)} ${currencySymbol} vs precio anterior
-      </div>`;
-  })();
+      </div>` : '';
 
   const html = `
 <!DOCTYPE html>
@@ -133,7 +133,7 @@ export async function sendPriceAlert(opts: PriceAlertOptions): Promise<void> {
   await transporter.sendMail({
     from: `"OjoAlPrecio" <${cfg.from}>`,
     to: opts.to,
-    subject: `👁 Precio bajado: ${opts.productName} — ${opts.currentPrice.toFixed(2)} ${currencySymbol}`,
+    subject: `👁 ${opts.currentPrice.toFixed(2)} ${currencySymbol}${dropSuffix} — ${opts.productName}`,
     html,
   });
 
