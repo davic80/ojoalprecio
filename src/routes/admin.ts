@@ -26,18 +26,27 @@ router.get('/admin/categories', requireAuth, requireAdmin, async (req: Request, 
   const [cats, uncatRow] = await Promise.all([
     db.execute(sql`
       SELECT c.id, c.name, c.slug,
-        (SELECT COUNT(*) FROM products p WHERE p.category_id = c.id) AS "productCount"
+        (SELECT COUNT(*) FROM products p WHERE p.category_id = c.id) AS "productCount",
+        (SELECT COUNT(*) FROM products p WHERE p.category_id = c.id AND p.is_on_sale = TRUE) AS "saleCount",
+        (SELECT COUNT(*) FROM products p WHERE p.category_id = c.id AND p.is_public = TRUE) AS "publicCount"
       FROM categories c
       ORDER BY c.name ASC
     `),
     db.execute(sql`
-      SELECT COUNT(*) AS count FROM products WHERE category_id IS NULL AND is_active = TRUE
+      SELECT
+        COUNT(*) FILTER (WHERE category_id IS NULL AND is_active = TRUE) AS count,
+        COUNT(*) FILTER (WHERE category_id IS NULL AND is_active = TRUE AND is_on_sale = TRUE) AS sale_count,
+        COUNT(*) FILTER (WHERE category_id IS NULL AND is_active = TRUE AND is_public = TRUE) AS public_count
+      FROM products
     `),
   ]);
 
+  const uncatData = uncatRow.rows[0] as any;
   res.render('admin-categories', {
     categories: cats.rows,
-    uncategorizedCount: parseInt(String((uncatRow.rows[0] as any)?.count ?? '0'), 10),
+    uncategorizedCount: parseInt(String(uncatData?.count ?? '0'), 10),
+    uncategorizedSaleCount: parseInt(String(uncatData?.sale_count ?? '0'), 10),
+    uncategorizedPublicCount: parseInt(String(uncatData?.public_count ?? '0'), 10),
     user: { email: req.session.userEmail },
     isAdmin: true,
   });

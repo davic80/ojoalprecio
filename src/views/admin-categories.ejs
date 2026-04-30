@@ -61,7 +61,9 @@
             <tr>
               <th>Nombre</th>
               <th>Slug</th>
-              <th style="text-align:right">Productos</th>
+              <th style="text-align:right">Total</th>
+              <th style="text-align:right">Oferta</th>
+              <th style="text-align:right">Públicos</th>
               <th></th>
             </tr>
           </thead>
@@ -73,6 +75,8 @@
               </td>
               <td><code class="hint">—</code></td>
               <td style="text-align:right"><%= uncategorizedCount %></td>
+              <td style="text-align:right"><%= uncategorizedSaleCount > 0 ? uncategorizedSaleCount : '—' %></td>
+              <td style="text-align:right"><%= uncategorizedPublicCount > 0 ? uncategorizedPublicCount : '—' %></td>
               <td></td>
             </tr>
             <% categories.forEach(function(cat) { %>
@@ -82,6 +86,8 @@
                 </td>
                 <td><code class="hint"><%= cat.slug %></code></td>
                 <td style="text-align:right"><%= cat.productCount %></td>
+                <td style="text-align:right"><%= parseInt(cat.saleCount) > 0 ? parseInt(cat.saleCount) : '—' %></td>
+                <td style="text-align:right"><%= parseInt(cat.publicCount) > 0 ? parseInt(cat.publicCount) : '—' %></td>
                 <td style="text-align:right">
                   <button
                     class="btn btn-sm btn-danger"
