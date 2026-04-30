@@ -200,7 +200,7 @@ function trendBadge(current, previous) {
         </div>
         <div class="product-info">
           <p class="product-name"><%= p.name ?? p.asin %></p>
-          <p class="product-asin">ASIN: <%= p.asin %><% if (p.isPublic) { %> · <span class="public-tag">público</span><% } %></p>
+          <p class="product-asin">ASIN: <%= p.asin %><% if (p.isPublic) { %> · <span class="public-tag">público</span><% } %><% if (typeof isAdmin !== 'undefined' && isAdmin && !p.isOwnProduct) { %> · <span class="hint" style="color:var(--gray-400)">sistema</span><% } %></p>
           <% if (p.categoryName) { %><a href="/c/<%= p.categorySlug %>" class="category-tag"><%= p.categoryName %></a><% } %>
           <% if (p.lastError) { %>
             <p class="product-error">⚠ <%= p.lastError %></p>

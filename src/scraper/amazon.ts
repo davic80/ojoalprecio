@@ -547,8 +547,8 @@ export async function scrapeAmazonCategory(categoryUrl: string, limit = 40): Pro
 
     await page.goto('https://www.amazon.es', { waitUntil: 'domcontentloaded', timeout: 20000 });
     await randomDelay(800, 1500);
-    await page.goto(categoryUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await randomDelay(1000, 2000);
+    await page.goto(categoryUrl, { waitUntil: 'load', timeout: 30000 });
+    await randomDelay(1500, 2500);
 
     const pageTitle = await page.title();
     const currentUrl = page.url();
@@ -565,24 +565,35 @@ export async function scrapeAmazonCategory(categoryUrl: string, limit = 40): Pro
       await randomDelay(800, 1200);
     }
 
-    const hrefs: string[] = await page.$$eval('a[href*="/dp/"]', els =>
-      (els as { href: string }[]).map(el => el.href),
-    );
-
     const asinPattern = /\/dp\/([A-Z0-9]{10})/i;
     const seen = new Set<string>();
     const results: string[] = [];
 
-    for (const href of hrefs) {
-      if (results.length >= limit) break;
-      const match = href.match(asinPattern);
-      if (match) {
-        const asin = match[1].toUpperCase();
-        if (!seen.has(asin)) {
-          seen.add(asin);
-          results.push(`https://www.amazon.es/dp/${asin}`);
-        }
+    const addAsin = (asin: string) => {
+      const up = asin.toUpperCase();
+      if (!seen.has(up) && results.length < limit) {
+        seen.add(up);
+        results.push(`https://www.amazon.es/dp/${up}`);
       }
+    };
+
+    // Primary: links containing /dp/
+    const hrefs: string[] = await page.$$eval('a[href*="/dp/"]', els =>
+      (els as { href: string }[]).map(el => el.href),
+    );
+    for (const href of hrefs) {
+      const match = href.match(asinPattern);
+      if (match) addAsin(match[1]);
+    }
+
+    // Fallback: data-asin attributes (Amazon result/card elements)
+    if (results.length < 5) {
+      const dataAsins: string[] = await page.$$eval('[data-asin]', els =>
+        (els as { dataset: { asin: string } }[])
+          .map(el => el.dataset.asin)
+          .filter(a => a && /^[A-Z0-9]{10}$/i.test(a)),
+      );
+      for (const asin of dataAsins) addAsin(asin);
     }
 
     return results;

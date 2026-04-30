@@ -237,6 +237,89 @@ const MIGRATIONS = [
     PRIMARY KEY (path, day)
   );
   `,
+  // Migration 22: create ojoalprecio categories + link amazon_category_sources with category_id and corrected URLs
+  `
+  INSERT INTO categories (name, slug) VALUES
+    ('Electrónica',            'electronica'),
+    ('Informática',            'informatica'),
+    ('Hogar y Cocina',         'hogar-y-cocina'),
+    ('Deportes',               'deportes'),
+    ('Juguetes',               'juguetes'),
+    ('Cámara y Foto',          'camara-y-foto'),
+    ('Bricolaje',              'bricolaje'),
+    ('Salud y Belleza',        'salud-y-belleza'),
+    ('Moda',                   'moda'),
+    ('Jardín',                 'jardin'),
+    ('Videojuegos',            'videojuegos'),
+    ('Mascotas',               'mascotas'),
+    ('Automoción',             'automocion'),
+    ('Bebé',                   'bebe'),
+    ('Alimentación',           'alimentacion')
+  ON CONFLICT (slug) DO NOTHING;
+
+  UPDATE amazon_category_sources SET
+    amazon_url = 'https://www.amazon.es/gp/bestsellers/electronics/',
+    category_id = (SELECT id FROM categories WHERE slug = 'electronica')
+  WHERE name = 'Electrónica';
+
+  UPDATE amazon_category_sources SET
+    amazon_url = 'https://www.amazon.es/gp/bestsellers/computers/',
+    category_id = (SELECT id FROM categories WHERE slug = 'informatica')
+  WHERE name = 'Informática';
+
+  UPDATE amazon_category_sources SET
+    amazon_url = 'https://www.amazon.es/gp/bestsellers/kitchen/',
+    category_id = (SELECT id FROM categories WHERE slug = 'hogar-y-cocina')
+  WHERE name = 'Hogar y cocina';
+
+  UPDATE amazon_category_sources SET
+    amazon_url = 'https://www.amazon.es/gp/bestsellers/sports/',
+    category_id = (SELECT id FROM categories WHERE slug = 'deportes')
+  WHERE name = 'Deportes';
+
+  UPDATE amazon_category_sources SET
+    amazon_url = 'https://www.amazon.es/gp/bestsellers/toys/',
+    category_id = (SELECT id FROM categories WHERE slug = 'juguetes')
+  WHERE name = 'Juguetes';
+
+  UPDATE amazon_category_sources SET
+    amazon_url = 'https://www.amazon.es/gp/bestsellers/photo/',
+    category_id = (SELECT id FROM categories WHERE slug = 'camara-y-foto')
+  WHERE name = 'Cámara y foto';
+
+  UPDATE amazon_category_sources SET
+    amazon_url = 'https://www.amazon.es/gp/bestsellers/diy/',
+    category_id = (SELECT id FROM categories WHERE slug = 'bricolaje')
+  WHERE name = 'Bricolaje';
+
+  UPDATE amazon_category_sources SET
+    amazon_url = 'https://www.amazon.es/gp/bestsellers/drugstore/',
+    category_id = (SELECT id FROM categories WHERE slug = 'salud-y-belleza')
+  WHERE name = 'Salud y belleza';
+
+  UPDATE amazon_category_sources SET
+    amazon_url = 'https://www.amazon.es/gp/bestsellers/apparel/',
+    category_id = (SELECT id FROM categories WHERE slug = 'moda')
+  WHERE name = 'Ropa';
+
+  UPDATE amazon_category_sources SET
+    amazon_url = 'https://www.amazon.es/gp/bestsellers/garden/',
+    category_id = (SELECT id FROM categories WHERE slug = 'jardin')
+  WHERE name = 'Jardín';
+
+  INSERT INTO amazon_category_sources (name, amazon_url, category_id) VALUES
+    ('Videojuegos',   'https://www.amazon.es/gp/bestsellers/videogames/',
+      (SELECT id FROM categories WHERE slug = 'videojuegos')),
+    ('Mascotas',      'https://www.amazon.es/gp/bestsellers/pet-supplies/',
+      (SELECT id FROM categories WHERE slug = 'mascotas')),
+    ('Automoción',    'https://www.amazon.es/gp/bestsellers/automotive/',
+      (SELECT id FROM categories WHERE slug = 'automocion')),
+    ('Bebé',          'https://www.amazon.es/gp/bestsellers/baby/',
+      (SELECT id FROM categories WHERE slug = 'bebe')),
+    ('Alimentación',  'https://www.amazon.es/gp/bestsellers/grocery/',
+      (SELECT id FROM categories WHERE slug = 'alimentacion'))
+  ON CONFLICT DO NOTHING;
+  `,
 ];
 
 export async function migrate(): Promise<void> {

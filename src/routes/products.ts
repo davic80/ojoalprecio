@@ -25,13 +25,15 @@ router.get('/', (req: Request, res: Response, next) => {
   const page       = Math.max(1, parseInt(String(req.query.page ?? '1'), 10));
   const offset     = (page - 1) * perPage;
 
-  const whereClauses = [sql`p.user_id = ${userId}`];
+  const adminUser = isAdmin(req);
+  // Admin sees all products; regular users see only their own
+  const whereClauses = adminUser ? [] : [sql`p.user_id = ${userId}`];
   if (q)         whereClauses.push(sql`(p.name ILIKE ${'%' + q + '%'} OR p.asin ILIKE ${'%' + q + '%'})`);
   if (catFilter) whereClauses.push(catFilter === 'none' ? sql`p.category_id IS NULL` : sql`p.category_id = ${parseInt(catFilter, 10)}`);
   if (status === 'on_sale')    whereClauses.push(sql`p.is_on_sale = TRUE`);
   if (status === 'unavailable') whereClauses.push(sql`p.is_available = FALSE`);
   if (status === 'error')      whereClauses.push(sql`p.last_error IS NOT NULL`);
-  const where = sql.join(whereClauses, sql` AND `);
+  const where = whereClauses.length ? sql.join(whereClauses, sql` AND `) : sql`TRUE`;
 
   const [countRow, rows, allCategories] = await Promise.all([
     db.execute(sql`SELECT COUNT(*) AS total FROM products p WHERE ${where}`),
@@ -42,6 +44,7 @@ router.get('/', (req: Request, res: Response, next) => {
         p.category_id  AS "categoryId",
         (SELECT c.name FROM categories c WHERE c.id = p.category_id) AS "categoryName",
         (SELECT c.slug FROM categories c WHERE c.id = p.category_id) AS "categorySlug",
+        (p.user_id = ${userId}) AS "isOwnProduct",
         p.is_active    AS "isActive",
         p.is_public    AS "isPublic",
         p.is_available AS "isAvailable",
@@ -75,13 +78,14 @@ router.get('/', (req: Request, res: Response, next) => {
   const totalPages = Math.ceil(totalCount / perPage);
   const prods = rows.rows as any[];
 
-  // stats always computed over all user products (unfiltered)
+  // stats computed over all visible products (all for admin, own for regular users)
+  const statsWhere = adminUser ? sql`TRUE` : sql`p.user_id = ${userId}`;
   const allRows = await db.execute(sql`
     SELECT p.is_available, p.last_error, p.is_on_sale,
       (SELECT ph.price FROM price_history ph WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1) AS "currentPrice",
       (SELECT MIN(ph2.price) FROM price_history ph2 WHERE ph2.product_id = p.id) AS "minPrice",
       (SELECT COUNT(*) FROM price_history ph4 WHERE ph4.product_id = p.id) AS "checkCount"
-    FROM products p WHERE p.user_id = ${userId}
+    FROM products p WHERE ${statsWhere}
   `);
   const all = allRows.rows as any[];
   const stats = {
