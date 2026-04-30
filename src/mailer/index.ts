@@ -32,7 +32,9 @@ export interface PriceAlertOptions {
   to: string;
   productName: string;
   productUrl: string;
+  productId?: number | null;
   currentPrice: number;
+  previousPrice?: number | null;
   thresholdPrice: number;
   imageUrl?: string | null;
   currency?: string;
@@ -48,6 +50,18 @@ export async function sendPriceAlert(opts: PriceAlertOptions): Promise<void> {
   const transporter = createTransporter();
   const currencySymbol = opts.currency === 'EUR' ? '€' : opts.currency ?? '€';
   const siteUrl = process.env.SITE_URL ?? 'http://localhost:3000';
+  const historyUrl = opts.productId ? `${siteUrl}/products/${opts.productId}` : siteUrl;
+  const accountUrl = `${siteUrl}/account`;
+
+  const dropHtml = (() => {
+    if (!opts.previousPrice || opts.previousPrice <= opts.currentPrice) return '';
+    const absDrop = opts.previousPrice - opts.currentPrice;
+    const pctDrop = (absDrop / opts.previousPrice) * 100;
+    return `
+      <div style="background:#f0fdf4; border:1px solid #86efac; border-radius:8px; padding:12px 16px; text-align:center; margin-bottom:20px; font-size:14px; color:#166534; font-weight:600;">
+        ↓ −${pctDrop.toFixed(1)}% &nbsp;·&nbsp; −${absDrop.toFixed(2)} ${currencySymbol} vs precio anterior
+      </div>`;
+  })();
 
   const html = `
 <!DOCTYPE html>
@@ -61,19 +75,24 @@ export async function sendPriceAlert(opts: PriceAlertOptions): Promise<void> {
   <div style="max-width: 540px; margin: 0 auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.08);">
 
     <div style="background: #e63946; padding: 28px 32px; text-align: center;">
+      <div style="font-size: 40px; margin-bottom: 8px;">👁</div>
       <h1 style="color: #fff; margin: 0; font-size: 22px; letter-spacing: -0.3px;">
         OjoAlPrecio — Alerta de precio
       </h1>
     </div>
 
     <div style="padding: 32px;">
-      ${opts.imageUrl ? `<img src="${opts.imageUrl}" alt="Producto" style="display:block;max-width:160px;height:auto;margin:0 auto 24px;border-radius:8px;">` : ''}
+      ${opts.imageUrl ? `<a href="${opts.productUrl}" style="display:block; text-decoration:none;"><img src="${opts.imageUrl}" alt="Producto" style="display:block;max-width:160px;height:auto;margin:0 auto 24px;border-radius:8px;"></a>` : ''}
 
-      <h2 style="font-size: 16px; color: #333; margin: 0 0 8px;">${opts.productName}</h2>
+      <h2 style="font-size: 16px; color: #333; margin: 0 0 8px;">
+        <a href="${opts.productUrl}" style="color:#333; text-decoration:none;">${opts.productName}</a>
+      </h2>
 
-      <p style="color: #666; font-size: 14px; margin: 0 0 24px;">
+      <p style="color: #666; font-size: 14px; margin: 0 0 20px;">
         El precio ha bajado por debajo de tu umbral configurado.
       </p>
+
+      ${dropHtml}
 
       <div style="display: flex; gap: 16px; margin-bottom: 28px;">
         <div style="flex:1; background:#fff5f5; border:1px solid #fecdd3; border-radius:8px; padding:16px; text-align:center;">
@@ -87,19 +106,24 @@ export async function sendPriceAlert(opts: PriceAlertOptions): Promise<void> {
       </div>
 
       <a href="${opts.productUrl}"
-         style="display:block; background:#e63946; color:#fff; text-decoration:none; text-align:center; padding:14px 24px; border-radius:8px; font-weight:600; font-size:15px; margin-bottom:16px;">
-        Ver producto en Amazon
+         style="display:block; background:#e63946; color:#fff; text-decoration:none; text-align:center; padding:14px 24px; border-radius:8px; font-weight:600; font-size:15px; margin-bottom:12px;">
+        Ver producto en Amazon ↗
       </a>
 
-      <a href="${siteUrl}"
-         style="display:block; color:#6b7280; text-decoration:none; text-align:center; font-size:13px;">
+      <a href="${historyUrl}"
+         style="display:block; background:#f9fafb; border:1px solid #e5e7eb; color:#374151; text-decoration:none; text-align:center; padding:12px 24px; border-radius:8px; font-weight:500; font-size:14px; margin-bottom:16px;">
         Ver historial en OjoAlPrecio
       </a>
+
+      <div style="text-align:center;">
+        <a href="${accountUrl}" style="color:#9ca3af; text-decoration:none; font-size:12px;">
+          Gestionar mis alertas
+        </a>
+      </div>
     </div>
 
     <div style="background:#f9fafb; padding:16px 32px; text-align:center; font-size:12px; color:#9ca3af; border-top:1px solid #f0f0f0;">
-      OjoAlPrecio — Seguimiento de precios en Amazon.es<br>
-      Para dejar de recibir alertas de este producto, gestiona tus alertas en la app.
+      OjoAlPrecio — Seguimiento de precios en Amazon.es
     </div>
   </div>
 </body>
@@ -109,7 +133,7 @@ export async function sendPriceAlert(opts: PriceAlertOptions): Promise<void> {
   await transporter.sendMail({
     from: `"OjoAlPrecio" <${cfg.from}>`,
     to: opts.to,
-    subject: `Precio bajado: ${opts.productName} — ${opts.currentPrice.toFixed(2)} ${currencySymbol}`,
+    subject: `👁 Precio bajado: ${opts.productName} — ${opts.currentPrice.toFixed(2)} ${currencySymbol}`,
     html,
   });
 

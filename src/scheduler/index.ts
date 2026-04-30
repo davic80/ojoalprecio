@@ -187,6 +187,12 @@ async function processAlerts(
     .where(eq(priceHistory.productId, productId));
   const alltimeLow = lowestRow?.val ? parseFloat(String(lowestRow.val)) : null;
 
+  // Previous price (second most recent record) for drop display in email
+  const prevPriceResult = await db.execute(sql`
+    SELECT price FROM price_history WHERE product_id = ${productId} ORDER BY scraped_at DESC LIMIT 1 OFFSET 1
+  `);
+  const previousPrice = prevPriceResult.rows[0] ? parseFloat(String((prevPriceResult.rows[0] as any).price)) : null;
+
   for (const alert of activeAlerts) {
     const type = alert.alertType ?? 'price';
 
@@ -233,7 +239,9 @@ async function processAlerts(
           to: alert.notificationEmail,
           productName,
           productUrl: productAffilUrl,
+          productId,
           currentPrice,
+          previousPrice,
           thresholdPrice: parseFloat(String(alert.thresholdPrice ?? currentPrice)),
           imageUrl,
           currency,
