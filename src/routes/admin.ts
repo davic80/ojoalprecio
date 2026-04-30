@@ -226,17 +226,17 @@ router.get('/admin/deals', requireAuth, requireAdmin, async (req: Request, res: 
       ph_min.min_price   AS "minPrice",
       ph_med.median_price AS "medianPrice",
       ph_count.cnt       AS "recordCount",
-      ROUND((1 - ph_last.price / NULLIF(ph_med.median_price, 0)) * 100, 1) AS "pctOffMedian",
-      ROUND((1 - ph_last.price / NULLIF(ph_min.min_price, 0)) * 100, 1)    AS "pctOffMin"
+      ROUND(((1 - ph_last.price / NULLIF(ph_med.median_price, 0)) * 100)::numeric, 1) AS "pctOffMedian",
+      ROUND(((1 - ph_last.price / NULLIF(ph_min.min_price, 0)) * 100)::numeric, 1)   AS "pctOffMin"
     FROM products p
     JOIN LATERAL (
-      SELECT price::float FROM price_history WHERE product_id = p.id ORDER BY scraped_at DESC LIMIT 1
+      SELECT price::numeric FROM price_history WHERE product_id = p.id ORDER BY scraped_at DESC LIMIT 1
     ) ph_last ON true
     JOIN LATERAL (
-      SELECT MIN(price::float) AS min_price FROM price_history WHERE product_id = p.id
+      SELECT MIN(price::numeric) AS min_price FROM price_history WHERE product_id = p.id
     ) ph_min ON true
     JOIN LATERAL (
-      SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY price::float) AS median_price
+      SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY price::numeric) AS median_price
       FROM price_history WHERE product_id = p.id AND scraped_at >= NOW() - INTERVAL '30 days'
     ) ph_med ON true
     JOIN LATERAL (
