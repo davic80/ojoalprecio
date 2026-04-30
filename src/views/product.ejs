@@ -37,12 +37,12 @@
   <!-- Product header -->
   <div class="product-header">
     <% if (product.imageUrl) { %>
-      <a href="<%= amazonUrl %>" target="_blank" rel="noopener sponsored">
+      <a href="<%= amazonUrl %>" target="_blank" rel="noopener sponsored" class="product-img-link">
         <img src="<%= product.imageUrl %>" alt="<%= product.name %>" class="product-detail-img">
       </a>
     <% } %>
     <div class="product-header-info">
-      <h1><a href="<%= amazonUrl %>" target="_blank" rel="noopener sponsored" style="color:inherit; text-decoration:none;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'"><%= product.name ?? product.asin %></a></h1>
+      <h1><a href="<%= amazonUrl %>" target="_blank" rel="noopener sponsored" class="product-title-link"><%= product.name ?? product.asin %></a></h1>
       <p class="product-asin">ASIN: <strong><%= product.asin %></strong></p>
       <a href="<%= amazonUrl %>" target="_blank" rel="noopener sponsored" class="amazon-link">
         Ver en Amazon.es ↗
