@@ -82,7 +82,7 @@
             <% categories.forEach(function(cat) { %>
               <tr id="cat-<%= cat.id %>">
                 <td>
-                  <a href="/c/<%= cat.slug %>" class="category-link-admin"><strong><%= cat.name %></strong></a>
+                  <a href="/?category=<%= cat.id %>&status=all&sort=recent&per_page=50" class="category-link-admin"><strong><%= cat.name %></strong></a>
                 </td>
                 <td><code class="hint"><%= cat.slug %></code></td>
                 <td style="text-align:right"><%= cat.productCount %></td>
