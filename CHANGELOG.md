@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.11.4] - 2026-05-01
+
+### Added
+- Scrape widget: muestra "X/Y · Z total" en el botón — X=hechos, Y=pendientes en el ciclo actual, Z=productos activos totales
+- Scrape widget: el dropdown explica "X/Y en este ciclo (Z activos en total)" para eliminar la confusión entre productos del ciclo y productos totales
+
 ## [2.11.3] - 2026-05-01
 
 ### Fixed

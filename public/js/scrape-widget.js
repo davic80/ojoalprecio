@@ -45,7 +45,8 @@
       });
     }
 
-    document.getElementById('scrape-label').textContent = '🔄 ' + label;
+    const activeLabel = s.activeCount > 0 ? ' · ' + s.activeCount + ' total' : '';
+    document.getElementById('scrape-label').textContent = '🔄 ' + label + activeLabel;
 
     if (open) renderDropdown(s, pct);
   }
@@ -54,11 +55,14 @@
     const d = document.getElementById('scrape-drop');
     if (!d) return;
 
+    const cycleLabel = s.done + '/' + s.total + ' en este ciclo';
+    const totalLabel = s.activeCount > 0 ? ' (' + s.activeCount + ' activos en total)' : '';
     let html =
       '<div style="padding:12px 16px;border-bottom:1px solid #f0f0f0">' +
-        '<div style="display:flex;justify-content:space-between;margin-bottom:6px;font-weight:600;color:#111">' +
-          '<span>Escaneando productos</span><span>' + s.done + '/' + s.total + '</span>' +
+        '<div style="display:flex;justify-content:space-between;margin-bottom:4px;font-weight:600;color:#111">' +
+          '<span>Escaneando</span><span>' + s.done + '/' + s.total + '</span>' +
         '</div>' +
+        '<div style="font-size:11px;color:#6b7280;margin-bottom:8px">' + cycleLabel + totalLabel + '</div>' +
         '<div style="height:6px;background:#e5e7eb;border-radius:3px;overflow:hidden">' +
           '<div style="height:100%;width:' + pct + '%;background:#1d4ed8;transition:width .3s"></div>' +
         '</div>' +

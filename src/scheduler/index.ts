@@ -16,11 +16,12 @@ export interface ScraperStatus {
   isRunning: boolean;
   current: { id: number; name: string; asin: string } | null;
   done: number;
-  total: number;
+  total: number;       // products due this cycle
+  activeCount: number; // total active non-failed products
   log: ScraperLogEntry[];
 }
 
-const state: ScraperStatus = { isRunning: false, current: null, done: 0, total: 0, log: [] };
+const state: ScraperStatus = { isRunning: false, current: null, done: 0, total: 0, activeCount: 0, log: [] };
 
 export function getScraperStatus(): ScraperStatus { return { ...state, log: [...state.log] }; }
 
@@ -48,6 +49,7 @@ async function checkAllProducts(): Promise<void> {
       return Date.now() - new Date(p.lastScrapedAt).getTime() >= MIN_AGE_MS;
     });
     state.total = toCheck.length;
+    state.activeCount = activeProducts.rows.length;
     console.log(`[scheduler] ${toCheck.length}/${activeProducts.rows.length} products due for check (${CONCURRENCY} workers)…`);
 
     // Worker pool: CONCURRENCY workers pick products until exhausted
