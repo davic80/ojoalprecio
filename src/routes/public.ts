@@ -3,6 +3,7 @@ import { db } from '../db/client';
 import { products, priceHistory } from '../db/schema';
 import { eq, desc, sql } from 'drizzle-orm';
 import { affiliateUrl } from '../scraper/amazon';
+import { isAdmin } from '../middleware/admin';
 
 const router = Router();
 
@@ -74,6 +75,7 @@ router.get('/ofertas', async (_req: Request, res: Response) => {
 // ── GET /c/:slug — Public category page ──────────────────────────────────────
 router.get('/c/:slug', async (req: Request, res: Response) => {
   const slug = String(req.params.slug).toLowerCase();
+  const admin = isAdmin(req);
 
   const catRow = await db.execute(sql`SELECT id, name, slug FROM categories WHERE slug = ${slug} LIMIT 1`);
   const cat = (catRow.rows as any[])[0];
@@ -82,6 +84,7 @@ router.get('/c/:slug', async (req: Request, res: Response) => {
   const rows = await db.execute(sql`
     SELECT
       p.id, p.asin, p.name, p.image_url AS "imageUrl", p.extra_images AS "extraImages", p.url,
+      p.is_public AS "isPublic",
       (
         SELECT ph.price FROM price_history ph
         WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1
@@ -99,8 +102,9 @@ router.get('/c/:slug', async (req: Request, res: Response) => {
       p.is_on_sale AS "isOnSale"
     FROM products p
     WHERE p.category_id = ${cat.id}
-      AND p.is_public = TRUE AND p.is_active = TRUE AND p.is_available = TRUE
-    ORDER BY p.is_on_sale DESC, p.created_at DESC
+      AND p.is_active = TRUE AND p.is_available = TRUE
+      AND (p.is_public = TRUE OR ${admin})
+    ORDER BY p.is_on_sale DESC, p.is_public DESC, p.created_at DESC
   `);
 
   const deals = (rows.rows as any[])
@@ -116,7 +120,7 @@ router.get('/c/:slug', async (req: Request, res: Response) => {
       extraImages: (() => { try { return JSON.parse(p.extraImages ?? '[]'); } catch { return []; } })(),
     }));
 
-  res.render('category', { category: cat, deals });
+  res.render('category', { category: cat, deals, isAdmin: admin, user: { email: req.session.userEmail ?? '' } });
 });
 
 // ── GET /p/:asin — Public product page ───────────────────────────────────────

@@ -91,6 +91,13 @@
           <div class="product-actions">
             <a href="/p/<%= d.asin %>" class="btn btn-sm btn-outline">Ver historial</a>
             <a href="<%= d.amazonUrl %>" target="_blank" rel="noopener sponsored" class="btn btn-sm btn-primary">Amazon ↗</a>
+            <% if (isAdmin) { %>
+              <button
+                class="btn btn-sm public-toggle"
+                data-id="<%= d.id %>"
+                style="<%= d.isPublic ? 'background:#16a34a;color:#fff;border-color:#16a34a' : 'opacity:.6' %>"
+              ><%= d.isPublic ? 'Público' : 'Privado' %></button>
+            <% } %>
           </div>
         </div>
       <% }); %>
@@ -129,6 +136,23 @@
     });
   });
 })();
+
+document.querySelectorAll('.public-toggle').forEach(function(btn) {
+  btn.addEventListener('click', async function() {
+    const id = btn.dataset.id;
+    btn.disabled = true;
+    try {
+      const res = await fetch('/products/' + id + '/toggle-public', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+      const data = await res.json();
+      btn.textContent = data.isPublic ? 'Público' : 'Privado';
+      btn.style.background = data.isPublic ? '#16a34a' : '';
+      btn.style.color = data.isPublic ? '#fff' : '';
+      btn.style.borderColor = data.isPublic ? '#16a34a' : '';
+      btn.style.opacity = data.isPublic ? '1' : '.6';
+    } catch(e) { console.error(e); }
+    btn.disabled = false;
+  });
+});
 </script>
 </body>
 </html>
