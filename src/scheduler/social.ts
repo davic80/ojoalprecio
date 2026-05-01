@@ -1,19 +1,9 @@
 import cron from 'node-cron';
-import { TwitterApi } from 'twitter-api-v2';
 import { db } from '../db/client';
 import { sql } from 'drizzle-orm';
 import { affiliateUrl } from '../scraper/amazon';
 
 const SITE_URL = process.env.SITE_URL ?? 'https://ojoalprecio.com';
-
-function twitterClient(): TwitterApi | null {
-  const k  = process.env.TWITTER_API_KEY;
-  const ks = process.env.TWITTER_API_SECRET;
-  const t  = process.env.TWITTER_ACCESS_TOKEN;
-  const ts = process.env.TWITTER_ACCESS_TOKEN_SECRET;
-  if (!k || !ks || !t || !ts) return null;
-  return new TwitterApi({ appKey: k, appSecret: ks, accessToken: t, accessSecret: ts });
-}
 
 function telegramEnabled(): boolean {
   return !!(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_PUBLIC_CHANNEL);
@@ -65,27 +55,6 @@ export async function getBestUnpostedDeal(): Promise<any | null> {
   return (rows.rows as any[])[0] ?? null;
 }
 
-function buildTweetText(deal: any): string {
-  const pct   = parseFloat(deal.pctOffMedian);
-  const price = parseFloat(deal.currentPrice).toFixed(2);
-  const name  = deal.name ? (deal.name.length > 80 ? deal.name.slice(0, 80) + '…' : deal.name) : deal.asin;
-  const amzUrl = affiliateUrl(deal.url);
-  const histUrl = `${SITE_URL}/p/${deal.asin}`;
-
-  return [
-    `👁 Oferta del día`,
-    ``,
-    `${name}`,
-    ``,
-    `💰 ${price} €  📉 −${pct.toFixed(1)}% vs precio habitual`,
-    ``,
-    `🛒 ${amzUrl}`,
-    `📊 Historial de precio: ${histUrl}`,
-    ``,
-    `#chollos #amazon #ofertas #ahorro`,
-  ].join('\n');
-}
-
 function buildTelegramText(deal: any): string {
   const pct   = parseFloat(deal.pctOffMedian);
   const price = parseFloat(deal.currentPrice).toFixed(2);
@@ -113,23 +82,7 @@ export async function postDailyDeal(): Promise<void> {
     return;
   }
 
-  const tweetText = buildTweetText(deal);
-  const tgText    = buildTelegramText(deal);
-
-  // Twitter/X
-  const client = twitterClient();
-  if (client) {
-    try {
-      const tweet = await client.v2.tweet(tweetText);
-      await db.execute(sql`
-        INSERT INTO social_post_log (product_id, platform, post_id, content)
-        VALUES (${deal.id}, 'twitter', ${tweet.data.id}, ${tweetText})
-      `);
-      console.log(`[social] Tweet publicado: ${tweet.data.id}`);
-    } catch (err) {
-      console.error('[social] Error al publicar en Twitter:', err);
-    }
-  }
+  const tgText = buildTelegramText(deal);
 
   // Telegram
   if (telegramEnabled()) {
@@ -149,10 +102,9 @@ export async function postDailyDeal(): Promise<void> {
 }
 
 export function startSocialScheduler(): void {
-  const twitterOk  = !!(process.env.TWITTER_API_KEY);
   const telegramOk = telegramEnabled();
-  if (!twitterOk && !telegramOk) {
-    console.log('[social] Sin credenciales de Twitter ni Telegram público, scheduler desactivado.');
+  if (!telegramOk) {
+    console.log('[social] Sin TELEGRAM_PUBLIC_CHANNEL configurado, scheduler desactivado.');
     return;
   }
   console.log('[social] Scheduler activado — publica a las 15:05 cada día.');
