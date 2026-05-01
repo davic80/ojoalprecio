@@ -14,9 +14,11 @@ services:
       - SESSION_COOKIE_SECURE=${SESSION_COOKIE_SECURE:-true}
       - SITE_URL=${SITE_URL:-http://localhost:3000}
       - PORT=3000
-      # Scheduler: default every hour. Override with cron expression.
+      # Scheduler: default every 30 min. Override with cron expression.
       # Examples: "*/30 * * * *" = every 30 min, "0 * * * *" = every hour
-      - CHECK_INTERVAL_CRON=${CHECK_INTERVAL_CRON:-0 * * * *}
+      - CHECK_INTERVAL_CRON=${CHECK_INTERVAL_CRON:-*/30 * * * *}
+      # Parallel scrapers (default 5). Increase for >1000 products, max ~10 on Raspberry Pi
+      - SCRAPER_CONCURRENCY=${SCRAPER_CONCURRENCY:-5}
       # SMTP email
       - SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
       - SMTP_PORT=${SMTP_PORT:-587}

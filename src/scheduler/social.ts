@@ -107,6 +107,8 @@ export function startSocialScheduler(): void {
     console.log('[social] Sin TELEGRAM_PUBLIC_CHANNEL configurado, scheduler desactivado.');
     return;
   }
-  console.log('[social] Scheduler activado — publica a las 15:05 cada día.');
-  cron.schedule('5 15 * * *', () => { postDailyDeal(); });
+  console.log('[social] Scheduler activado — publica a las 9:05, 13:05 y 21:05 cada día.');
+  cron.schedule('5 9 * * *',  () => { postDailyDeal(); });
+  cron.schedule('5 13 * * *', () => { postDailyDeal(); });
+  cron.schedule('5 21 * * *', () => { postDailyDeal(); });
 }

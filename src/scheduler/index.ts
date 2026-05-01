@@ -6,7 +6,9 @@ import { scrapeProduct, affiliateUrl, ProductUnavailableError } from '../scraper
 import { sendPriceAlert, sendBackInStockAlert } from '../mailer';
 import { sendTelegramAlert, sendTelegramBackInStock } from '../mailer/telegram';
 
-const CHECK_INTERVAL = process.env.CHECK_INTERVAL_CRON ?? '0 * * * *';
+const CHECK_INTERVAL  = process.env.CHECK_INTERVAL_CRON ?? '*/30 * * * *';
+const CONCURRENCY     = Math.max(1, parseInt(process.env.SCRAPER_CONCURRENCY ?? '5', 10));
+const MIN_AGE_MS      = 29 * 60 * 1000; // skip if scraped less than 29 min ago
 
 export interface ScraperLogEntry { id: number; name: string; asin: string; ok: boolean; ts: number; }
 
@@ -43,24 +45,30 @@ async function checkAllProducts(): Promise<void> {
     `);
     const toCheck = (activeProducts.rows as any[]).filter(p => {
       if (!p.lastScrapedAt) return true;
-      return Date.now() - new Date(p.lastScrapedAt).getTime() >= 59 * 60 * 1000;
+      return Date.now() - new Date(p.lastScrapedAt).getTime() >= MIN_AGE_MS;
     });
     state.total = toCheck.length;
-    console.log(`[scheduler] ${toCheck.length}/${activeProducts.rows.length} products due for check…`);
+    console.log(`[scheduler] ${toCheck.length}/${activeProducts.rows.length} products due for check (${CONCURRENCY} workers)…`);
 
-    for (const product of toCheck) {
-      state.current = { id: product.id, name: product.name ?? product.asin, asin: product.asin };
-      let ok = true;
-      try {
-        await checkProduct(product.id, product.url, product.name ?? product.asin);
-      } catch { ok = false; }
-      state.log.unshift({ id: product.id, name: product.name ?? product.asin, asin: product.asin, ok, ts: Date.now() });
-      if (state.log.length > 50) state.log.pop();
-      state.done++;
-      state.current = null;
-      const delay = 5000 + Math.random() * 10000;
-      await new Promise((r) => setTimeout(r, delay));
+    // Worker pool: CONCURRENCY workers pick products until exhausted
+    let idx = 0;
+    async function worker(): Promise<void> {
+      while (idx < toCheck.length) {
+        const product = toCheck[idx++];
+        state.current = { id: product.id, name: product.name ?? product.asin, asin: product.asin };
+        let ok = true;
+        try {
+          await checkProduct(product.id, product.url, product.name ?? product.asin);
+        } catch { ok = false; }
+        state.log.unshift({ id: product.id, name: product.name ?? product.asin, asin: product.asin, ok, ts: Date.now() });
+        if (state.log.length > 50) state.log.pop();
+        state.done++;
+        // Small random delay per worker to avoid simultaneous bursts
+        await new Promise(r => setTimeout(r, 1000 + Math.random() * 3000));
+      }
     }
+
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, toCheck.length) }, worker));
 
     console.log('[scheduler] Cycle complete.');
   } catch (err) {
