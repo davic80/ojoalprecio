@@ -8,7 +8,8 @@ import { sendTelegramAlert, sendTelegramBackInStock } from '../mailer/telegram';
 
 const CHECK_INTERVAL  = process.env.CHECK_INTERVAL_CRON ?? '0 * * * *';
 const CONCURRENCY     = Math.max(1, parseInt(process.env.SCRAPER_CONCURRENCY ?? '3', 10));
-const MIN_AGE_MS      = 59 * 60 * 1000; // skip if scraped less than 59 min ago
+const MIN_AGE_MINUTES = Math.max(1, parseInt(process.env.MIN_AGE_MS_MINUTES ?? '59', 10));
+const MIN_AGE_MS      = MIN_AGE_MINUTES * 60 * 1000;
 
 export interface ScraperLogEntry { id: number; name: string; asin: string; ok: boolean; ts: number; }
 

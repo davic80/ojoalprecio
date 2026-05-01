@@ -71,19 +71,23 @@ const totalAlerts = parseInt(alertTotals && alertTotals.total ? alertTotals.tota
   <!-- Bar chart -->
   <div class="card" style="margin-bottom:16px">
     <h2>Visitas por día — últimos 30 días</h2>
-    <div style="display:flex;align-items:flex-end;gap:3px;height:80px;margin-top:16px;padding:0 2px">
-      <% days.forEach(function(d) {
-        const h = Math.max(2, Math.round((d.views / maxViews) * 72));
-        const isToday = d.key === new Date().toISOString().slice(0, 10);
-      %>
-        <div title="<%= d.key %>: <%= d.views %>"
-             style="flex:1;height:<%=h%>px;background:<%= isToday ? 'var(--primary)' : '#cbd5e1' %>;border-radius:2px 2px 0 0;min-width:4px;cursor:default">
-        </div>
-      <% }); %>
-    </div>
-    <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:11px;color:var(--gray-400)">
-      <span><%= days[0].key %></span>
-      <span>hoy</span>
+    <div style="position:relative;margin-top:16px">
+      <div style="font-size:11px;color:var(--gray-400);text-align:right;margin-bottom:2px">máx: <%= maxViews.toLocaleString('es-ES') %></div>
+      <div style="display:flex;align-items:flex-end;gap:3px;height:80px;padding:0 2px">
+        <% days.forEach(function(d) {
+          const h = d.views > 0 ? Math.max(4, Math.round((d.views / maxViews) * 76)) : 0;
+          const isToday = d.key === new Date().toISOString().slice(0, 10);
+        %>
+          <div class="chart-bar"
+               data-date="<%= d.key %>" data-count="<%= d.views %>" data-label="visitas"
+               style="flex:1;height:<%=h%>px;background:<%= isToday ? 'var(--primary)' : (d.views > 0 ? '#cbd5e1' : '#f1f5f9') %>;border-radius:2px 2px 0 0;min-width:4px;cursor:default;align-self:flex-end">
+          </div>
+        <% }); %>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:11px;color:var(--gray-400)">
+        <span><%= days[0].key.slice(5).replace('-', '/') %></span>
+        <span>hoy</span>
+      </div>
     </div>
   </div>
 
@@ -174,18 +178,22 @@ const totalAlerts = parseInt(alertTotals && alertTotals.total ? alertTotals.tota
     <% if (totalAlerts === 0) { %>
       <p class="hint" style="margin-top:12px">Sin alertas disparadas todavía.</p>
     <% } else { %>
-    <div style="display:flex;align-items:flex-end;gap:3px;height:80px;margin-top:16px;padding:0 2px">
-      <% alertDays.forEach(function(d) {
-        const h = Math.max(d.count > 0 ? 4 : 0, Math.round((d.count / maxAlerts) * 72));
-        const isToday = d.key === new Date().toISOString().slice(0, 10);
-      %>
-        <div title="<%= d.key %>: <%= d.count %>"
-             style="flex:1;height:<%=h%>px;background:<%= isToday ? '#e63946' : '#fca5a5' %>;border-radius:2px 2px 0 0;min-width:4px;cursor:default">
-        </div>
-      <% }); %>
-    </div>
-    <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:11px;color:var(--gray-400)">
-      <span><%= alertDays[0].key %></span><span>hoy</span>
+    <div style="position:relative;margin-top:16px">
+      <div style="font-size:11px;color:var(--gray-400);text-align:right;margin-bottom:2px">máx: <%= maxAlerts.toLocaleString('es-ES') %></div>
+      <div style="display:flex;align-items:flex-end;gap:3px;height:80px;padding:0 2px">
+        <% alertDays.forEach(function(d) {
+          const h = d.count > 0 ? Math.max(4, Math.round((d.count / maxAlerts) * 76)) : 0;
+          const isToday = d.key === new Date().toISOString().slice(0, 10);
+        %>
+          <div class="chart-bar"
+               data-date="<%= d.key %>" data-count="<%= d.count %>" data-label="alertas"
+               style="flex:1;height:<%=h%>px;background:<%= isToday ? '#e63946' : (d.count > 0 ? '#fca5a5' : '#f1f5f9') %>;border-radius:2px 2px 0 0;min-width:4px;cursor:default;align-self:flex-end">
+          </div>
+        <% }); %>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:11px;color:var(--gray-400)">
+        <span><%= alertDays[0].key.slice(5).replace('-', '/') %></span><span>hoy</span>
+      </div>
     </div>
     <% } %>
   </div>
@@ -254,6 +262,34 @@ const totalAlerts = parseInt(alertTotals && alertTotals.total ? alertTotals.tota
   <p>OjoAlPrecio v<%= process.env['APP_VERSION'] ?? 'dev' %> Admin &nbsp;·&nbsp; <a href="/ofertas">Ver ofertas públicas</a></p>
 </footer>
 
+<div id="chart-tooltip" style="display:none;position:fixed;background:#111827;color:#fff;padding:5px 10px;border-radius:6px;font-size:12px;pointer-events:none;z-index:1000;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.3)"></div>
+
 <script src="/js/scrape-widget.js"></script>
+<script>
+(function () {
+  const tooltip = document.getElementById('chart-tooltip');
+  const months = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+
+  function fmtDate(iso) {
+    const parts = iso.split('-');
+    return parseInt(parts[2], 10) + ' ' + months[parseInt(parts[1], 10) - 1] + ' ' + parts[0];
+  }
+
+  document.querySelectorAll('.chart-bar').forEach(function (bar) {
+    bar.addEventListener('mouseover', function () {
+      const count = parseInt(bar.dataset.count, 10).toLocaleString('es-ES');
+      tooltip.textContent = fmtDate(bar.dataset.date) + ': ' + count + ' ' + (bar.dataset.label || '');
+      tooltip.style.display = 'block';
+    });
+    bar.addEventListener('mousemove', function (e) {
+      tooltip.style.left = (e.clientX + 14) + 'px';
+      tooltip.style.top  = (e.clientY - 36) + 'px';
+    });
+    bar.addEventListener('mouseout', function () {
+      tooltip.style.display = 'none';
+    });
+  });
+})();
+</script>
 </body>
 </html>

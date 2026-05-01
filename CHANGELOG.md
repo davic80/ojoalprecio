@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.11.5] - 2026-05-01
+
+### Added
+- Admin Stats: variable de entorno `MIN_AGE_MS_MINUTES` (minutos mínimos entre scrapes de un producto, por defecto 59) — documentada en `.env.example` y `docker-compose.yml`
+- Admin Stats: gráfica de visitas y de alertas muestran el valor máximo sobre el eje Y
+- Admin Stats: tooltip flotante en ambas gráficas con fecha formateada en español (ej. "1 may 2026") y número de eventos al pasar el cursor
+- Admin Stats: barras con cero eventos se renderizan con altura 0 (antes siempre 2 px mínimo, lo que hacía el gráfico visualmente incorrecto)
+
 ## [2.11.4] - 2026-05-01
 
 ### Added
