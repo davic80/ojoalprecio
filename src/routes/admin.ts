@@ -253,44 +253,60 @@ router.get('/admin/scrape-status', requireAuth, requireAdmin, (_req: Request, re
 
 // ── GET /admin/deals ──────────────────────────────────────────────────────────
 router.get('/admin/deals', requireAuth, requireAdmin, async (req: Request, res: Response) => {
-  const rows = await db.execute(sql`
-    SELECT
-      p.id,
-      p.asin,
-      p.name,
-      p.image_url        AS "imageUrl",
-      p.url,
-      p.is_public        AS "isPublic",
-      ph_last.price      AS "currentPrice",
-      ph_min.min_price   AS "minPrice",
-      ph_med.median_price AS "medianPrice",
-      ph_count.cnt       AS "recordCount",
-      ROUND(((1 - ph_last.price / NULLIF(ph_med.median_price, 0)) * 100)::numeric, 1) AS "pctOffMedian",
-      ROUND(((1 - ph_last.price / NULLIF(ph_min.min_price, 0)) * 100)::numeric, 1)   AS "pctOffMin"
-    FROM products p
-    JOIN LATERAL (
-      SELECT price::numeric FROM price_history WHERE product_id = p.id ORDER BY scraped_at DESC LIMIT 1
-    ) ph_last ON true
-    JOIN LATERAL (
-      SELECT MIN(price::numeric) AS min_price FROM price_history WHERE product_id = p.id
-    ) ph_min ON true
-    JOIN LATERAL (
-      SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY price::numeric) AS median_price
-      FROM price_history WHERE product_id = p.id AND scraped_at >= NOW() - INTERVAL '30 days'
-    ) ph_med ON true
-    JOIN LATERAL (
-      SELECT COUNT(*) AS cnt FROM price_history WHERE product_id = p.id
-    ) ph_count ON true
-    WHERE p.is_available = TRUE
-      AND ph_count.cnt >= 20
-      AND ph_med.median_price IS NOT NULL
-      AND ph_last.price <= ph_min.min_price * 1.10
-    ORDER BY "pctOffMedian" DESC
-    LIMIT 50
-  `);
+  const filterCat    = req.query.category ? Number(req.query.category) : null;
+  const filterPublic = req.query.pub === '1' ? true : req.query.pub === '0' ? false : null;
+  const filterAtMin  = req.query.atmin === '1';
+
+  const [rows, catsRows] = await Promise.all([
+    db.execute(sql`
+      SELECT
+        p.id,
+        p.asin,
+        p.name,
+        p.image_url        AS "imageUrl",
+        p.url,
+        p.is_public        AS "isPublic",
+        p.is_on_sale       AS "isOnSale",
+        p.category_id      AS "categoryId",
+        c.name             AS "categoryName",
+        ph_last.price      AS "currentPrice",
+        ph_min.min_price   AS "minPrice",
+        ph_med.median_price AS "medianPrice",
+        ph_count.cnt       AS "recordCount",
+        ROUND(((1 - ph_last.price / NULLIF(ph_med.median_price, 0)) * 100)::numeric, 1) AS "pctOffMedian",
+        ROUND(((1 - ph_last.price / NULLIF(ph_min.min_price, 0)) * 100)::numeric, 1)   AS "pctOffMin"
+      FROM products p
+      LEFT JOIN categories c ON c.id = p.category_id
+      JOIN LATERAL (
+        SELECT price::numeric FROM price_history WHERE product_id = p.id ORDER BY scraped_at DESC LIMIT 1
+      ) ph_last ON true
+      JOIN LATERAL (
+        SELECT MIN(price::numeric) AS min_price FROM price_history WHERE product_id = p.id
+      ) ph_min ON true
+      JOIN LATERAL (
+        SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY price::numeric) AS median_price
+        FROM price_history WHERE product_id = p.id AND scraped_at >= NOW() - INTERVAL '30 days'
+      ) ph_med ON true
+      JOIN LATERAL (
+        SELECT COUNT(*) AS cnt FROM price_history WHERE product_id = p.id
+      ) ph_count ON true
+      WHERE p.is_available = TRUE
+        AND ph_count.cnt >= 20
+        AND ph_med.median_price IS NOT NULL
+        AND ph_last.price <= ph_min.min_price * 1.10
+        ${filterCat !== null ? sql`AND p.category_id = ${filterCat}` : sql``}
+        ${filterPublic !== null ? sql`AND p.is_public = ${filterPublic}` : sql``}
+        ${filterAtMin ? sql`AND ph_last.price <= ph_min.min_price * 1.005` : sql``}
+      ORDER BY "pctOffMedian" DESC
+      LIMIT 100
+    `),
+    db.execute(sql`SELECT id, name FROM categories ORDER BY name ASC`),
+  ]);
 
   res.render('admin-deals', {
     deals: rows.rows,
+    categories: catsRows.rows,
+    filters: { category: filterCat, pub: req.query.pub ?? null, atmin: filterAtMin },
     user: { email: req.session.userEmail },
     isAdmin: true,
   });

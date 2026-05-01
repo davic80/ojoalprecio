@@ -123,7 +123,7 @@ export async function sendPriceAlert(opts: PriceAlertOptions): Promise<void> {
     </div>
 
     <div style="background:#f9fafb; padding:16px 32px; text-align:center; font-size:12px; color:#9ca3af; border-top:1px solid #f0f0f0;">
-      OjoAlPrecio — Seguimiento de precios en Amazon.es
+      OjoAlPrecio — Seguimiento de precios en Amazon.es${process.env.TELEGRAM_PUBLIC_CHANNEL ? ` &nbsp;·&nbsp; <a href="https://t.me/${process.env.TELEGRAM_PUBLIC_CHANNEL.replace('@', '')}" style="color:#1a56db;text-decoration:none;">📢 Canal de Telegram</a>` : ''}
     </div>
   </div>
 </body>
@@ -375,10 +375,11 @@ export async function sendWelcomeEmail(opts: WelcomeEmailOptions): Promise<void>
         <div style="margin-bottom:6px;">📊 Ver el historial de precios de cualquier producto</div>
         <div style="margin-bottom:6px;">🔔 Crear alertas para que te avisemos cuando baje el precio</div>
         <div>🛒 Seguir las ofertas del día en la página pública</div>
+        ${process.env.TELEGRAM_PUBLIC_CHANNEL ? `<div style="margin-top:6px;">📢 <a href="https://t.me/${process.env.TELEGRAM_PUBLIC_CHANNEL.replace('@', '')}" style="color:#1a56db;">Únete al canal de Telegram</a> — ofertas del día gratis</div>` : ''}
       </div>
     </div>
     <div style="background:#f9fafb; padding:16px 32px; text-align:center; font-size:12px; color:#9ca3af; border-top:1px solid #f0f0f0;">
-      OjoAlPrecio — Seguimiento de precios en Amazon.es
+      OjoAlPrecio — Seguimiento de precios en Amazon.es${process.env.TELEGRAM_PUBLIC_CHANNEL ? ` &nbsp;·&nbsp; <a href="https://t.me/${process.env.TELEGRAM_PUBLIC_CHANNEL.replace('@', '')}" style="color:#1a56db;text-decoration:none;">📢 Canal de Telegram</a>` : ''}
     </div>
   </div>
 </body>

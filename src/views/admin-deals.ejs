@@ -18,6 +18,7 @@
     <a href="/admin/categories" class="nav-link">Categorías</a>
     <a href="/admin/lists" class="nav-link">Listas</a>
     <a href="/admin/deals" class="nav-link nav-link-active">Chollos</a>
+    <a href="/admin/social" class="nav-link">Social</a>
     <a href="/admin/stats" class="nav-link">Stats</a>
     <a href="/admin/alerts" class="nav-link">Alertas</a>
     <a href="/admin/import-url" class="nav-link">Importar URL</a>
@@ -35,6 +36,29 @@
     <h1>Mejores chollos</h1>
     <p class="subtitle">Productos en o cerca de su mínimo histórico, ordenados por bajada vs mediana de los últimos 30 días. Mínimo 20 registros.</p>
   </div>
+
+  <!-- Filtros -->
+  <form method="get" action="/admin/deals" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:20px">
+    <select name="category" class="form-input" style="width:auto;min-width:160px;font-size:13px" onchange="this.form.submit()">
+      <option value="">Todas las categorías</option>
+      <% categories.forEach(function(cat) { %>
+        <option value="<%= cat.id %>" <%= filters.category === cat.id ? 'selected' : '' %>><%= cat.name %></option>
+      <% }); %>
+    </select>
+    <select name="pub" class="form-input" style="width:auto;min-width:130px;font-size:13px" onchange="this.form.submit()">
+      <option value="">Público/Privado</option>
+      <option value="1" <%= filters.pub === '1' ? 'selected' : '' %>>Solo públicos</option>
+      <option value="0" <%= filters.pub === '0' ? 'selected' : '' %>>Solo privados</option>
+    </select>
+    <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+      <input type="checkbox" name="atmin" value="1" <%= filters.atmin ? 'checked' : '' %> onchange="this.form.submit()">
+      Solo mínimo histórico
+    </label>
+    <% if (filters.category || filters.pub || filters.atmin) { %>
+      <a href="/admin/deals" class="btn btn-sm btn-ghost" style="font-size:12px">✕ Limpiar filtros</a>
+    <% } %>
+    <span style="margin-left:auto;font-size:12px;color:var(--gray-400)"><%= deals.length %> productos</span>
+  </form>
 
   <% if (deals.length === 0) { %>
     <div class="card">
@@ -116,7 +140,7 @@
     </table>
   </div>
   <p class="hint" style="margin-top:12px">
-    Se muestran hasta 50 productos con precio ≤ 110% del mínimo histórico y al menos 20 registros.
+    Se muestran hasta 100 productos con precio ≤ 110% del mínimo histórico y al menos 20 registros.
   </p>
   <% } %>
 

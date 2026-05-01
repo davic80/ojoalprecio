@@ -29,6 +29,15 @@
 
   <% const totalDeals = groups.reduce((s, g) => s + g.deals.length, 0); %>
 
+  <% if (process.env.TELEGRAM_PUBLIC_CHANNEL) { %>
+  <a href="https://t.me/<%= process.env.TELEGRAM_PUBLIC_CHANNEL.replace('@','') %>" target="_blank" rel="noopener"
+     style="display:flex;align-items:center;gap:10px;background:#e8f4fd;border:1px solid #bee3f8;border-radius:10px;padding:12px 18px;margin-bottom:20px;text-decoration:none;color:#1a56db">
+    <span style="font-size:22px">📢</span>
+    <span style="font-size:14px"><strong>Recibe la oferta del día en Telegram</strong> — Únete al canal gratuito y no te pierdas ningún chollo</span>
+    <span style="margin-left:auto;font-size:13px;white-space:nowrap;font-weight:600">Unirse →</span>
+  </a>
+  <% } %>
+
   <% if (totalDeals === 0) { %>
     <div class="empty-state">
       <div class="empty-icon">🔍</div>
@@ -117,7 +126,7 @@
 </main>
 
 <footer class="footer">
-  <p>OjoAlPrecio v<%= process.env['APP_VERSION'] ?? 'dev' %> &nbsp;·&nbsp; <a href="/auth/login">Añade tus productos</a></p>
+  <p>OjoAlPrecio v<%= process.env['APP_VERSION'] ?? 'dev' %> &nbsp;·&nbsp; <a href="/auth/login">Añade tus productos</a><% if (process.env.TELEGRAM_PUBLIC_CHANNEL) { %> &nbsp;·&nbsp; <a href="https://t.me/<%= process.env.TELEGRAM_PUBLIC_CHANNEL.replace('@','') %>" target="_blank" rel="noopener">📢 Telegram</a><% } %></p>
 </footer>
 
 <style>

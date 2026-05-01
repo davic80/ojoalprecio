@@ -307,7 +307,7 @@ function trendBadge(current, previous) {
 </main>
 
 <footer class="footer">
-  <p>OjoAlPrecio v<%= process.env['APP_VERSION'] ?? 'dev' %> &nbsp;·&nbsp; Amazon.es Price Tracker</p>
+  <p>OjoAlPrecio v<%= process.env['APP_VERSION'] ?? 'dev' %> &nbsp;·&nbsp; Amazon.es Price Tracker<% if (process.env.TELEGRAM_PUBLIC_CHANNEL) { %> &nbsp;·&nbsp; <a href="https://t.me/<%= process.env.TELEGRAM_PUBLIC_CHANNEL.replace('@','') %>" target="_blank" rel="noopener">📢 Telegram</a><% } %></p>
 </footer>
 
 <% if (typeof isAdmin !== 'undefined' && isAdmin) { %>

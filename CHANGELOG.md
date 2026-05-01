@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.6.3] - 2026-04-30
+
+### Added
+- Mejores chollos: muestra hasta 100 productos (antes 50) con filtros por categoría, visibilidad (público/privado) y "solo mínimo histórico"
+- Footer con enlace al canal de Telegram en todas las páginas públicas (product, category, dashboard) y emails
+- Email de bienvenida: enlace al canal de Telegram en la lista de funciones y en el footer
+- Email de alerta de precio: enlace al canal de Telegram en el footer
+
+### Fixed
+- Navbar de admin Chollos: añadido enlace a Social
+
 ## [2.6.2] - 2026-04-30
 
 ### Fixed
