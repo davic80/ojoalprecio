@@ -86,31 +86,41 @@ const CHROMIUM_ARGS = [
 const BLOCKED_TYPES = new Set(['image', 'font', 'media', 'stylesheet']);
 
 // ── Singleton browser — launched once, reused across all products in a cycle ──
-const BROWSER_RECYCLE_AFTER = 120; // close & reopen every N products to prevent memory leaks
+// High enough that we never recycle mid-cycle (430 products × 2 workers = max ~215 uses each)
+const BROWSER_RECYCLE_AFTER = 500;
 
 let _browser: Browser | null = null;
 let _browserUses = 0;
+// Promise mutex: prevents race condition when 2 workers call getBrowser() simultaneously
+let _browserLaunchPromise: Promise<Browser> | null = null;
 // Storage state (Amazon session cookies) — fetched once per browser lifecycle
 let _storageStatePromise: Promise<any> | null = null;
 
-async function getBrowser(): Promise<Browser> {
+function getBrowser(): Promise<Browser> {
+  // Fast path: browser alive and not due for recycle (synchronous check — no race possible)
   if (_browser?.isConnected() && _browserUses < BROWSER_RECYCLE_AFTER) {
     _browserUses++;
-    return _browser;
+    return Promise.resolve(_browser);
   }
-  if (_browser) {
-    try { await _browser.close(); } catch {}
-    _browser = null;
+  // Slow path: serialize launch so concurrent workers share the same browser instance
+  if (!_browserLaunchPromise) {
+    _browserLaunchPromise = (async () => {
+      if (_browser) {
+        try { await _browser.close(); } catch {}
+        _browser = null;
+      }
+      _storageStatePromise = null;
+      const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
+      _browser = await chromium.launch({
+        headless: true,
+        executablePath: executablePath || undefined,
+        args: CHROMIUM_ARGS,
+      });
+      _browserUses = 1;
+      return _browser;
+    })().finally(() => { _browserLaunchPromise = null; });
   }
-  const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
-  _browser = await chromium.launch({
-    headless: true,
-    executablePath: executablePath || undefined,
-    args: CHROMIUM_ARGS,
-  });
-  _browserUses = 1;
-  _storageStatePromise = null; // reset session on new browser
-  return _browser;
+  return _browserLaunchPromise;
 }
 
 // Visit amazon.es once per browser lifecycle and cache the session cookies.
