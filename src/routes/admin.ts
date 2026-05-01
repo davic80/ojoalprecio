@@ -382,6 +382,47 @@ router.get('/admin/stats', requireAuth, requireAdmin, async (req: Request, res: 
   });
 });
 
+// ── GET /admin/users ──────────────────────────────────────────────────────────
+router.get('/admin/users', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const [usersRows, totalsRow] = await Promise.all([
+    db.execute(sql`
+      SELECT
+        u.id,
+        u.email,
+        u.email_verified      AS "emailVerified",
+        u.telegram_chat_id    AS "telegramChatId",
+        u.created_at          AS "createdAt",
+        (SELECT COUNT(*) FROM products p WHERE p.user_id = u.id AND p.is_active = TRUE)  AS "productCount",
+        (SELECT COUNT(*) FROM alerts   a WHERE a.user_id = u.id AND a.is_active = TRUE)  AS "activeAlertCount",
+        (SELECT COUNT(*) FROM alerts   a WHERE a.user_id = u.id)                          AS "totalAlertCount",
+        (SELECT COUNT(*) FROM alert_events ae WHERE ae.user_id = u.id)                   AS "alertEventCount"
+      FROM users u
+      WHERE u.email != ${SYSTEM_EMAIL}
+      ORDER BY u.created_at DESC
+    `),
+    db.execute(sql`
+      SELECT
+        COUNT(*)                                                 AS total,
+        COUNT(*) FILTER (WHERE email_verified = TRUE)           AS verified,
+        COUNT(*) FILTER (WHERE telegram_chat_id IS NOT NULL)    AS with_telegram
+      FROM users
+      WHERE email != ${SYSTEM_EMAIL}
+    `),
+  ]);
+
+  const totals = totalsRow.rows[0] as any;
+  res.render('admin-users', {
+    users: usersRows.rows,
+    totals: {
+      total:        parseInt(String(totals?.total ?? '0'), 10),
+      verified:     parseInt(String(totals?.verified ?? '0'), 10),
+      withTelegram: parseInt(String(totals?.with_telegram ?? '0'), 10),
+    },
+    user: { email: req.session.userEmail },
+    isAdmin: true,
+  });
+});
+
 // ── GET /admin/lists ──────────────────────────────────────────────────────────
 router.get('/admin/lists', requireAuth, requireAdmin, async (req: Request, res: Response) => {
   const lists = await db.execute(sql`

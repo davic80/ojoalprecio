@@ -77,6 +77,8 @@ const CHROMIUM_ARGS = [
   '--disable-dev-shm-usage',
   '--disable-accelerated-2d-canvas',
   '--disable-gpu',
+  '--disable-gpu-compositing',
+  '--disable-software-rasterizer',
   '--no-first-run',
   '--disable-blink-features=AutomationControlled',
   '--disable-infobars',
@@ -86,7 +88,7 @@ const CHROMIUM_ARGS = [
 const BLOCKED_TYPES = new Set(['image', 'font', 'media', 'stylesheet']);
 
 // ── Singleton browser — launched once, reused across all products in a cycle ──
-// High enough that we never recycle mid-cycle (430 products × 2 workers = max ~215 uses each)
+// High enough that we never recycle mid-cycle (430 products × 3 workers = 430 total uses per cycle)
 const BROWSER_RECYCLE_AFTER = 500;
 
 let _browser: Browser | null = null;

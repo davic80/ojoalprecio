@@ -6,9 +6,9 @@ import { scrapeProduct, affiliateUrl, ProductUnavailableError } from '../scraper
 import { sendPriceAlert, sendBackInStockAlert } from '../mailer';
 import { sendTelegramAlert, sendTelegramBackInStock } from '../mailer/telegram';
 
-const CHECK_INTERVAL  = process.env.CHECK_INTERVAL_CRON ?? '*/30 * * * *';
-const CONCURRENCY     = Math.max(1, parseInt(process.env.SCRAPER_CONCURRENCY ?? '5', 10));
-const MIN_AGE_MS      = 29 * 60 * 1000; // skip if scraped less than 29 min ago
+const CHECK_INTERVAL  = process.env.CHECK_INTERVAL_CRON ?? '0 * * * *';
+const CONCURRENCY     = Math.max(1, parseInt(process.env.SCRAPER_CONCURRENCY ?? '3', 10));
+const MIN_AGE_MS      = 59 * 60 * 1000; // skip if scraped less than 59 min ago
 
 export interface ScraperLogEntry { id: number; name: string; asin: string; ok: boolean; ts: number; }
 

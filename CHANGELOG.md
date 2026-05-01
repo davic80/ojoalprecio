@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.10.0] - 2026-05-01
+
+### Added
+- Admin: página `/admin/users` con listado de todos los usuarios registrados — email, estado de verificación, Telegram, productos seguidos, alertas activas / totales y notificaciones recibidas
+- Admin: enlace "Usuarios" añadido al navbar de todas las vistas de administración
+
+### Performance
+- Scraper: `--disable-gpu-compositing` y `--disable-software-rasterizer` en args de Chromium — elimina el proceso GPU (swiftshader), ahorra ~100 MB RSS y ~1.5% CPU constante
+- Scraper: concurrencia por defecto subida a 3 workers (antes 5 en código, 2 recomendado para Pi 4)
+- Scheduler: intervalo por defecto cambiado a cada hora (`0 * * * *`) y MIN_AGE_MS a 59 min
+
 ## [2.9.2] - 2026-05-01
 
 ### Performance
