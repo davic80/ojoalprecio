@@ -5,6 +5,7 @@ services:
     image: ghcr.io/davic80/ojoalprecio:${IMAGE_TAG:-latest}
     container_name: ojoalprecio-app
     restart: unless-stopped
+    init: true
     depends_on:
       postgres:
         condition: service_healthy

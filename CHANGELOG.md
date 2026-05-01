@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.11.3] - 2026-05-01
+
+### Fixed
+- Docker: `init: true` en el servicio app — tini actúa como PID 1 y reap correctamente los procesos Chromium zombies que quedan al reciclar el browser
+
 ## [2.11.2] - 2026-05-01
 
 ### Fixed
