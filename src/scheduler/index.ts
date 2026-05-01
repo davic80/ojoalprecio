@@ -78,13 +78,20 @@ async function checkProduct(productId: number, url: string, label: string): Prom
   const wasUnavailable = current ? !current.isAvailable : false;
 
   // Fetch max price in the last 3 days before this scrape (reference for sale detection)
-  const refResult = await db.execute(sql`
-    SELECT MAX(price)::float AS ref
-    FROM price_history
-    WHERE product_id = ${productId}
-      AND scraped_at >= NOW() - INTERVAL '3 days'
-  `);
+  const [refResult, lastPriceResult] = await Promise.all([
+    db.execute(sql`
+      SELECT MAX(price)::float AS ref
+      FROM price_history
+      WHERE product_id = ${productId}
+        AND scraped_at >= NOW() - INTERVAL '3 days'
+    `),
+    db.execute(sql`
+      SELECT price::float AS price FROM price_history
+      WHERE product_id = ${productId} ORDER BY scraped_at DESC LIMIT 1
+    `),
+  ]);
   const referencePrice = refResult.rows[0] ? (refResult.rows[0] as any).ref as number | null : null;
+  const lastPrice: number | null = lastPriceResult.rows[0] ? (lastPriceResult.rows[0] as any).price as number : null;
 
   try {
     console.log(`[scheduler] Scraping: ${label}`);
@@ -106,7 +113,11 @@ async function checkProduct(productId: number, url: string, label: string): Prom
       lastError: null,
       isAvailable: true,
       ...(isOnSale !== undefined ? { isOnSale } : {}),
-      ...(isOnSale === true ? { isPublic: true } : {}),
+      ...(isOnSale === true
+        ? { isPublic: true }
+        : isOnSale === false && lastPrice !== null && result.price > lastPrice
+          ? { isPublic: false }
+          : {}),
     }).where(eq(products.id, productId));
 
     console.log(`[scheduler] ${label} → ${result.price} ${result.currency}`);
