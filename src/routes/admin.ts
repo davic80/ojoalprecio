@@ -291,7 +291,7 @@ router.get('/admin/deals', requireAuth, requireAdmin, async (req: Request, res: 
         SELECT COUNT(*) AS cnt FROM price_history WHERE product_id = p.id
       ) ph_count ON true
       WHERE p.is_available = TRUE
-        AND ph_count.cnt >= 20
+        AND ph_count.cnt >= 10
         AND ph_med.median_price IS NOT NULL
         AND ph_last.price <= ph_min.min_price * 1.10
         ${filterCat !== null ? sql`AND p.category_id = ${filterCat}` : sql``}
