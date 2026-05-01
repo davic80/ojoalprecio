@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.11.2] - 2026-05-01
+
+### Fixed
+- Social: cron ahora usa `timezone: 'Europe/Madrid'` — los posts se publican a las 9:00, 13:00 y 21:00 hora española, correctos tanto en verano (UTC+2) como en invierno (UTC+1)
+
 ## [2.11.1] - 2026-05-01
 
 ### Changed

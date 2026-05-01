@@ -101,7 +101,7 @@ export async function postDailyDeal(): Promise<void> {
   }
 }
 
-export const POST_HOURS = [8, 13, 21];
+export const POST_HOURS = [9, 13, 21];
 
 export function startSocialScheduler(): void {
   const telegramOk = telegramEnabled();
@@ -109,8 +109,9 @@ export function startSocialScheduler(): void {
     console.log('[social] Sin TELEGRAM_PUBLIC_CHANNEL configurado, scheduler desactivado.');
     return;
   }
-  console.log(`[social] Scheduler activado — publica a las ${POST_HOURS.map(h => h + ':00').join(', ')} cada día.`);
-  cron.schedule('0 8 * * *',  () => { postDailyDeal(); });
-  cron.schedule('0 13 * * *', () => { postDailyDeal(); });
-  cron.schedule('0 21 * * *', () => { postDailyDeal(); });
+  const tz = 'Europe/Madrid';
+  console.log(`[social] Scheduler activado — publica a las ${POST_HOURS.map(h => h + ':00').join(', ')} hora Madrid.`);
+  cron.schedule('0 9 * * *',  () => { postDailyDeal(); }, { timezone: tz });
+  cron.schedule('0 13 * * *', () => { postDailyDeal(); }, { timezone: tz });
+  cron.schedule('0 21 * * *', () => { postDailyDeal(); }, { timezone: tz });
 }
