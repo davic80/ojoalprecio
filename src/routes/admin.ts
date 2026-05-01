@@ -293,7 +293,7 @@ router.get('/admin/deals', requireAuth, requireAdmin, async (req: Request, res: 
       WHERE p.is_available = TRUE
         AND ph_count.cnt >= 10
         AND ph_med.median_price IS NOT NULL
-        AND ph_last.price <= ph_min.min_price * 1.10
+        AND ROUND(((1 - ph_last.price / NULLIF(ph_med.median_price, 0)) * 100)::numeric, 1) >= 5
         ${filterCat !== null ? sql`AND p.category_id = ${filterCat}` : sql``}
         ${filterPublic !== null ? sql`AND p.is_public = ${filterPublic}` : sql``}
         ${filterAtMin ? sql`AND ph_last.price <= ph_min.min_price * 1.005` : sql``}
