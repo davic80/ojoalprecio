@@ -96,6 +96,8 @@ function trendBadge(current, previous) {
   <!-- Add product form -->
   <div class="card add-card">
     <h2>Añadir producto</h2>
+
+    <!-- Single URL -->
     <form
       hx-post="/products"
       hx-target="#product-list"
@@ -117,12 +119,12 @@ function trendBadge(current, previous) {
       </div>
       <p class="hint">Pega la URL de cualquier artículo de Amazon.es</p>
     </form>
-  </div>
 
-  <!-- Wishlist import (admin only) -->
-  <% if (typeof isAdmin !== 'undefined' && isAdmin) { %>
-  <div class="card add-card" style="margin-top:12px">
-    <h2>Importar wishlist de Amazon</h2>
+    <% if (typeof isAdmin !== 'undefined' && isAdmin) { %>
+    <hr style="border:none;border-top:1px solid #f0f0f0;margin:16px 0">
+
+    <!-- Wishlist -->
+    <p style="font-size:13px;font-weight:600;color:var(--gray-500);margin:0 0 8px">Importar wishlist de Amazon</p>
     <form hx-post="/products/import-wishlist" hx-target="#wishlist-result" hx-swap="innerHTML" class="add-form">
       <div class="input-group">
         <input type="url" name="wishlistUrl" placeholder="https://www.amazon.es/hz/wishlist/ls/…" required class="input" autocomplete="off">
@@ -131,8 +133,27 @@ function trendBadge(current, previous) {
       <p class="hint">La wishlist debe ser pública en Amazon</p>
     </form>
     <div id="wishlist-result"></div>
+
+    <hr style="border:none;border-top:1px solid #f0f0f0;margin:16px 0">
+
+    <!-- Import from URL (admin) -->
+    <p style="font-size:13px;font-weight:600;color:var(--gray-500);margin:0 0 8px">Importar desde URL</p>
+    <form id="import-url-form" autocomplete="off" class="add-form">
+      <div class="input-group">
+        <input id="import-url-input" type="url" placeholder="https://… blog, comparativa, wishlist…" required class="input" autocomplete="off">
+        <button id="import-url-btn" type="submit" class="btn btn-outline">Importar</button>
+      </div>
+      <p class="hint">Extrae todos los ASINs de Amazon.es que encuentre en la página</p>
+    </form>
+    <div id="import-url-progress" style="display:none;margin-top:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-size:12px;font-weight:600;color:var(--gray-500)">Progreso</span>
+        <span id="import-url-summary" style="font-size:12px;color:var(--gray-500)"></span>
+      </div>
+      <div id="import-url-log" class="import-log"></div>
+    </div>
+    <% } %>
   </div>
-  <% } %>
 
   <!-- Filter bar -->
   <% if (stats.total > 0) { %>
@@ -452,6 +473,69 @@ document.addEventListener('click', function(e) {
     .catch(function(e) { console.error(e); })
     .finally(function() { btn.disabled = false; });
 });
+</script>
+<% } %>
+
+<% if (typeof isAdmin !== 'undefined' && isAdmin) { %>
+<style>
+.import-log { font-family:monospace; font-size:12px; max-height:300px; overflow-y:auto; display:flex; flex-direction:column; gap:2px; }
+.log-line   { padding:2px 6px; border-radius:3px; line-height:1.5; }
+.log-info   { color:var(--gray-600); }
+.log-found  { background:#eff6ff; color:#1d4ed8; font-weight:600; }
+.log-add    { background:#f0fdf4; color:#166534; }
+.log-skip   { color:var(--gray-400); }
+.log-error  { background:#fef2f2; color:#991b1b; }
+.log-done   { background:#f0fdf4; color:#166534; font-weight:700; padding:6px 10px; margin-top:4px; border-radius:4px; }
+</style>
+<script>
+(function() {
+  const form    = document.getElementById('import-url-form');
+  if (!form) return;
+  const btn     = document.getElementById('import-url-btn');
+  const wrap    = document.getElementById('import-url-progress');
+  const log     = document.getElementById('import-url-log');
+  const summary = document.getElementById('import-url-summary');
+  let es = null;
+
+  form.addEventListener('submit', function(e) {
+    e.preventDefault();
+    const url = document.getElementById('import-url-input').value.trim();
+    if (!url) return;
+    log.innerHTML = '';
+    summary.textContent = '';
+    wrap.style.display = '';
+    btn.disabled = true;
+    btn.textContent = 'Importando…';
+    if (es) { es.close(); es = null; }
+    es = new EventSource('/admin/import-url/stream?url=' + encodeURIComponent(url));
+    es.addEventListener('message', function(e) {
+      const d = JSON.parse(e.data);
+      const div = document.createElement('div');
+      div.className = 'log-line log-' + d.type;
+      const icons = { info:'→', found:'●', add:'+', skip:'~', error:'✗' };
+      div.textContent = (icons[d.type] || '·') + ' ' + d.msg;
+      log.appendChild(div);
+      log.scrollTop = log.scrollHeight;
+    });
+    es.addEventListener('done', function(e) {
+      const d = JSON.parse(e.data);
+      const div = document.createElement('div');
+      div.className = 'log-line log-done';
+      div.textContent = '✓ Completado — ' + d.added + ' añadidos · ' + d.skipped + ' ya existían · ' + d.errors + ' errores';
+      log.appendChild(div);
+      log.scrollTop = log.scrollHeight;
+      summary.textContent = '+' + d.added + ' / ~' + d.skipped + ' / ✗' + d.errors;
+      btn.disabled = false;
+      btn.textContent = 'Importar';
+      es.close(); es = null;
+    });
+    es.onerror = function() {
+      btn.disabled = false;
+      btn.textContent = 'Importar';
+      if (es) { es.close(); es = null; }
+    };
+  });
+})();
 </script>
 <% } %>
 
