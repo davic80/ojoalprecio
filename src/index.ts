@@ -7,10 +7,17 @@ console.log   = (...a) => _log(`[${ts()}]`, ...a);
 console.error = (...a) => _err(`[${ts()}]`, ...a);
 console.warn  = (...a) => _err(`[${ts()}]`, ...a);
 
+import { execSync } from 'child_process';
 import { createApp } from './server';
 import { pool } from './db/client';
 import { migrate } from './db/migrate';
 import { startScheduler } from './scheduler';
+
+// Kill any leftover Chromium processes from previous runs
+try {
+  execSync('pkill -f chromium || true', { stdio: 'ignore' });
+  console.log('[startup] Cleaned up leftover Chromium processes.');
+} catch { /* ignore */ }
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10);
 
@@ -51,3 +58,12 @@ main().catch((err) => {
   console.error('[startup] Fatal error:', err);
   process.exit(1);
 });
+
+function shutdown(signal: string) {
+  console.log(`[startup] ${signal} received — cleaning up Chromium and exiting.`);
+  try { execSync('pkill -f chromium || true', { stdio: 'ignore' }); } catch { /* ignore */ }
+  process.exit(0);
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT',  () => shutdown('SIGINT'));
