@@ -70,12 +70,12 @@
       <thead>
         <tr>
           <th style="width:48px"></th>
-          <th>Producto</th>
-          <th style="text-align:right">Actual</th>
-          <th style="text-align:right">Mínimo</th>
-          <th style="text-align:right">Mediana 30d</th>
-          <th style="text-align:right">vs mediana</th>
-          <th style="text-align:right">vs mínimo</th>
+          <th data-col="name" class="sortable-col">Producto</th>
+          <th data-col="currentPrice" class="sortable-col" style="text-align:right">Actual</th>
+          <th data-col="minPrice" class="sortable-col" style="text-align:right">Mínimo</th>
+          <th data-col="medianPrice" class="sortable-col" style="text-align:right">Mediana 30d</th>
+          <th data-col="pctOffMedian" class="sortable-col sort-active sort-desc" style="text-align:right">vs mediana</th>
+          <th data-col="pctOffMin" class="sortable-col" style="text-align:right">vs mínimo</th>
           <th style="text-align:center">Público</th>
           <th></th>
         </tr>
@@ -86,7 +86,14 @@
           const pctMin    = parseFloat(d.pctOffMin);
           const atMin     = Math.abs(pctMin) < 0.5;
         %>
-        <tr>
+        <tr
+          data-name="<%- (d.name ?? d.asin).replace(/"/g,'&quot;') %>"
+          data-current-price="<%= parseFloat(d.currentPrice) %>"
+          data-min-price="<%= parseFloat(d.minPrice) %>"
+          data-median-price="<%= parseFloat(d.medianPrice) %>"
+          data-pct-off-median="<%= pctMedian %>"
+          data-pct-off-min="<%= pctMin %>"
+        >
           <td>
             <% if (d.imageUrl) { %>
               <img src="<%= d.imageUrl %>" alt="" style="width:40px;height:40px;object-fit:contain;border-radius:4px;">
@@ -154,7 +161,53 @@
   <p>OjoAlPrecio v<%= process.env['APP_VERSION'] ?? 'dev' %> Admin &nbsp;·&nbsp; <a href="/ofertas">Ver ofertas públicas</a></p>
 </footer>
 
+<style>
+.sortable-col { cursor:pointer; user-select:none; white-space:nowrap; }
+.sortable-col::after { content:' ⇅'; opacity:0.3; font-size:11px; }
+.sortable-col.sort-asc::after  { content:' ↑'; opacity:1; }
+.sortable-col.sort-desc::after { content:' ↓'; opacity:1; }
+</style>
 <script>
+(function() {
+  const tbody = document.querySelector('.price-table tbody');
+  const headers = document.querySelectorAll('.sortable-col');
+  // map th data-col value → row dataset key (camelCase from kebab HTML attr)
+  const colToDataKey = {
+    name:         'name',
+    currentPrice: 'currentPrice',
+    minPrice:     'minPrice',
+    medianPrice:  'medianPrice',
+    pctOffMedian: 'pctOffMedian',
+    pctOffMin:    'pctOffMin',
+  };
+  let sortCol = 'pctOffMedian', sortDir = -1;
+
+  function applySort() {
+    const key = colToDataKey[sortCol];
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    rows.sort(function(a, b) {
+      if (sortCol === 'name') {
+        return sortDir * (a.dataset[key] ?? '').localeCompare(b.dataset[key] ?? '');
+      }
+      return sortDir * (parseFloat(a.dataset[key] ?? '0') - parseFloat(b.dataset[key] ?? '0'));
+    });
+    rows.forEach(function(r) { tbody.appendChild(r); });
+    headers.forEach(function(h) {
+      h.classList.remove('sort-asc', 'sort-desc');
+      if (h.dataset.col === sortCol) h.classList.add(sortDir === 1 ? 'sort-asc' : 'sort-desc');
+    });
+  }
+
+  headers.forEach(function(h) {
+    h.addEventListener('click', function() {
+      const col = h.dataset.col;
+      sortDir = (sortCol === col) ? sortDir * -1 : (col === 'name' ? 1 : -1);
+      sortCol = col;
+      applySort();
+    });
+  });
+})();
+
 document.querySelectorAll('.public-toggle').forEach(function(btn) {
   btn.addEventListener('click', async function() {
     const id = btn.dataset.id;
