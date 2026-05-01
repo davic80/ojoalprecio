@@ -54,10 +54,27 @@
           </p>
         </div>
         <form action="/admin/social/post-now" method="POST">
-          <button type="submit" class="btn btn-primary" onclick="return confirm('¿Publicar ahora en X y Telegram?')">
-            Publicar ahora ↑
+          <button type="submit" class="btn btn-primary" onclick="return confirm('¿Publicar ahora en Telegram?')">
+            Publicar en Telegram ↑
           </button>
         </form>
+      </div>
+
+      <%
+        const siteUrl = process.env.SITE_URL ?? 'https://ojoalprecio.com';
+        const pct = parseFloat(nextDeal.pctOffMedian).toFixed(1);
+        const price = parseFloat(nextDeal.currentPrice).toFixed(2);
+        const name = nextDeal.name ? (nextDeal.name.length > 80 ? nextDeal.name.slice(0,80) + '…' : nextDeal.name) : nextDeal.asin;
+        const amzUrl = nextDeal.url + (nextDeal.url.includes('?') ? '&' : '?') + 'tag=canidrone-21';
+        const histUrl = siteUrl + '/p/' + nextDeal.asin;
+        const tweetText = `👁 Oferta del día\n\n${name}\n\n💰 ${price} €  📉 −${pct}% vs precio habitual\n\n🛒 ${amzUrl}\n📊 Historial: ${histUrl}\n\n#chollos #amazon #ofertas #ahorro`;
+      %>
+      <div style="margin-top:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <span style="font-size:13px;font-weight:600;color:var(--gray-500)">Texto para 𝕏 (copiar y pegar)</span>
+          <button id="copy-tweet" class="btn btn-sm btn-ghost" style="font-size:12px">Copiar</button>
+        </div>
+        <textarea id="tweet-text" readonly style="width:100%;height:140px;font-size:13px;font-family:monospace;border:1px solid #e5e7eb;border-radius:6px;padding:10px;resize:none;background:#f9fafb;box-sizing:border-box"><%= tweetText %></textarea>
       </div>
     <% } %>
   </div>
@@ -120,5 +137,17 @@
 </footer>
 
 <script src="/js/scrape-widget.js"></script>
+<script>
+const btn = document.getElementById('copy-tweet');
+if (btn) {
+  btn.addEventListener('click', function() {
+    const ta = document.getElementById('tweet-text');
+    navigator.clipboard.writeText(ta.value).then(function() {
+      btn.textContent = '¡Copiado!';
+      setTimeout(function() { btn.textContent = 'Copiar'; }, 2000);
+    });
+  });
+}
+</script>
 </body>
 </html>
