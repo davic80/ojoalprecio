@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.11.0] - 2026-05-01
+
+### Added
+- Detección de productos fallidos: tras 3 errores consecutivos de scraping el producto se marca como `is_failed = true` y se excluye del ciclo automático
+- Badge "Fallido" (rojo) en las cards del dashboard y filtro "Fallidos" en el selector de estado
+- Contador de fallidos en la barra de stats del dashboard
+- El estado se limpia automáticamente en el primer scraping exitoso (manual o automático tras reactivación)
+- Migración 24: columnas `consecutive_failures` e `is_failed` en la tabla `products`
+
 ## [2.10.1] - 2026-05-01
 
 ### Fixed

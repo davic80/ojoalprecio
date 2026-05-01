@@ -331,6 +331,13 @@ const MIGRATIONS = [
   );
   CREATE INDEX IF NOT EXISTS social_post_log_product_platform ON social_post_log(product_id, platform);
   `,
+  // Migration 24: consecutive failure tracking — marks products as failed after 3 scrape errors
+  `
+  ALTER TABLE products
+    ADD COLUMN IF NOT EXISTS consecutive_failures INTEGER DEFAULT 0 NOT NULL,
+    ADD COLUMN IF NOT EXISTS is_failed            BOOLEAN DEFAULT FALSE NOT NULL;
+  CREATE INDEX IF NOT EXISTS idx_products_is_failed ON products(is_failed) WHERE is_failed = TRUE;
+  `,
 ];
 
 export async function migrate(): Promise<void> {

@@ -34,6 +34,7 @@ router.get('/', (req: Request, res: Response, next) => {
   if (status === 'on_sale')    whereClauses.push(sql`p.is_on_sale = TRUE`);
   if (status === 'unavailable') whereClauses.push(sql`p.is_available = FALSE`);
   if (status === 'error')      whereClauses.push(sql`p.last_error IS NOT NULL`);
+  if (status === 'failed')     whereClauses.push(sql`p.is_failed = TRUE`);
   if (status === 'pending')    whereClauses.push(sql`NOT EXISTS (SELECT 1 FROM price_history ph WHERE ph.product_id = p.id)`);
   const where = whereClauses.length ? sql.join(whereClauses, sql` AND `) : sql`TRUE`;
 
@@ -51,6 +52,8 @@ router.get('/', (req: Request, res: Response, next) => {
         p.is_public    AS "isPublic",
         p.is_available AS "isAvailable",
         p.is_on_sale   AS "isOnSale",
+        p.is_failed    AS "isFailed",
+        p.consecutive_failures AS "consecutiveFailures",
         p.last_error   AS "lastError",
         p.created_at   AS "createdAt",
         (SELECT ph.price  FROM price_history ph WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1) AS "currentPrice",
@@ -83,7 +86,7 @@ router.get('/', (req: Request, res: Response, next) => {
   // stats computed over all visible products (all for admin, own for regular users)
   const statsWhere = adminUser ? sql`TRUE` : sql`p.user_id = ${userId}`;
   const allRows = await db.execute(sql`
-    SELECT p.is_available, p.last_error, p.is_on_sale,
+    SELECT p.is_available, p.last_error, p.is_on_sale, p.is_failed,
       (SELECT ph.price FROM price_history ph WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1) AS "currentPrice",
       (SELECT MIN(ph2.price) FROM price_history ph2 WHERE ph2.product_id = p.id) AS "minPrice",
       (SELECT COUNT(*) FROM price_history ph4 WHERE ph4.product_id = p.id) AS "checkCount"
@@ -96,6 +99,7 @@ router.get('/', (req: Request, res: Response, next) => {
       parseFloat(p.currentPrice) <= parseFloat(p.minPrice) + 0.01).length,
     withError: all.filter(p => p.lastError).length,
     unavailable: all.filter(p => !p.isAvailable).length,
+    failed: all.filter(p => p.isFailed).length,
   };
 
   res.render('dashboard', {
@@ -257,7 +261,7 @@ router.post('/products/:id/refresh', requireAuth, requireAdmin, async (req: Requ
     const result = await scrapeProduct(product.url);
     await db
       .update(products)
-      .set({ name: result.name, imageUrl: result.imageUrl, extraImages: result.extraImages.length ? JSON.stringify(result.extraImages) : null, lastError: null, isAvailable: true })
+      .set({ name: result.name, imageUrl: result.imageUrl, extraImages: result.extraImages.length ? JSON.stringify(result.extraImages) : null, lastError: null, isAvailable: true, consecutiveFailures: 0, isFailed: false })
       .where(eq(products.id, productId));
     await db.insert(priceHistory).values({
       productId,

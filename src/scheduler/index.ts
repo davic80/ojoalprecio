@@ -41,7 +41,7 @@ async function checkAllProducts(): Promise<void> {
       SELECT p.id, p.url, p.name, p.asin,
         (SELECT ph.scraped_at FROM price_history ph WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1) AS "lastScrapedAt"
       FROM products p
-      WHERE p.is_active = TRUE
+      WHERE p.is_active = TRUE AND p.is_failed = FALSE
     `);
     const toCheck = (activeProducts.rows as any[]).filter(p => {
       if (!p.lastScrapedAt) return true;
@@ -81,8 +81,8 @@ async function checkAllProducts(): Promise<void> {
 }
 
 async function checkProduct(productId: number, url: string, label: string): Promise<void> {
-  // Load current state to detect availability transitions
-  const [current] = await db.select({ isAvailable: products.isAvailable }).from(products).where(eq(products.id, productId)).limit(1);
+  // Load current state to detect availability transitions and track failures
+  const [current] = await db.select({ isAvailable: products.isAvailable, consecutiveFailures: products.consecutiveFailures }).from(products).where(eq(products.id, productId)).limit(1);
   const wasUnavailable = current ? !current.isAvailable : false;
 
   // Fetch max price in the last 3 days before this scrape (reference for sale detection)
@@ -120,6 +120,8 @@ async function checkProduct(productId: number, url: string, label: string): Prom
       extraImages: result.extraImages.length ? JSON.stringify(result.extraImages) : null,
       lastError: null,
       isAvailable: true,
+      consecutiveFailures: 0,
+      isFailed: false,
       ...(isOnSale !== undefined ? { isOnSale } : {}),
       ...(isOnSale === true
         ? { isPublic: true }
@@ -147,7 +149,10 @@ async function checkProduct(productId: number, url: string, label: string): Prom
     } else {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[scheduler] Failed for ${label}: ${msg}`);
-      await db.update(products).set({ lastError: msg }).where(eq(products.id, productId));
+      const newFailCount = (current?.consecutiveFailures ?? 0) + 1;
+      const isFailed = newFailCount >= 3;
+      if (isFailed) console.log(`[scheduler] ${label} → marked as failed after ${newFailCount} consecutive errors`);
+      await db.update(products).set({ lastError: msg, consecutiveFailures: newFailCount, isFailed }).where(eq(products.id, productId));
     }
   }
 }

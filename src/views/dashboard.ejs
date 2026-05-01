@@ -89,6 +89,12 @@ function trendBadge(current, previous) {
       <span class="stat-pill-label"><%= stats.withError === 1 ? 'con error' : 'con error' %></span>
     </div>
     <% } %>
+    <% if (stats.failed > 0) { %>
+    <div class="stat-pill" style="background:#fef2f2;color:#dc2626">
+      <span class="stat-pill-value"><%= stats.failed %></span>
+      <span class="stat-pill-label"><%= stats.failed === 1 ? 'fallido' : 'fallidos' %></span>
+    </div>
+    <% } %>
   </div>
   <% } %>
 
@@ -171,6 +177,7 @@ function trendBadge(current, previous) {
       <option value="on_sale"     <%= filters.status === 'on_sale'     ? 'selected' : '' %>>En oferta</option>
       <option value="unavailable" <%= filters.status === 'unavailable' ? 'selected' : '' %>>Sin stock</option>
       <option value="error"       <%= filters.status === 'error'       ? 'selected' : '' %>>Con error</option>
+      <option value="failed"      <%= filters.status === 'failed'      ? 'selected' : '' %>>Fallidos</option>
       <option value="pending"     <%= filters.status === 'pending'     ? 'selected' : '' %>>Sin scrapear</option>
     </select>
     <select name="sort" class="input input-sm" style="width:auto" onchange="this.form.submit()">
@@ -243,7 +250,9 @@ function trendBadge(current, previous) {
           <% } else { %>
             <div class="product-img-placeholder">📦</div>
           <% } %>
-          <% if (isAtLow) { %>
+          <% if (p.isFailed) { %>
+            <span class="badge-unavailable" style="background:#dc2626" title="Fallo en scraping 3 veces seguidas — pausado">Fallido</span>
+          <% } else if (isAtLow) { %>
             <span class="badge-low" title="Precio en mínimo desde que se inició el seguimiento">Precio mínimo</span>
           <% } else if (p.isOnSale) { %>
             <span class="badge-sale" title="Bajada superior al 7% respecto al registro anterior">Oferta</span>
