@@ -6,6 +6,7 @@ import { requireAuth } from '../middleware/auth';
 import { requireAdmin } from '../middleware/admin';
 import { scrapeUrlForAsins, extractAsin, normaliseAmazonUrl } from '../scraper/amazon';
 import { getScraperStatus } from '../scheduler';
+import { getBestUnpostedDeal, postDailyDeal } from '../scheduler/social';
 
 const SYSTEM_EMAIL = 'system@ojoalprecio.local';
 
@@ -212,6 +213,37 @@ router.delete('/admin/categories/:id', requireAuth, requireAdmin, async (req: Re
 
   if (req.headers['hx-request']) return res.send('');
   res.redirect('/admin/categories');
+});
+
+// ── GET /admin/social ─────────────────────────────────────────────────────────
+router.get('/admin/social', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const [nextDeal, logRows] = await Promise.all([
+    getBestUnpostedDeal(),
+    db.execute(sql`
+      SELECT sl.id, sl.platform, sl.post_id, sl.posted_at, sl.content,
+             p.name, p.asin, p.id AS product_id
+      FROM social_post_log sl
+      LEFT JOIN products p ON p.id = sl.product_id
+      ORDER BY sl.posted_at DESC LIMIT 30
+    `),
+  ]);
+
+  res.render('admin-social', {
+    nextDeal,
+    log: logRows.rows,
+    user: { email: req.session.userEmail },
+    isAdmin: true,
+  });
+});
+
+// ── POST /admin/social/post-now ───────────────────────────────────────────────
+router.post('/admin/social/post-now', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    await postDailyDeal();
+  } catch (err) {
+    console.error('[admin] Error posting deal:', err);
+  }
+  res.redirect('/admin/social');
 });
 
 // ── GET /admin/scrape-status ──────────────────────────────────────────────────

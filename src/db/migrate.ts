@@ -320,6 +320,17 @@ const MIGRATIONS = [
       (SELECT id FROM categories WHERE slug = 'alimentacion'))
   ON CONFLICT DO NOTHING;
   `,
+  `
+  CREATE TABLE IF NOT EXISTS social_post_log (
+    id          SERIAL PRIMARY KEY,
+    product_id  INTEGER REFERENCES products(id) ON DELETE SET NULL,
+    platform    VARCHAR(20) NOT NULL,
+    post_id     TEXT,
+    content     TEXT,
+    posted_at   TIMESTAMP DEFAULT NOW() NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS social_post_log_product_platform ON social_post_log(product_id, platform);
+  `,
 ];
 
 export async function migrate(): Promise<void> {

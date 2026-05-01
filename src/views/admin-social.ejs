@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Social — Admin OjoAlPrecio</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <a href="/" class="navbar-brand">
+    <span class="brand-icon">👁</span>
+    <span class="brand-name">OjoAlPrecio</span>
+  </a>
+  <div class="navbar-actions">
+    <a href="/admin/categories" class="nav-link">Categorías</a>
+    <a href="/admin/lists" class="nav-link">Listas</a>
+    <a href="/admin/deals" class="nav-link">Chollos</a>
+    <a href="/admin/social" class="nav-link nav-link-active">Social</a>
+    <a href="/admin/stats" class="nav-link">Stats</a>
+    <a href="/admin/alerts" class="nav-link">Alertas</a>
+    <a href="/admin/import-url" class="nav-link">Importar URL</a>
+    <span id="scrape-widget" style="position:relative;margin-right:4px"></span>
+    <a href="/account" class="user-email user-email-link"><%= user.email %></a>
+    <form action="/auth/logout" method="POST" style="display:inline">
+      <button type="submit" class="btn btn-ghost btn-sm">Salir</button>
+    </form>
+  </div>
+</nav>
+
+<main class="container">
+
+  <div class="page-header">
+    <h1>Social — Oferta del día</h1>
+    <p class="subtitle">Se publica automáticamente a las 15:05. El producto con mayor bajada vs mediana 30d que no se haya publicado en los últimos 7 días.</p>
+  </div>
+
+  <!-- Próxima publicación -->
+  <div class="card" style="margin-bottom:16px">
+    <h2>Próximo post</h2>
+    <% if (!nextDeal) { %>
+      <p class="hint" style="margin-top:12px">No hay chollos disponibles ahora mismo (ningún producto público en oferta sin publicar esta semana).</p>
+    <% } else { %>
+      <div style="margin-top:16px;display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px">
+          <p style="font-weight:600;font-size:15px;margin:0 0 6px">
+            <a href="/products/<%= nextDeal.id %>" class="hint-link"><%= nextDeal.name ?? nextDeal.asin %></a>
+          </p>
+          <p style="margin:0 0 4px;font-size:14px;color:var(--gray-500)">ASIN: <code><%= nextDeal.asin %></code></p>
+          <p style="margin:0;font-size:22px;font-weight:700;color:#e63946"><%= parseFloat(nextDeal.currentPrice).toFixed(2) %> €
+            <span style="font-size:14px;color:#16a34a;font-weight:600">−<%= parseFloat(nextDeal.pctOffMedian).toFixed(1) %>% vs mediana</span>
+          </p>
+        </div>
+        <form action="/admin/social/post-now" method="POST">
+          <button type="submit" class="btn btn-primary" onclick="return confirm('¿Publicar ahora en X y Telegram?')">
+            Publicar ahora ↑
+          </button>
+        </form>
+      </div>
+    <% } %>
+  </div>
+
+  <!-- Log -->
+  <div class="card">
+    <h2>Historial de publicaciones</h2>
+    <% if (log.length === 0) { %>
+      <p class="hint" style="margin-top:12px">Sin publicaciones todavía.</p>
+    <% } else { %>
+    <div class="table-wrap" style="margin-top:16px">
+      <table class="price-table">
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>Plataforma</th>
+            <th>Producto</th>
+            <th>Post ID</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% log.forEach(function(row) { %>
+            <tr>
+              <td style="white-space:nowrap;font-size:12px;color:var(--gray-500)">
+                <%= new Date(row.posted_at).toLocaleString('es-ES', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) %>
+              </td>
+              <td>
+                <% if (row.platform === 'twitter') { %>
+                  <span style="font-weight:600;color:#000">𝕏</span>
+                <% } else { %>
+                  <span style="font-weight:600;color:#0088cc">Telegram</span>
+                <% } %>
+              </td>
+              <td style="font-size:13px">
+                <% if (row.product_id) { %>
+                  <a href="/products/<%= row.product_id %>" class="hint-link">
+                    <%= row.name ? (row.name.length > 50 ? row.name.slice(0,50) + '…' : row.name) : row.asin %>
+                  </a>
+                <% } else { %>
+                  <span class="hint">—</span>
+                <% } %>
+              </td>
+              <td style="font-size:12px;color:var(--gray-400)"><%= row.post_id ?? '—' %></td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+    <% } %>
+  </div>
+
+  <div style="margin-top:12px">
+    <a href="/" class="hint-link">← Volver al dashboard</a>
+  </div>
+
+</main>
+
+<footer class="footer">
+  <p>OjoAlPrecio v<%= process.env['APP_VERSION'] ?? 'dev' %> Admin &nbsp;·&nbsp; <a href="/ofertas">Ver ofertas públicas</a></p>
+</footer>
+
+<script src="/js/scrape-widget.js"></script>
+</body>
+</html>

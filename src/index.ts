@@ -12,6 +12,7 @@ import { createApp } from './server';
 import { pool } from './db/client';
 import { migrate } from './db/migrate';
 import { startScheduler } from './scheduler';
+import { startSocialScheduler } from './scheduler/social';
 
 // Kill any leftover Chromium processes from previous runs
 try {
@@ -52,6 +53,7 @@ async function main() {
   });
 
   startScheduler();
+  startSocialScheduler();
 }
 
 main().catch((err) => {

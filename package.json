@@ -22,7 +22,8 @@
     "node-cron": "^3.0.3",
     "nodemailer": "^6.9.16",
     "pg": "^8.13.1",
-    "playwright": "^1.50.1"
+    "playwright": "^1.50.1",
+    "twitter-api-v2": "^1.29.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
