@@ -270,6 +270,13 @@ function trendBadge(current, previous) {
 
       <div class="product-actions">
         <a href="/products/<%= p.id %>" class="btn btn-sm btn-outline">Ver historial</a>
+        <% if (typeof isAdmin !== 'undefined' && isAdmin) { %>
+          <button
+            class="btn btn-sm public-toggle"
+            data-id="<%= p.id %>"
+            style="<%= p.isPublic ? 'background:#16a34a;color:#fff;border-color:#16a34a' : 'opacity:.6' %>"
+          ><%= p.isPublic ? 'Público' : 'Privado' %></button>
+        <% } %>
         <button
           class="btn btn-sm btn-danger"
           hx-delete="/products/<%= p.id %>"
@@ -423,6 +430,28 @@ function trendBadge(current, previous) {
     card.addEventListener('dragstart', e => e.preventDefault());
   });
 })();
+</script>
+<% } %>
+
+<% if (typeof isAdmin !== 'undefined' && isAdmin) { %>
+<script>
+document.addEventListener('click', function(e) {
+  const btn = e.target.closest('.public-toggle');
+  if (!btn) return;
+  const id = btn.dataset.id;
+  btn.disabled = true;
+  fetch('/products/' + id + '/toggle-public', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      btn.textContent = data.isPublic ? 'Público' : 'Privado';
+      btn.style.background    = data.isPublic ? '#16a34a' : '';
+      btn.style.color         = data.isPublic ? '#fff'    : '';
+      btn.style.borderColor   = data.isPublic ? '#16a34a' : '';
+      btn.style.opacity       = data.isPublic ? '1'       : '.6';
+    })
+    .catch(function(e) { console.error(e); })
+    .finally(function() { btn.disabled = false; });
+});
 </script>
 <% } %>
 
