@@ -101,14 +101,16 @@ export async function postDailyDeal(): Promise<void> {
   }
 }
 
+export const POST_HOURS = [8, 13, 21];
+
 export function startSocialScheduler(): void {
   const telegramOk = telegramEnabled();
   if (!telegramOk) {
     console.log('[social] Sin TELEGRAM_PUBLIC_CHANNEL configurado, scheduler desactivado.');
     return;
   }
-  console.log('[social] Scheduler activado — publica a las 9:05, 13:05 y 21:05 cada día.');
-  cron.schedule('5 9 * * *',  () => { postDailyDeal(); });
-  cron.schedule('5 13 * * *', () => { postDailyDeal(); });
-  cron.schedule('5 21 * * *', () => { postDailyDeal(); });
+  console.log(`[social] Scheduler activado — publica a las ${POST_HOURS.map(h => h + ':00').join(', ')} cada día.`);
+  cron.schedule('0 8 * * *',  () => { postDailyDeal(); });
+  cron.schedule('0 13 * * *', () => { postDailyDeal(); });
+  cron.schedule('0 21 * * *', () => { postDailyDeal(); });
 }

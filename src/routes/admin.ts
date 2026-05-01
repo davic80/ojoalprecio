@@ -6,7 +6,7 @@ import { requireAuth } from '../middleware/auth';
 import { requireAdmin } from '../middleware/admin';
 import { scrapeUrlForAsins, extractAsin, normaliseAmazonUrl } from '../scraper/amazon';
 import { getScraperStatus } from '../scheduler';
-import { getBestUnpostedDeal, postDailyDeal } from '../scheduler/social';
+import { getBestUnpostedDeal, postDailyDeal, POST_HOURS } from '../scheduler/social';
 
 const SYSTEM_EMAIL = 'system@ojoalprecio.local';
 
@@ -231,6 +231,7 @@ router.get('/admin/social', requireAuth, requireAdmin, async (req: Request, res:
   res.render('admin-social', {
     nextDeal,
     log: logRows.rows,
+    postHours: POST_HOURS,
     user: { email: req.session.userEmail },
     isAdmin: true,
   });

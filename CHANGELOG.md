@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.11.1] - 2026-05-01
+
+### Changed
+- Social: horarios de publicación cambiados a 8:00, 13:00 y 21:00 (antes 9:05, 13:05, 21:05)
+
+### Added
+- Social: contador regresivo en tiempo real en `/admin/social` — muestra la hora del próximo post y cuánto falta (HH:mm:ss)
+
 ## [2.11.0] - 2026-05-01
 
 ### Added

@@ -32,7 +32,19 @@
 
   <div class="page-header">
     <h1>Social — Oferta del día</h1>
-    <p class="subtitle">Se publica automáticamente a las 9:05, 13:05 y 21:05. El producto con mayor bajada vs mediana 30d que no se haya publicado en los últimos 7 días.</p>
+    <p class="subtitle">Se publica automáticamente a las <%= postHours.map(function(h){ return h + ':00'; }).join(', ') %>. El producto con mayor bajada vs mediana 30d que no se haya publicado en los últimos 7 días.</p>
+  </div>
+
+  <!-- Countdown -->
+  <div class="stats-bar" style="margin-bottom:16px">
+    <div class="stat-pill">
+      <span class="stat-pill-value" id="next-post-time">—</span>
+      <span class="stat-pill-label">próxima publicación</span>
+    </div>
+    <div class="stat-pill" style="background:#eff6ff">
+      <span class="stat-pill-value" id="next-post-countdown" style="font-variant-numeric:tabular-nums;letter-spacing:1px">—</span>
+      <span class="stat-pill-label">tiempo restante</span>
+    </div>
   </div>
 
   <!-- Próxima publicación -->
@@ -142,6 +154,40 @@
 
 <script src="/js/scrape-widget.js"></script>
 <script>
+(function () {
+  var POST_HOURS = <%- JSON.stringify(postHours) %>;
+
+  function nextPostDate() {
+    var now = new Date();
+    for (var i = 0; i < POST_HOURS.length; i++) {
+      var d = new Date(now);
+      d.setHours(POST_HOURS[i], 0, 0, 0);
+      if (d > now) return d;
+    }
+    var tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(POST_HOURS[0], 0, 0, 0);
+    return tomorrow;
+  }
+
+  function pad(n) { return String(n).padStart(2, '0'); }
+
+  function tick() {
+    var next = nextPostDate();
+    var diff = Math.max(0, next - Date.now());
+    var h = Math.floor(diff / 3600000);
+    var m = Math.floor((diff % 3600000) / 60000);
+    var s = Math.floor((diff % 60000) / 1000);
+    var timeEl = document.getElementById('next-post-time');
+    var countEl = document.getElementById('next-post-countdown');
+    if (timeEl) timeEl.textContent = pad(next.getHours()) + ':00';
+    if (countEl) countEl.textContent = pad(h) + 'h ' + pad(m) + 'm ' + pad(s) + 's';
+  }
+
+  tick();
+  setInterval(tick, 1000);
+})();
+
 function telegramToX(html) {
   return html
     .replace(/<a href="([^"]+)">[^<]*<\/a>/g, '$1')
