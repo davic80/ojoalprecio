@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.9.2] - 2026-05-01
+
+### Performance
+- Scraper: browser Chromium compartido entre todos los productos del ciclo (antes se lanzaba y destruía uno por producto — mayor reducción de carga)
+- Scraper: sesión Amazon (`storageState`) obtenida una sola vez por ciclo de browser, reutilizada en todos los contextos (elimina visita a amazon.es por producto)
+- Scraper: bloqueo ampliado a `image`, `font`, `media` y `stylesheet` — los atributos `src` de imágenes siguen disponibles en el DOM
+- Scraper: timeout duro de 45s por producto para evitar workers bloqueados indefinidamente
+- Scraper: `page` y `context` siempre cerrados en bloque `finally`, incluso con error
+- Scraper: `closeBrowser()` llamado en SIGTERM/SIGINT para cierre limpio del proceso
+- Scraper: browser se recicla automáticamente cada 120 productos para evitar memory leaks
+
 ## [2.6.3] - 2026-04-30
 
 ### Added
