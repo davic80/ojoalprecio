@@ -93,6 +93,7 @@
             <th>Plataforma</th>
             <th>Producto</th>
             <th>Post ID</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
@@ -118,6 +119,11 @@
                 <% } %>
               </td>
               <td style="font-size:12px;color:var(--gray-400)"><%= row.post_id ?? '—' %></td>
+              <td>
+                <% if (row.content) { %>
+                  <button class="btn btn-sm btn-ghost copy-log-tweet" data-content="<%- encodeURIComponent(row.content) %>" style="font-size:12px">Copiar para 𝕏</button>
+                <% } %>
+              </td>
             </tr>
           <% }); %>
         </tbody>
@@ -138,6 +144,14 @@
 
 <script src="/js/scrape-widget.js"></script>
 <script>
+function telegramToX(html) {
+  return html
+    .replace(/<a href="([^"]+)">[^<]*<\/a>/g, '$1')
+    .replace(/<b>([^<]*)<\/b>/g, '$1')
+    .replace(/<[^>]+>/g, '')
+    .replace(/ \| /g, '\n');
+}
+
 const btn = document.getElementById('copy-tweet');
 if (btn) {
   btn.addEventListener('click', function() {
@@ -148,6 +162,17 @@ if (btn) {
     });
   });
 }
+
+document.querySelectorAll('.copy-log-tweet').forEach(function(b) {
+  b.addEventListener('click', function() {
+    const raw = decodeURIComponent(b.dataset.content);
+    const text = telegramToX(raw);
+    navigator.clipboard.writeText(text).then(function() {
+      b.textContent = '¡Copiado!';
+      setTimeout(function() { b.textContent = 'Copiar para 𝕏'; }, 2000);
+    });
+  });
+});
 </script>
 </body>
 </html>
