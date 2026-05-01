@@ -39,6 +39,7 @@ const totalAlerts = parseInt(alertTotals && alertTotals.total ? alertTotals.tota
     <a href="/admin/stats" class="nav-link nav-link-active">Stats</a>
     <a href="/admin/alerts" class="nav-link">Alertas</a>
     <a href="/admin/import-url" class="nav-link">Importar URL</a>
+    <span id="scrape-widget" style="position:relative;margin-right:4px"></span>
     <a href="/account" class="user-email user-email-link"><%= user.email %></a>
     <form action="/auth/logout" method="POST" style="display:inline">
       <button type="submit" class="btn btn-ghost btn-sm">Salir</button>
@@ -254,5 +255,6 @@ const totalAlerts = parseInt(alertTotals && alertTotals.total ? alertTotals.tota
   <p>OjoAlPrecio v<%= process.env['APP_VERSION'] ?? 'dev' %> Admin &nbsp;·&nbsp; <a href="/ofertas">Ver ofertas públicas</a></p>
 </footer>
 
+<script src="/js/scrape-widget.js"></script>
 </body>
 </html>

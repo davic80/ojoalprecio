@@ -5,6 +5,7 @@ import { eq, sql, asc, desc } from 'drizzle-orm';
 import { requireAuth } from '../middleware/auth';
 import { requireAdmin } from '../middleware/admin';
 import { scrapeUrlForAsins, extractAsin, normaliseAmazonUrl } from '../scraper/amazon';
+import { getScraperStatus } from '../scheduler';
 
 const SYSTEM_EMAIL = 'system@ojoalprecio.local';
 
@@ -211,6 +212,11 @@ router.delete('/admin/categories/:id', requireAuth, requireAdmin, async (req: Re
 
   if (req.headers['hx-request']) return res.send('');
   res.redirect('/admin/categories');
+});
+
+// ── GET /admin/scrape-status ──────────────────────────────────────────────────
+router.get('/admin/scrape-status', requireAuth, requireAdmin, (_req: Request, res: Response) => {
+  res.json(getScraperStatus());
 });
 
 // ── GET /admin/deals ──────────────────────────────────────────────────────────

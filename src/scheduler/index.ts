@@ -8,6 +8,20 @@ import { sendTelegramAlert, sendTelegramBackInStock } from '../mailer/telegram';
 
 const CHECK_INTERVAL = process.env.CHECK_INTERVAL_CRON ?? '0 * * * *';
 
+export interface ScraperLogEntry { id: number; name: string; asin: string; ok: boolean; ts: number; }
+
+export interface ScraperStatus {
+  isRunning: boolean;
+  current: { id: number; name: string; asin: string } | null;
+  done: number;
+  total: number;
+  log: ScraperLogEntry[];
+}
+
+const state: ScraperStatus = { isRunning: false, current: null, done: 0, total: 0, log: [] };
+
+export function getScraperStatus(): ScraperStatus { return { ...state, log: [...state.log] }; }
+
 let isRunning = false;
 
 async function checkAllProducts(): Promise<void> {
@@ -16,6 +30,9 @@ async function checkAllProducts(): Promise<void> {
     return;
   }
   isRunning = true;
+  state.isRunning = true;
+  state.done = 0;
+  state.log = [];
 
   try {
     const activeProducts = await db.execute(sql`
@@ -28,10 +45,19 @@ async function checkAllProducts(): Promise<void> {
       if (!p.lastScrapedAt) return true;
       return Date.now() - new Date(p.lastScrapedAt).getTime() >= 59 * 60 * 1000;
     });
+    state.total = toCheck.length;
     console.log(`[scheduler] ${toCheck.length}/${activeProducts.rows.length} products due for check…`);
 
     for (const product of toCheck) {
-      await checkProduct(product.id, product.url, product.name ?? product.asin);
+      state.current = { id: product.id, name: product.name ?? product.asin, asin: product.asin };
+      let ok = true;
+      try {
+        await checkProduct(product.id, product.url, product.name ?? product.asin);
+      } catch { ok = false; }
+      state.log.unshift({ id: product.id, name: product.name ?? product.asin, asin: product.asin, ok, ts: Date.now() });
+      if (state.log.length > 50) state.log.pop();
+      state.done++;
+      state.current = null;
       const delay = 5000 + Math.random() * 10000;
       await new Promise((r) => setTimeout(r, delay));
     }
@@ -41,6 +67,8 @@ async function checkAllProducts(): Promise<void> {
     console.error('[scheduler] Unexpected error in cycle:', err);
   } finally {
     isRunning = false;
+    state.isRunning = false;
+    state.current = null;
   }
 }
 
