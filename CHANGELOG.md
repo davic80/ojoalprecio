@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.10.1] - 2026-05-01
+
+### Fixed
+- Dashboard: eliminado enlace "Stats" del navbar — solo debe aparecer dentro de la sección admin
+
 ## [2.10.0] - 2026-05-01
 
 ### Added
