@@ -13,6 +13,7 @@ import { pool } from './db/client';
 import { migrate } from './db/migrate';
 import { startScheduler } from './scheduler';
 import { startSocialScheduler } from './scheduler/social';
+import { closeBrowser } from './scraper/amazon';
 
 // Kill any leftover Chromium processes from previous runs
 try {
@@ -63,8 +64,12 @@ main().catch((err) => {
 
 function shutdown(signal: string) {
   console.log(`[startup] ${signal} received — cleaning up Chromium and exiting.`);
-  try { execSync('pkill -f chromium || true', { stdio: 'ignore' }); } catch { /* ignore */ }
-  process.exit(0);
+  closeBrowser()
+    .catch(() => {})
+    .finally(() => {
+      try { execSync('pkill -f chromium || true', { stdio: 'ignore' }); } catch { /* ignore */ }
+      process.exit(0);
+    });
 }
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
