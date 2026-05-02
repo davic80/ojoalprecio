@@ -301,9 +301,7 @@ function trendBadge(current, previous) {
             style="<%= p.isPublic ? 'background:#16a34a;color:#fff;border-color:#16a34a' : 'opacity:.6' %>"
           ><%= p.isPublic ? 'Público' : 'Privado' %></button>
           <% if (p.consecutiveFailures > 0 || p.totalFailures > 0) { %>
-            <span style="font-size:11px;color:<%= p.isFailed ? '#dc2626' : '#b45309' %>;white-space:nowrap">
-              <%= p.consecutiveFailures %> consec · <%= p.totalFailures %> totales
-            </span>
+            <span style="font-size:11px;color:<%= p.isFailed ? '#dc2626' : '#b45309' %>;white-space:nowrap"><%= p.consecutiveFailures %>/3 · <%= p.totalFailures %> tot</span>
           <% } %>
           <button
             class="btn btn-sm btn-ghost refresh-card-btn"
