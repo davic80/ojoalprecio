@@ -68,37 +68,28 @@ function trendBadge(current, previous) {
   <% if (stats.total > 0) { %>
   <%
     const activeStatus = filters.status || 'all';
-    function statPill(label, value, status, color) {
-      if (value === 0 && status !== 'all') return '';
+    function statPill(label, value, status) {
       const isActive = activeStatus === status;
-      const base = 'display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:20px;font-size:13px;text-decoration:none;border:1px solid transparent;cursor:pointer;white-space:nowrap;';
-      const active   = 'background:#1d4ed8;color:#fff;border-color:#1d4ed8;';
-      const defaults = {
-        all:       'background:#f1f5f9;color:#374151;border-color:#e2e8f0;',
-        scraped:   'background:#f0fdf4;color:#166534;border-color:#bbf7d0;',
-        pending:   'background:#fafafa;color:#6b7280;border-color:#e5e7eb;',
-        on_sale:   'background:#fff7ed;color:#9a3412;border-color:#fed7aa;',
-        error:     'background:#fffbeb;color:#92400e;border-color:#fde68a;',
-        failed:    'background:#fef2f2;color:#dc2626;border-color:#fecaca;',
+      const base = 'display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:20px;font-size:13px;text-decoration:none;border:1px solid;cursor:pointer;white-space:nowrap;transition:opacity .15s;';
+      const styles = {
+        all:     isActive ? 'background:#1d4ed8;color:#fff;border-color:#1d4ed8;'     : 'background:#f1f5f9;color:#374151;border-color:#cbd5e1;',
+        scraped: isActive ? 'background:#1d4ed8;color:#fff;border-color:#1d4ed8;'     : 'background:#f0fdf4;color:#166534;border-color:#86efac;',
+        pending: isActive ? 'background:#1d4ed8;color:#fff;border-color:#1d4ed8;'     : 'background:#f8fafc;color:#64748b;border-color:#cbd5e1;',
+        on_sale: isActive ? 'background:#1d4ed8;color:#fff;border-color:#1d4ed8;'     : 'background:#fff7ed;color:#9a3412;border-color:#fdba74;',
+        error:   isActive ? 'background:#1d4ed8;color:#fff;border-color:#1d4ed8;'     : 'background:#fffbeb;color:#92400e;border-color:#fcd34d;',
+        failed:  isActive ? 'background:#dc2626;color:#fff;border-color:#dc2626;'     : 'background:#fef2f2;color:#dc2626;border-color:#fca5a5;',
       };
-      const style = base + (isActive ? active : (defaults[status] || defaults.all));
       const href = status === 'all' ? '/' : '/?status=' + status;
-      return `<a href="${href}" style="${style}"><strong>${value}</strong> ${label}</a>`;
+      return `<a href="${href}" style="${base}${styles[status] || styles.all}"><strong>${value}</strong> ${label}</a>`;
     }
   %>
-  <div class="stats-bar" style="flex-wrap:wrap;gap:8px">
-    <%- statPill('productos', stats.total,     'all',     '') %>
-    <%- statPill('con precio', stats.withPrice, 'scraped', '') %>
-    <%- statPill('sin scrapear', stats.pending, 'pending', '') %>
-    <% if (stats.onSale > 0) { %>
-    <%- statPill('en oferta', stats.onSale, 'on_sale', '') %>
-    <% } %>
-    <% if (stats.withError > 0) { %>
-    <%- statPill('con error', stats.withError, 'error', '') %>
-    <% } %>
-    <% if (stats.failed > 0) { %>
-    <%- statPill('fallidos', stats.failed, 'failed', '') %>
-    <% } %>
+  <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">
+    <%- statPill('productos',    stats.total,     'all') %>
+    <%- statPill('con precio',   stats.withPrice, 'scraped') %>
+    <%- statPill('sin scrapear', stats.pending,   'pending') %>
+    <%- statPill('en oferta',    stats.onSale,    'on_sale') %>
+    <%- statPill('con error',    stats.withError, 'error') %>
+    <%- statPill('fallidos',     stats.failed,    'failed') %>
   </div>
   <% } %>
 
