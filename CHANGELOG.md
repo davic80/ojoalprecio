@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.27.0] - 2026-05-02
+
+### Added
+- Detección de oferta por tiers basada en el máximo histórico de todos los tiempos (no ventana de 3 días)
+- Columna `sale_tier` (`oferta` / `super-oferta` / `mega-oferta` / `broooooferton` / `67oferta`) en `products`
+- Columna `deal_score` (porcentaje de descuento sobre el máximo histórico, 1 decimal) en `products`
+- Mínimo de datos requerido: ≥5 scrapes, ≥2 días de historia y al menos una bajada real respecto al máximo histórico
+
+### Changed
+- Referencia para detección de oferta cambiada de máximo de 3 días → máximo histórico de todos los tiempos
+- Tiers: `oferta` 7–15% · `super-oferta` 15–30% · `mega-oferta` 30–50% · `broooooferton` 50–67% · `67oferta` >67%
+- `is_public` es control exclusivo del admin — el scheduler ya no lo modifica nunca
+- Migración 27 reinicia `is_on_sale` a FALSE en todos los productos; el scheduler recalcula con la nueva lógica en el siguiente ciclo
+
 ## [2.26.0] - 2026-05-02
 
 ### Added

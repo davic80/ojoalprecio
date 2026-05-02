@@ -55,6 +55,8 @@ export const products = pgTable('products', {
   isPublic: boolean('is_public').default(false).notNull(),
   isAvailable: boolean('is_available').default(true).notNull(),
   isOnSale: boolean('is_on_sale').default(false).notNull(),
+  saleTier: varchar('sale_tier', { length: 20 }),
+  dealScore: numeric('deal_score', { precision: 5, scale: 1 }),
   consecutiveFailures: integer('consecutive_failures').default(0).notNull(),
   totalFailures: integer('total_failures').default(0).notNull(),
   isFailed: boolean('is_failed').default(false).notNull(),

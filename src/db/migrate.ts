@@ -348,6 +348,13 @@ const MIGRATIONS = [
   `,
   // Migration 26: total_failures — cumulative error counter, never resets unlike consecutive_failures
   `ALTER TABLE products ADD COLUMN IF NOT EXISTS total_failures INTEGER DEFAULT 0 NOT NULL;`,
+  // Migration 27: sale tiers + deal score; reset is_on_sale so scheduler recalculates with new all-time-max logic
+  `
+  ALTER TABLE products
+    ADD COLUMN IF NOT EXISTS sale_tier  VARCHAR(20),
+    ADD COLUMN IF NOT EXISTS deal_score DECIMAL(5,1);
+  UPDATE products SET is_on_sale = FALSE, sale_tier = NULL, deal_score = NULL;
+  `,
 ];
 
 export async function migrate(): Promise<void> {

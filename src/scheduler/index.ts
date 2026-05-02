@@ -103,26 +103,36 @@ async function checkAllProducts(): Promise<void> {
   }
 }
 
+interface SaleInfo { isOnSale: boolean; saleTier: string | null; dealScore: number | null; }
+
+function calcSaleTier(currentPrice: number, allTimeMax: number): SaleInfo {
+  const pctOff = (allTimeMax - currentPrice) / allTimeMax * 100;
+  if (pctOff >= 67) return { isOnSale: true, saleTier: '67oferta',      dealScore: pctOff };
+  if (pctOff >= 50) return { isOnSale: true, saleTier: 'broooooferton', dealScore: pctOff };
+  if (pctOff >= 30) return { isOnSale: true, saleTier: 'mega-oferta',   dealScore: pctOff };
+  if (pctOff >= 15) return { isOnSale: true, saleTier: 'super-oferta',  dealScore: pctOff };
+  if (pctOff >= 7)  return { isOnSale: true, saleTier: 'oferta',        dealScore: pctOff };
+  return { isOnSale: false, saleTier: null, dealScore: null };
+}
+
 async function checkProduct(productId: number, url: string, label: string): Promise<void> {
   // Load current state to detect availability transitions and track failures
   const [current] = await db.select({ isAvailable: products.isAvailable, consecutiveFailures: products.consecutiveFailures }).from(products).where(eq(products.id, productId)).limit(1);
   const wasUnavailable = current ? !current.isAvailable : false;
 
-  // Fetch max price in the last 3 days before this scrape (reference for sale detection)
-  const [refResult, lastPriceResult] = await Promise.all([
-    db.execute(sql`
-      SELECT MAX(price)::float AS ref
-      FROM price_history
-      WHERE product_id = ${productId}
-        AND scraped_at >= NOW() - INTERVAL '3 days'
-    `),
-    db.execute(sql`
-      SELECT price::float AS price FROM price_history
-      WHERE product_id = ${productId} ORDER BY scraped_at DESC LIMIT 1
-    `),
-  ]);
-  const referencePrice = refResult.rows[0] ? (refResult.rows[0] as any).ref as number | null : null;
-  const lastPrice: number | null = lastPriceResult.rows[0] ? (lastPriceResult.rows[0] as any).price as number : null;
+  // Fetch all-time stats before this scrape (for sale tier detection)
+  const statsResult = await db.execute(sql`
+    SELECT
+      MAX(price)::float                                      AS all_time_max,
+      COUNT(*)::int                                          AS scrape_count,
+      EXTRACT(DAY FROM (NOW() - MIN(scraped_at)))::int       AS days_span
+    FROM price_history
+    WHERE product_id = ${productId}
+  `);
+  const statsRow    = statsResult.rows[0] as any;
+  const allTimeMax  = (statsRow?.all_time_max  ?? null)  as number | null;
+  const scrapeCount = (statsRow?.scrape_count  ?? 0)     as number;
+  const daysSpan    = (statsRow?.days_span     ?? 0)     as number;
 
   try {
     console.log(`[scheduler] Scraping: ${label}`);
@@ -130,11 +140,11 @@ async function checkProduct(productId: number, url: string, label: string): Prom
 
     await db.insert(priceHistory).values({ productId, price: String(result.price), currency: result.currency });
 
-    // on sale if current price is >7% below the 3-day max; off sale otherwise
-    let isOnSale: boolean | undefined;
-    if (referencePrice !== null) {
-      isOnSale = result.price < referencePrice * 0.93;
-      if (isOnSale) console.log(`[scheduler] ${label} → sale detected (ref ${referencePrice} → ${result.price})`);
+    // Sale detection: requires ≥5 scrapes, ≥2 days of data, and at least one all-time drop
+    const hasEnoughData = scrapeCount >= 5 && daysSpan >= 2 && allTimeMax !== null && result.price < allTimeMax;
+    const saleInfo = hasEnoughData ? calcSaleTier(result.price, allTimeMax!) : null;
+    if (saleInfo?.isOnSale) {
+      console.log(`[scheduler] ${label} → ${saleInfo.saleTier} (${saleInfo.dealScore!.toFixed(1)}% off, max ${allTimeMax})`);
     }
 
     await db.update(products).set({
@@ -145,12 +155,9 @@ async function checkProduct(productId: number, url: string, label: string): Prom
       isAvailable: true,
       consecutiveFailures: 0,
       isFailed: false,
-      ...(isOnSale !== undefined ? { isOnSale } : {}),
-      ...(isOnSale === true
-        ? { isPublic: true }
-        : isOnSale === false && lastPrice !== null && result.price > lastPrice
-          ? { isPublic: false }
-          : {}),
+      isOnSale: saleInfo?.isOnSale ?? false,
+      saleTier: saleInfo?.saleTier ?? null,
+      dealScore: saleInfo?.dealScore != null ? String(saleInfo.dealScore.toFixed(1)) : null,
     }).where(eq(products.id, productId));
 
     console.log(`[scheduler] ${label} → ${result.price} ${result.currency}`);
