@@ -322,7 +322,9 @@ function trendBadge(current, previous) {
           hx-target="#product-<%= p.id %>"
           hx-swap="outerHTML"
           hx-confirm="¿Eliminar este producto y todo su historial de precios?"
-        >Eliminar</button>
+          title="Eliminar producto"
+          style="padding:0 8px;font-size:15px;font-weight:700"
+        >×</button>
       </div>
     </div>
     <% }); %>
