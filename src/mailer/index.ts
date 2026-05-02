@@ -50,8 +50,8 @@ export async function sendPriceAlert(opts: PriceAlertOptions): Promise<void> {
   const transporter = createTransporter();
   const currencySymbol = opts.currency === 'EUR' ? '€' : opts.currency ?? '€';
   const siteUrl = process.env.SITE_URL ?? 'http://localhost:3000';
-  const historyUrl = opts.productId ? `${siteUrl}/products/${opts.productId}` : siteUrl;
-  const accountUrl = `${siteUrl}/account`;
+  const historyUrl = opts.productId ? `${siteUrl}/products/${opts.productId}?utm_source=email` : `${siteUrl}?utm_source=email`;
+  const accountUrl = `${siteUrl}/account?utm_source=email`;
 
   const hasDrop = !!opts.previousPrice && opts.previousPrice > opts.currentPrice;
   const absDrop = hasDrop ? opts.previousPrice! - opts.currentPrice : 0;
@@ -196,7 +196,7 @@ export async function sendBackInStockAlert(opts: BackInStockOptions): Promise<vo
         Comprar en Amazon.es
       </a>
 
-      <a href="${siteUrl}"
+      <a href="${siteUrl}?utm_source=email"
          style="display:block; color:#6b7280; text-decoration:none; text-align:center; font-size:13px;">
         Ver historial en OjoAlPrecio
       </a>

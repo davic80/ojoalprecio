@@ -60,7 +60,7 @@ function buildTelegramText(deal: any): string {
   const price = parseFloat(deal.currentPrice).toFixed(2);
   const name  = deal.name ? (deal.name.length > 120 ? deal.name.slice(0, 120) + '…' : deal.name) : deal.asin;
   const amzUrl = affiliateUrl(deal.url);
-  const histUrl = `${SITE_URL}/p/${deal.asin}`;
+  const histUrl = `${SITE_URL}/p/${deal.asin}?utm_source=telegram`;
 
   return [
     `👁 <b>Oferta del día</b>`,

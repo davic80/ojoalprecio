@@ -68,6 +68,7 @@ export function createApp() {
     // UTM fallback when there is no Referer
     const utm = String(req.query['utm_source'] ?? '').toLowerCase();
     if (utm === 'telegram') return 'Telegram';
+    if (utm === 'email')    return 'Email';
     if (utm === 'google')   return 'Google';
     return 'Directo';
   }

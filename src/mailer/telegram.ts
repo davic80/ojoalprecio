@@ -22,7 +22,7 @@ export async function sendTelegramBackInStock(opts: TelegramBackInStockOptions):
     `📦 ${opts.productName}`,
     `💰 Precio actual: <b>${cur}</b>`,
     '',
-    `<a href="${opts.productUrl}">Comprar en Amazon.es</a> · <a href="${siteUrl}">Ver historial</a>`,
+    `<a href="${opts.productUrl}">Comprar en Amazon.es</a> · <a href="${siteUrl}?utm_source=telegram">Ver historial</a>`,
   ].join('\n');
 
   const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -66,7 +66,7 @@ export async function sendTelegramAlert(opts: TelegramAlertOptions): Promise<voi
     `💰 Precio actual: <b>${cur}</b>`,
     `🎯 Umbral: ${opts.thresholdLabel}`,
     '',
-    `<a href="${opts.productUrl}">Ver en Amazon.es</a> · <a href="${siteUrl}">Ver historial</a>`,
+    `<a href="${opts.productUrl}">Ver en Amazon.es</a> · <a href="${siteUrl}?utm_source=telegram">Ver historial</a>`,
   ].join('\n');
 
   const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
