@@ -309,7 +309,7 @@ function trendBadge(current, previous) {
             data-id="<%= p.id %>"
             style="<%= p.isPublic ? 'background:#16a34a;color:#fff;border-color:#16a34a' : 'opacity:.6' %>"
           ><%= p.isPublic ? 'Público' : 'Privado' %></button>
-          <% if (p.totalFailures > 0) { %>
+          <% if (p.consecutiveFailures > 0 || p.totalFailures > 0) { %>
             <span
               title="<%= p.consecutiveFailures %> consecutivos · <%= p.totalFailures %> totales"
               style="font-size:11px;color:<%= p.isFailed ? '#dc2626' : '#b45309' %>;white-space:nowrap"
