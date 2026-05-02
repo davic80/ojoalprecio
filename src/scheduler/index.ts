@@ -6,10 +6,11 @@ import { scrapeProduct, affiliateUrl, ProductUnavailableError } from '../scraper
 import { sendPriceAlert, sendBackInStockAlert } from '../mailer';
 import { sendTelegramAlert, sendTelegramBackInStock } from '../mailer/telegram';
 
-const CHECK_INTERVAL  = process.env.CHECK_INTERVAL_CRON ?? '0 * * * *';
-const CONCURRENCY     = Math.max(1, parseInt(process.env.SCRAPER_CONCURRENCY ?? '3', 10));
-const MIN_AGE_MINUTES = Math.max(1, parseInt(process.env.MIN_AGE_MS_MINUTES ?? '59', 10));
-const MIN_AGE_MS      = MIN_AGE_MINUTES * 60 * 1000;
+const CHECK_INTERVAL       = process.env.CHECK_INTERVAL_CRON ?? '0 * * * *';
+const CONCURRENCY          = Math.max(1, parseInt(process.env.SCRAPER_CONCURRENCY ?? '3', 10));
+const MIN_AGE_MINUTES      = Math.max(1, parseInt(process.env.MIN_AGE_MS_MINUTES ?? '59', 10));
+const MIN_AGE_MS           = MIN_AGE_MINUTES * 60 * 1000;
+const RETRY_FAILED_PER_CYCLE = Math.max(0, parseInt(process.env.RETRY_FAILED_PER_CYCLE ?? '30', 10));
 
 export interface ScraperLogEntry { id: number; name: string; asin: string; ok: boolean; ts: number; }
 
@@ -39,6 +40,25 @@ async function checkAllProducts(): Promise<void> {
   state.log = [];
 
   try {
+    // Release up to RETRY_FAILED_PER_CYCLE failed products back into the normal cycle.
+    // Ordered by id ASC so the backlog drains predictably (30/cycle ≈ 17 cycles for 512 products).
+    if (RETRY_FAILED_PER_CYCLE > 0) {
+      const retried = await db.execute(sql`
+        UPDATE products
+        SET is_failed = FALSE, consecutive_failures = 0
+        WHERE id IN (
+          SELECT id FROM products
+          WHERE is_active = TRUE AND is_failed = TRUE
+          ORDER BY id ASC
+          LIMIT ${RETRY_FAILED_PER_CYCLE}
+        )
+        RETURNING id
+      `);
+      if (retried.rows.length > 0) {
+        console.log(`[scheduler] Retry: ${retried.rows.length} failed products re-queued for this cycle`);
+      }
+    }
+
     const activeProducts = await db.execute(sql`
       SELECT p.id, p.url, p.name, p.asin,
         (SELECT ph.scraped_at FROM price_history ph WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1) AS "lastScrapedAt"

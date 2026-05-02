@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.26.0] - 2026-05-02
+
+### Added
+- Variable de entorno `RETRY_FAILED_PER_CYCLE` (por defecto 30): al inicio de cada ciclo, hasta N productos marcados como `is_failed` se re-encolan automáticamente para reintento (ordenados por `id ASC` para drenar el backlog de forma predecible)
+- Con 30/ciclo y cron horario, 512 productos fallidos se recuperan en ~17 ciclos (~17 horas)
+- Poner a 0 deshabilita el reintento automático
+
 ## [2.25.0] - 2026-05-02
 
 ### Added

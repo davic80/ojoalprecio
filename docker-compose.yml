@@ -24,6 +24,8 @@ services:
       - MIN_AGE_MS_MINUTES=${MIN_AGE_MS_MINUTES:-59}
       # Scraper hard timeout in seconds (default 25)
       - SCRAPER_TIMEOUT_SECONDS=${SCRAPER_TIMEOUT_SECONDS:-25}
+      # Failed products to retry per cycle (default 30, set 0 to disable)
+      - RETRY_FAILED_PER_CYCLE=${RETRY_FAILED_PER_CYCLE:-30}
       # SMTP email
       - SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
       - SMTP_PORT=${SMTP_PORT:-587}
