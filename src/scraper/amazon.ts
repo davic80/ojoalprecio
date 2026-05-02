@@ -70,6 +70,9 @@ function parseSpanishPrice(raw: string): number {
   return parseFloat(normalised);
 }
 
+// ── Configurable timeout ─────────────────────────────────────────────────────
+const SCRAPER_TIMEOUT_MS = Math.max(10000, parseInt(process.env.SCRAPER_TIMEOUT_MS ?? '25000', 10));
+
 // ── Shared Chromium args ──────────────────────────────────────────────────────
 const CHROMIUM_ARGS = [
   '--no-sandbox',
@@ -208,10 +211,10 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
   const context = await newContext(browser);
   const page = await context.newPage();
 
-  // Hard 45s timeout — if exceeded the product is logged as error, process keeps running
+  // Hard timeout — if exceeded the product is logged as error, process keeps running
   let timeoutHandle: ReturnType<typeof setTimeout>;
   const hardTimeout = new Promise<never>((_, reject) => {
-    timeoutHandle = setTimeout(() => reject(new Error('Timeout: scrapeProduct exceeded 45s')), 45000);
+    timeoutHandle = setTimeout(() => reject(new Error(`Timeout: scrapeProduct exceeded ${SCRAPER_TIMEOUT_MS / 1000}s`)), SCRAPER_TIMEOUT_MS);
   });
 
   try {
@@ -222,7 +225,7 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
           BLOCKED_TYPES.has(route.request().resourceType()) ? route.abort() : route.continue();
         });
 
-        await page.goto(canonicalUrl, { waitUntil: 'domcontentloaded', timeout: 25000 });
+        await page.goto(canonicalUrl, { waitUntil: 'domcontentloaded', timeout: Math.round(SCRAPER_TIMEOUT_MS * 0.8) });
 
         const pageTitle = await page.title();
         const currentUrl = page.url();
@@ -252,7 +255,7 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
 
         const name = await page
           .locator('#productTitle').first()
-          .textContent({ timeout: 10000 })
+          .textContent({ timeout: 3000 })
           .then((t) => t?.trim() ?? '')
           .catch(() => '');
 
@@ -272,7 +275,7 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
         }
 
         await page
-          .waitForSelector('.a-price .a-offscreen, #priceblock_ourprice, #priceblock_dealprice, .a-price-whole', { timeout: 5000 })
+          .waitForSelector('.a-price .a-offscreen, #priceblock_ourprice, #priceblock_dealprice, .a-price-whole', { timeout: 3000 })
           .catch(() => {});
 
         const priceSelectors = [
