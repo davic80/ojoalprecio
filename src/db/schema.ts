@@ -56,6 +56,7 @@ export const products = pgTable('products', {
   isAvailable: boolean('is_available').default(true).notNull(),
   isOnSale: boolean('is_on_sale').default(false).notNull(),
   consecutiveFailures: integer('consecutive_failures').default(0).notNull(),
+  totalFailures: integer('total_failures').default(0).notNull(),
   isFailed: boolean('is_failed').default(false).notNull(),
   lastError: text('last_error'),
   createdAt: timestamp('created_at').defaultNow().notNull(),

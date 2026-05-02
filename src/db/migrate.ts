@@ -346,6 +346,8 @@ const MIGRATIONS = [
   ALTER TABLE page_views DROP CONSTRAINT IF EXISTS page_views_pkey;
   ALTER TABLE page_views ADD PRIMARY KEY (path, day, source, device_type);
   `,
+  // Migration 26: total_failures — cumulative error counter, never resets unlike consecutive_failures
+  `ALTER TABLE products ADD COLUMN IF NOT EXISTS total_failures INTEGER DEFAULT 0 NOT NULL;`,
 ];
 
 export async function migrate(): Promise<void> {

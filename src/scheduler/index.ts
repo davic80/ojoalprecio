@@ -155,7 +155,7 @@ async function checkProduct(productId: number, url: string, label: string): Prom
       const newFailCount = (current?.consecutiveFailures ?? 0) + 1;
       const isFailed = newFailCount >= 3;
       if (isFailed) console.log(`[scheduler] ${label} → marked as failed after ${newFailCount} consecutive errors`);
-      await db.update(products).set({ lastError: msg, consecutiveFailures: newFailCount, isFailed }).where(eq(products.id, productId));
+      await db.update(products).set({ lastError: msg, consecutiveFailures: newFailCount, isFailed, totalFailures: sql`total_failures + 1` }).where(eq(products.id, productId));
     }
   }
 }

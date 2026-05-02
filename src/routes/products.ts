@@ -54,6 +54,7 @@ router.get('/', (req: Request, res: Response, next) => {
         p.is_on_sale   AS "isOnSale",
         p.is_failed    AS "isFailed",
         p.consecutive_failures AS "consecutiveFailures",
+        p.total_failures       AS "totalFailures",
         p.last_error   AS "lastError",
         p.created_at   AS "createdAt",
         (SELECT ph.price  FROM price_history ph WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1) AS "currentPrice",
@@ -280,7 +281,7 @@ router.post('/products/:id/refresh', requireAuth, requireAdmin, async (req: Requ
       res.status(200).json({ unavailable: true });
     } else {
       const msg = err instanceof Error ? err.message : String(err);
-      await db.update(products).set({ lastError: msg }).where(eq(products.id, productId));
+      await db.update(products).set({ lastError: msg, totalFailures: sql`total_failures + 1` }).where(eq(products.id, productId));
       res.status(500).json({ error: msg });
     }
   }
