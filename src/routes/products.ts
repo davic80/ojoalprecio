@@ -94,12 +94,12 @@ router.get('/', (req: Request, res: Response, next) => {
   `);
   const all = allRows.rows as any[];
   const stats = {
-    total: all.length,
-    atLow: all.filter(p => p.currentPrice && p.minPrice && parseInt(p.checkCount, 10) >= 360 &&
-      parseFloat(p.currentPrice) <= parseFloat(p.minPrice) + 0.01).length,
+    total:     all.length,
+    withPrice: all.filter(p => p.currentPrice !== null).length,
+    pending:   all.filter(p => p.currentPrice === null).length,
+    onSale:    all.filter(p => p.isOnSale).length,
     withError: all.filter(p => p.lastError).length,
-    unavailable: all.filter(p => !p.isAvailable).length,
-    failed: all.filter(p => p.isFailed).length,
+    failed:    all.filter(p => p.isFailed).length,
   };
 
   res.render('dashboard', {
