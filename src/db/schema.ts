@@ -134,6 +134,8 @@ export type NewAlert = typeof alerts.$inferInsert;
 export const pageViews = pgTable('page_views', {
   path: varchar('path', { length: 500 }).notNull(),
   day: text('day').notNull(),
+  source: varchar('source', { length: 50 }).notNull().default('Directo'),
+  deviceType: varchar('device_type', { length: 20 }).notNull().default('Escritorio'),
   count: integer('count').default(1).notNull(),
 });
 

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.12.0] - 2026-05-02
+
+### Added
+- Tracking de fuente de tráfico (`source`): Telegram, Google, Bing, Instagram, Twitter/X, Directo, Otro — detectado desde el header `Referer` con fallback a `utm_source`
+- Tracking de dispositivo (`device_type`): Escritorio, Móvil, Tablet, Bot — detectado desde `User-Agent` sin dependencias externas
+- Navegación interna (mismo dominio) no se registra para no inflar "Otro"
+- Admin Stats: nueva sección "Fuentes y dispositivos" con dos tablas en grid (fuentes excluyen bots; dispositivos muestran bots por separado con porcentajes)
+- Migración 25: columnas `source` y `device_type` en `page_views`; clave primaria ampliada a `(path, day, source, device_type)`
+
 ## [2.11.5] - 2026-05-01
 
 ### Added

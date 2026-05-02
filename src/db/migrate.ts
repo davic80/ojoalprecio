@@ -338,6 +338,14 @@ const MIGRATIONS = [
     ADD COLUMN IF NOT EXISTS is_failed            BOOLEAN DEFAULT FALSE NOT NULL;
   CREATE INDEX IF NOT EXISTS idx_products_is_failed ON products(is_failed) WHERE is_failed = TRUE;
   `,
+  // Migration 25: traffic source + device type on page_views
+  `
+  ALTER TABLE page_views
+    ADD COLUMN IF NOT EXISTS source      VARCHAR(50) NOT NULL DEFAULT 'Directo',
+    ADD COLUMN IF NOT EXISTS device_type VARCHAR(20) NOT NULL DEFAULT 'Escritorio';
+  ALTER TABLE page_views DROP CONSTRAINT IF EXISTS page_views_pkey;
+  ALTER TABLE page_views ADD PRIMARY KEY (path, day, source, device_type);
+  `,
 ];
 
 export async function migrate(): Promise<void> {

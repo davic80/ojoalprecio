@@ -145,6 +145,78 @@ const totalAlerts = parseInt(alertTotals && alertTotals.total ? alertTotals.tota
 
   </div>
 
+  <!-- Traffic sources + devices -->
+  <div class="page-header" style="margin-top:40px">
+    <h1>Fuentes y dispositivos</h1>
+    <p class="subtitle">Origen del tráfico y tipo de dispositivo. Las fuentes excluyen bots.</p>
+  </div>
+
+  <%
+    const tsRows  = trafficSources || [];
+    const devRows = devices || [];
+    const tsTotal  = tsRows.reduce(function(s, r)  { return s + parseInt(r.views, 10); }, 0);
+    const devTotal = devRows.reduce(function(s, r) { return s + parseInt(r.views, 10); }, 0);
+  %>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+
+    <!-- Sources table -->
+    <div class="card">
+      <h2>Fuentes de tráfico</h2>
+      <% if (tsRows.length === 0) { %>
+        <p class="hint" style="margin-top:12px">Sin datos todavía.</p>
+      <% } else { %>
+      <div class="table-wrap" style="margin-top:12px">
+        <table class="price-table">
+          <thead><tr><th>#</th><th>Fuente</th><th style="text-align:right">Visitas</th><th style="text-align:right">%</th></tr></thead>
+          <tbody>
+            <% tsRows.forEach(function(r, i) {
+              const v   = parseInt(r.views, 10);
+              const pct = tsTotal > 0 ? ((v / tsTotal) * 100).toFixed(1) : '0.0';
+            %>
+              <tr>
+                <td style="color:var(--gray-400);width:24px"><%= i + 1 %></td>
+                <td style="font-weight:500"><%= r.source %></td>
+                <td style="text-align:right;font-weight:600"><%= v.toLocaleString('es-ES') %></td>
+                <td style="text-align:right;color:var(--gray-400)"><%= pct %>%</td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+      <% } %>
+    </div>
+
+    <!-- Devices table -->
+    <div class="card">
+      <h2>Dispositivos</h2>
+      <% if (devRows.length === 0) { %>
+        <p class="hint" style="margin-top:12px">Sin datos todavía.</p>
+      <% } else { %>
+      <div class="table-wrap" style="margin-top:12px">
+        <table class="price-table">
+          <thead><tr><th>#</th><th>Dispositivo</th><th style="text-align:right">Visitas</th><th style="text-align:right">%</th></tr></thead>
+          <tbody>
+            <% devRows.forEach(function(r, i) {
+              const v   = parseInt(r.views, 10);
+              const pct = devTotal > 0 ? ((v / devTotal) * 100).toFixed(1) : '0.0';
+              const icon = r.device_type === 'Móvil' ? '📱' : r.device_type === 'Tablet' ? '📟' : r.device_type === 'Bot' ? '🤖' : '🖥';
+            %>
+              <tr>
+                <td style="color:var(--gray-400);width:24px"><%= i + 1 %></td>
+                <td style="font-weight:500"><%= icon %> <%= r.device_type %></td>
+                <td style="text-align:right;font-weight:600"><%= v.toLocaleString('es-ES') %></td>
+                <td style="text-align:right;color:var(--gray-400)"><%= pct %>%</td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+      <% } %>
+    </div>
+
+  </div>
+
   <!-- Alert stats -->
   <div class="page-header" style="margin-top:40px">
     <h1>Estadísticas de alertas</h1>

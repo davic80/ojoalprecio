@@ -316,7 +316,8 @@ router.get('/admin/deals', requireAuth, requireAdmin, async (req: Request, res: 
 // ── GET /admin/stats ──────────────────────────────────────────────────────────
 router.get('/admin/stats', requireAuth, requireAdmin, async (req: Request, res: Response) => {
   const [totalRow, dailyRows, topProductRows, topPathRows,
-         alertTotalsRow, alertByProductRows, alertByUserRows, alertDailyRows] = await Promise.all([
+         alertTotalsRow, alertByProductRows, alertByUserRows, alertDailyRows,
+         trafficSourceRows, deviceRows] = await Promise.all([
     db.execute(sql`SELECT COALESCE(SUM(count), 0) AS total FROM page_views`),
     db.execute(sql`
       SELECT day, SUM(count) AS views
@@ -367,6 +368,17 @@ router.get('/admin/stats', requireAuth, requireAdmin, async (req: Request, res: 
       WHERE triggered_at >= NOW() - INTERVAL '29 days'
       GROUP BY day ORDER BY day ASC
     `),
+    db.execute(sql`
+      SELECT source, SUM(count) AS views
+      FROM page_views
+      WHERE device_type != 'Bot'
+      GROUP BY source ORDER BY views DESC
+    `),
+    db.execute(sql`
+      SELECT device_type, SUM(count) AS views
+      FROM page_views
+      GROUP BY device_type ORDER BY views DESC
+    `),
   ]);
 
   res.render('admin-stats', {
@@ -378,6 +390,8 @@ router.get('/admin/stats', requireAuth, requireAdmin, async (req: Request, res: 
     alertByProduct: alertByProductRows.rows,
     alertByUser: alertByUserRows.rows,
     alertDaily: alertDailyRows.rows,
+    trafficSources: trafficSourceRows.rows,
+    devices: deviceRows.rows,
     user: { email: req.session.userEmail },
     isAdmin: true,
   });

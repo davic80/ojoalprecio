@@ -47,6 +47,46 @@ export function createApp() {
   );
 
   // ── Page view tracking (fire-and-forget, excludes static/HTMX/admin) ─────────
+
+  function categorizeReferer(req: express.Request): string | null {
+    const raw = ((req.headers['referer'] ?? req.headers['referrer'] ?? '') as string);
+    if (raw) {
+      let host = '';
+      try { host = new URL(raw).hostname.toLowerCase().replace(/^www\./, ''); }
+      catch { return 'Otro'; }
+      // Skip internal navigation (same-site referer)
+      const siteHost = process.env.SITE_URL ? (() => { try { return new URL(process.env.SITE_URL!).hostname.toLowerCase().replace(/^www\./, ''); } catch { return ''; } })() : '';
+      const ownHost  = ((req.headers['host'] as string) ?? '').split(':')[0].toLowerCase().replace(/^www\./, '');
+      if ((siteHost && host === siteHost) || (ownHost && host === ownHost)) return null;
+      if (host === 't.me' || host.endsWith('.t.me'))       return 'Telegram';
+      if (host.startsWith('google.'))                      return 'Google';
+      if (host === 'bing.com')                             return 'Bing';
+      if (host === 'instagram.com')                        return 'Instagram';
+      if (host === 'twitter.com' || host === 'x.com')      return 'Twitter/X';
+      return 'Otro';
+    }
+    // UTM fallback when there is no Referer
+    const utm = String(req.query['utm_source'] ?? '').toLowerCase();
+    if (utm === 'telegram') return 'Telegram';
+    if (utm === 'google')   return 'Google';
+    return 'Directo';
+  }
+
+  function detectDevice(ua: string): string {
+    const u = ua.toLowerCase();
+    if (!u ||
+        u.includes('bot') || u.includes('crawler') || u.includes('spider') ||
+        u.includes('curl/') || u.includes('python-requests') || u.includes('go-http-client') ||
+        u.includes('wget/') || u.includes('scrapy') || u.includes('facebookexternalhit') ||
+        u.includes('twitterbot') || u.includes('semrushbot') || u.includes('ahrefsbot') ||
+        u.includes('petalbot') || u.includes('slurp') || u.includes('duckduckbot')) {
+      return 'Bot';
+    }
+    if (u.includes('ipad') || (u.includes('android') && !u.includes('mobile'))) return 'Tablet';
+    if (u.includes('mobile') || u.includes('iphone') || u.includes('ipod') || u.includes('android')) return 'Móvil';
+    return 'Escritorio';
+  }
+
   app.use((req, _res, next) => {
     const skip =
       req.method !== 'GET' ||
@@ -57,13 +97,17 @@ export function createApp() {
       req.path.startsWith('/js') ||
       req.path.includes('.');
     if (!skip) {
-      const day = new Date().toISOString().slice(0, 10);
-      const p = req.path || '/';
-      pool.query(
-        `INSERT INTO page_views (path, day, count) VALUES ($1, $2, 1)
-         ON CONFLICT (path, day) DO UPDATE SET count = page_views.count + 1`,
-        [p, day],
-      ).catch(() => { /* ignore */ });
+      const source = categorizeReferer(req);
+      if (source !== null) {
+        const device = detectDevice((req.headers['user-agent'] ?? '') as string);
+        const day = new Date().toISOString().slice(0, 10);
+        const p = req.path || '/';
+        pool.query(
+          `INSERT INTO page_views (path, day, source, device_type, count) VALUES ($1, $2, $3, $4, 1)
+           ON CONFLICT (path, day, source, device_type) DO UPDATE SET count = page_views.count + 1`,
+          [p, day, source, device],
+        ).catch(() => {});
+      }
     }
     next();
   });
