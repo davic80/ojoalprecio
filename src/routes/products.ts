@@ -98,9 +98,9 @@ router.get('/', (req: Request, res: Response, next) => {
     total:     all.length,
     withPrice: all.filter(p => p.currentPrice !== null).length,
     pending:   all.filter(p => p.currentPrice === null).length,
-    onSale:    all.filter(p => p.isOnSale).length,
-    withError: all.filter(p => p.lastError).length,
-    failed:    all.filter(p => p.isFailed).length,
+    onSale:    all.filter(p => p.is_on_sale).length,
+    withError: all.filter(p => p.last_error).length,
+    failed:    all.filter(p => p.is_failed).length,
   };
 
   res.render('dashboard', {
