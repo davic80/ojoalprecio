@@ -305,6 +305,12 @@ function trendBadge(current, previous) {
             data-id="<%= p.id %>"
             style="<%= p.isPublic ? 'background:#16a34a;color:#fff;border-color:#16a34a' : 'opacity:.6' %>"
           ><%= p.isPublic ? 'Público' : 'Privado' %></button>
+          <button
+            class="btn btn-sm btn-ghost refresh-card-btn"
+            data-id="<%= p.id %>"
+            title="Actualizar precio"
+            style="padding:0 7px;font-size:15px"
+          >↺</button>
         <% } %>
         <button
           class="btn btn-sm btn-danger"
@@ -480,6 +486,18 @@ document.addEventListener('click', function(e) {
     })
     .catch(function(e) { console.error(e); })
     .finally(function() { btn.disabled = false; });
+});
+
+document.addEventListener('click', function(e) {
+  const btn = e.target.closest('.refresh-card-btn');
+  if (!btn) return;
+  e.stopPropagation();
+  const id = btn.dataset.id;
+  btn.disabled = true;
+  btn.textContent = '…';
+  fetch('/products/' + id + '/refresh', { method: 'POST' })
+    .then(function() { location.reload(); })
+    .catch(function() { btn.disabled = false; btn.textContent = '↺'; });
 });
 </script>
 <% } %>
