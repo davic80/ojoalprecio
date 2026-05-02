@@ -27,7 +27,9 @@ router.get('/ofertas', async (_req: Request, res: Response) => {
           ORDER BY scraped_at DESC LIMIT 20
         ) sub
       ) AS "sparkline",
-      p.is_on_sale AS "isOnSale"
+      p.is_on_sale AS "isOnSale",
+      p.sale_tier  AS "saleTier",
+      p.deal_score::float AS "dealScore"
     FROM products p
     LEFT JOIN categories c ON c.id = p.category_id
     WHERE p.is_public = TRUE AND p.is_active = TRUE AND p.is_available = TRUE
@@ -99,7 +101,9 @@ router.get('/c/:slug', async (req: Request, res: Response) => {
           ORDER BY scraped_at DESC LIMIT 20
         ) sub
       ) AS "sparkline",
-      p.is_on_sale AS "isOnSale"
+      p.is_on_sale AS "isOnSale",
+      p.sale_tier  AS "saleTier",
+      p.deal_score::float AS "dealScore"
     FROM products p
     WHERE p.category_id = ${cat.id}
       AND p.is_active = TRUE AND p.is_available = TRUE

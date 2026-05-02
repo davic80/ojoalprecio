@@ -53,7 +53,8 @@
               <% if (d.isAtLow) { %>
                 <span class="badge-low">Precio mínimo</span>
               <% } else if (d.isOnSale) { %>
-                <span class="badge-sale">Oferta</span>
+                <% const _tl = {oferta:'Oferta','super-oferta':'Super Oferta','mega-oferta':'Mega Oferta',broooooferton:'Brooooofertón','67oferta':'67oferta'}; %>
+                <span class="badge-sale<%= d.saleTier ? ' badge-tier-' + d.saleTier : '' %>"><%= d.saleTier ? (_tl[d.saleTier] || 'Oferta') : 'Oferta' %></span>
               <% } %>
             </div>
             <div class="product-info">

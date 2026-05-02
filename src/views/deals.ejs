@@ -75,6 +75,9 @@
                   <% } %>
                   <% if (d.isAtLow) { %>
                     <span class="badge-low">Precio mínimo</span>
+                  <% } else if (d.saleTier) { %>
+                    <% const _tl = {oferta:'Oferta','super-oferta':'Super Oferta','mega-oferta':'Mega Oferta',broooooferton:'Brooooofertón','67oferta':'67oferta'}; %>
+                    <span class="badge-sale badge-tier-<%= d.saleTier %>" title="-<%= d.dealScore ? parseFloat(d.dealScore).toFixed(1) : '?' %>% vs máx."><%= _tl[d.saleTier] || 'Oferta' %></span>
                   <% } else { %>
                     <span class="badge-sale">Oferta</span>
                   <% } %>

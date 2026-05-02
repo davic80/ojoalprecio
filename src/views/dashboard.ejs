@@ -250,7 +250,8 @@ function trendBadge(current, previous) {
           <% } else if (isAtLow) { %>
             <span class="badge-low" title="Precio en mínimo desde que se inició el seguimiento">Precio mínimo</span>
           <% } else if (p.isOnSale) { %>
-            <span class="badge-sale" title="Bajada superior al 7% respecto al registro anterior">Oferta</span>
+            <% const _tl = {oferta:'Oferta','super-oferta':'Super Oferta','mega-oferta':'Mega Oferta',broooooferton:'Brooooofertón','67oferta':'67oferta'}; %>
+            <span class="badge-sale<%= p.saleTier ? ' badge-tier-' + p.saleTier : '' %>" title="<%= p.dealScore ? '-' + parseFloat(p.dealScore).toFixed(1) + '% vs máx. histórico' : 'En oferta' %>"><%= p.saleTier ? (_tl[p.saleTier] || 'Oferta') : 'Oferta' %></span>
           <% } else if (!p.isAvailable) { %>
             <span class="badge-unavailable" title="Actualmente sin stock en Amazon">Sin stock</span>
           <% } %>

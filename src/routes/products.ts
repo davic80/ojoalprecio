@@ -52,6 +52,8 @@ router.get('/', (req: Request, res: Response, next) => {
         p.is_public    AS "isPublic",
         p.is_available AS "isAvailable",
         p.is_on_sale   AS "isOnSale",
+        p.sale_tier    AS "saleTier",
+        p.deal_score::float AS "dealScore",
         p.is_failed    AS "isFailed",
         p.consecutive_failures AS "consecutiveFailures",
         p.total_failures       AS "totalFailures",

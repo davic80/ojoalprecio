@@ -268,6 +268,7 @@ router.get('/admin/deals', requireAuth, requireAdmin, async (req: Request, res: 
         p.url,
         p.is_public        AS "isPublic",
         p.is_on_sale       AS "isOnSale",
+        p.sale_tier        AS "saleTier",
         p.category_id      AS "categoryId",
         c.name             AS "categoryName",
         ph_last.price      AS "currentPrice",

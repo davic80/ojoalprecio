@@ -104,6 +104,11 @@
             <% if (atMin) { %>
               <span class="badge badge-sale" style="margin-left:6px;font-size:10px;vertical-align:middle;">Mínimo histórico</span>
             <% } %>
+            <% if (d.saleTier) { %>
+              <% const _tc={'super-oferta':'rgba(202,67,26,.9)','mega-oferta':'rgba(109,40,217,.9)','broooooferton':'rgba(157,23,77,.95)','67oferta':'rgba(120,53,15,.95)'}; %>
+              <% const _tn={oferta:'Oferta','super-oferta':'Super Oferta','mega-oferta':'Mega Oferta',broooooferton:'Brooooofertón','67oferta':'67oferta'}; %>
+              <span style="display:inline-block;padding:1px 6px;border-radius:10px;font-size:10px;font-weight:700;background:<%= _tc[d.saleTier]||'rgba(230,57,70,.88)' %>;color:#fff;vertical-align:middle;margin-left:4px"><%= _tn[d.saleTier]||'Oferta' %></span>
+            <% } %>
           </td>
           <td style="text-align:right;font-weight:700;color:#e63946;white-space:nowrap">
             <%= parseFloat(d.currentPrice).toFixed(2) %> €
