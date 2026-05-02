@@ -22,8 +22,8 @@ services:
       - SCRAPER_CONCURRENCY=${SCRAPER_CONCURRENCY:-3}
       # Minimum age in minutes before a product is re-scraped (default 59)
       - MIN_AGE_MS_MINUTES=${MIN_AGE_MS_MINUTES:-59}
-      # Scraper hard timeout in milliseconds (default 25000 = 25s)
-      - SCRAPER_TIMEOUT_MS=${SCRAPER_TIMEOUT_MS:-25000}
+      # Scraper hard timeout in seconds (default 25)
+      - SCRAPER_TIMEOUT_SECONDS=${SCRAPER_TIMEOUT_SECONDS:-25}
       # SMTP email
       - SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
       - SMTP_PORT=${SMTP_PORT:-587}

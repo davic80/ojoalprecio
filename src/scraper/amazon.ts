@@ -70,8 +70,13 @@ function parseSpanishPrice(raw: string): number {
   return parseFloat(normalised);
 }
 
-// ── Configurable timeout ─────────────────────────────────────────────────────
-const SCRAPER_TIMEOUT_MS = Math.max(10000, parseInt(process.env.SCRAPER_TIMEOUT_MS ?? '25000', 10));
+// ── Configurable timeouts ─────────────────────────────────────────────────────
+const SCRAPER_TIMEOUT_SECONDS = Math.max(10, parseInt(process.env.SCRAPER_TIMEOUT_SECONDS ?? '25', 10));
+const HARD_TIMEOUT_MS         = SCRAPER_TIMEOUT_SECONDS * 1000;
+const PAGE_LOAD_TIMEOUT_MS    = Math.round(HARD_TIMEOUT_MS * 0.8);
+const LOCATOR_TIMEOUT_MS      = 3_000;   // title, availability, image
+const PRICE_SELECTOR_WAIT_MS  = 3_000;   // waitForSelector before reading price
+const PRICE_LOCATOR_TIMEOUT_MS = 1_000;  // per-selector in the price loop
 
 // ── Shared Chromium args ──────────────────────────────────────────────────────
 const CHROMIUM_ARGS = [
@@ -214,7 +219,7 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
   // Hard timeout — if exceeded the product is logged as error, process keeps running
   let timeoutHandle: ReturnType<typeof setTimeout>;
   const hardTimeout = new Promise<never>((_, reject) => {
-    timeoutHandle = setTimeout(() => reject(new Error(`Timeout: scrapeProduct exceeded ${SCRAPER_TIMEOUT_MS / 1000}s`)), SCRAPER_TIMEOUT_MS);
+    timeoutHandle = setTimeout(() => reject(new Error(`[hard_timeout] scrapeProduct exceeded ${SCRAPER_TIMEOUT_SECONDS}s`)), HARD_TIMEOUT_MS);
   });
 
   try {
@@ -225,7 +230,11 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
           BLOCKED_TYPES.has(route.request().resourceType()) ? route.abort() : route.continue();
         });
 
-        await page.goto(canonicalUrl, { waitUntil: 'domcontentloaded', timeout: Math.round(SCRAPER_TIMEOUT_MS * 0.8) });
+        await page.goto(canonicalUrl, { waitUntil: 'domcontentloaded', timeout: PAGE_LOAD_TIMEOUT_MS })
+          .catch((err: Error) => {
+            const isTimeout = err.name === 'TimeoutError' || err.message.toLowerCase().includes('timeout');
+            throw new Error(isTimeout ? `[page_load_timeout] page.goto exceeded ${PAGE_LOAD_TIMEOUT_MS / 1000}s` : err.message);
+          });
 
         const pageTitle = await page.title();
         const currentUrl = page.url();
@@ -255,16 +264,22 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
 
         const name = await page
           .locator('#productTitle').first()
-          .textContent({ timeout: 3000 })
+          .textContent({ timeout: LOCATOR_TIMEOUT_MS })
           .then((t) => t?.trim() ?? '')
-          .catch(() => '');
+          .catch((err: Error) => {
+            console.warn(`[locator_timeout] #productTitle — ${err.message.split('\n')[0]}`);
+            return '';
+          });
 
         if (!name) throw new Error(`Título no encontrado (url: ${page.url().split('?')[0]})`);
 
         const availabilityText = await page
           .locator('#availability').first()
-          .textContent({ timeout: 3000 })
-          .catch(() => '');
+          .textContent({ timeout: LOCATOR_TIMEOUT_MS })
+          .catch((err: Error) => {
+            console.warn(`[locator_timeout] #availability — ${err.message.split('\n')[0]}`);
+            return '';
+          });
         const normalizedAvail = (availabilityText ?? '').toLowerCase().trim();
         const unavailableKeywords = [
           'no disponible', 'actualmente no disponible', 'currently unavailable',
@@ -275,8 +290,10 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
         }
 
         await page
-          .waitForSelector('.a-price .a-offscreen, #priceblock_ourprice, #priceblock_dealprice, .a-price-whole', { timeout: 3000 })
-          .catch(() => {});
+          .waitForSelector('.a-price .a-offscreen, #priceblock_ourprice, #priceblock_dealprice, .a-price-whole', { timeout: PRICE_SELECTOR_WAIT_MS })
+          .catch((err: Error) => {
+            console.warn(`[price_selector_timeout] waitForSelector exceeded ${PRICE_SELECTOR_WAIT_MS}ms — ${err.message.split('\n')[0]}`);
+          });
 
         const priceSelectors = [
           '.a-price.aok-align-center .a-offscreen',
@@ -292,10 +309,13 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
         for (const selector of priceSelectors) {
           try {
             rawPrice = await page.locator(selector).first()
-              .textContent({ timeout: 1000 })
+              .textContent({ timeout: PRICE_LOCATOR_TIMEOUT_MS })
               .then((t) => t?.trim() ?? '');
             if (rawPrice) break;
-          } catch { /* try next */ }
+          } catch (err) {
+            const msg = err instanceof Error ? err.message.split('\n')[0] : String(err);
+            console.warn(`[price_locator_timeout] selector="${selector}" — ${msg}`);
+          }
         }
 
         if (!rawPrice) throw new Error('No se encontró el precio del producto');
@@ -306,8 +326,11 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
         // Image src attrs are in the DOM even with images blocked
         const imageUrl = await page
           .locator('#imgTagWrappingLink img, #landingImage').first()
-          .getAttribute('src', { timeout: 5000 })
-          .catch(() => null);
+          .getAttribute('src', { timeout: LOCATOR_TIMEOUT_MS })
+          .catch((err: Error) => {
+            console.warn(`[locator_timeout] image — ${err.message.split('\n')[0]}`);
+            return null;
+          });
 
         const extraImages: string[] = await page.evaluate((mainSrc: string | null): string[] => {
           const win = globalThis as any;
