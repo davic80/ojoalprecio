@@ -130,16 +130,25 @@
 
   <!-- Manual refresh (admin only) -->
   <% if (isAdmin) { %>
-  <div class="toolbar">
+  <div class="toolbar" style="align-items:center;gap:12px;flex-wrap:wrap">
     <button
-      class="btn btn-outline btn-sm"
+      id="refresh-btn"
+      class="btn <%= product.isFailed ? 'btn-primary' : 'btn-outline' %> btn-sm"
       hx-post="/products/<%= product.id %>/refresh"
-      hx-indicator="#refresh-spinner"
+      hx-disabled-elt="#refresh-btn"
+      hx-on::before-request="this.textContent='Actualizando…'"
       hx-on::after-request="location.reload()"
     >
-      Actualizar ahora
+      <%= product.isFailed ? '↺ Reintentar scrape' : 'Actualizar ahora' %>
     </button>
-    <span id="refresh-spinner" class="htmx-indicator spinner"></span>
+    <% if (history.length > 0) { %>
+      <span class="hint">Último scrape: <%= new Date(history[0].scrapedAt).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' }) %></span>
+    <% } else { %>
+      <span class="hint" style="color:var(--gray-400)">Sin datos todavía</span>
+    <% } %>
+    <% if (product.isFailed) { %>
+      <span style="font-size:12px;color:#b91c1c;font-weight:500"><%= product.consecutiveFailures %> errores consecutivos</span>
+    <% } %>
   </div>
   <% } %>
 
