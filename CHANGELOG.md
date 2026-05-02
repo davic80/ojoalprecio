@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.25.0] - 2026-05-02
+
+### Added
+- Variable de entorno `SCRAPER_TIMEOUT_SECONDS` (valor en **segundos**, por defecto 25, mínimo 10)
+- Constantes de timeout con nombres declarativos: `HARD_TIMEOUT_MS`, `PAGE_LOAD_TIMEOUT_MS`, `LOCATOR_TIMEOUT_MS`, `PRICE_SELECTOR_WAIT_MS`, `PRICE_LOCATOR_TIMEOUT_MS`
+- Logs con prefijo identificador por tipo de timeout: `[hard_timeout]`, `[page_load_timeout]`, `[locator_timeout]`, `[price_selector_timeout]`, `[price_locator_timeout]`
+
+### Changed
+- Variable de entorno renombrada `SCRAPER_TIMEOUT_MS` → `SCRAPER_TIMEOUT_SECONDS` — actualizar `.env` en Raspberry Pi
+
+## [2.13.0] - 2026-05-02
+
+### Added
+- Dashboard (admin): botón ↺ por cada card para actualizar el precio manualmente sin esperar el ciclo
+- Dashboard (admin): contador de fallos — `N/3` (consecutivos) y `N tot` (totales históricos) visible en cada card; en rojo si el producto está marcado como fallido
+- Dashboard: 6 pills de filtro siempre visibles (Con precio / Sin scrapear / En oferta / Con error / Fallidos / Sin stock) — cada pill filtra la lista al clicar
+- Tracking: `utm_source=telegram` y `utm_source=email` añadidos a todos los links de notificación (bot, canal, emails de alerta y back-in-stock)
+- Migración 26: columna `total_failures INTEGER DEFAULT 0` en `products` — acumula fallos de por vida sin resetearse
+
+### Changed
+- Dashboard: botón Eliminar reducido a × rojo (sin texto)
+
+### Fixed
+- Tracking: visitas desde Telegram y email aparecían como "Directo" por falta de header `Referer` — corregido con fallback a `utm_source`
+- Dashboard: stats (`onSale`, `failed`, `withError`) devolvían 0 por confusión camelCase/snake_case en el filtro JS
+- Dashboard: contador de fallos no aparecía si `totalFailures = 0` aunque hubiera `consecutiveFailures > 0`
+- Producto (admin): UX del botón de actualizar manual mejorada — se deshabilita durante la carga y muestra "Actualizando…"
+
 ## [2.12.0] - 2026-05-02
 
 ### Added
