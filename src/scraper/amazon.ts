@@ -1,4 +1,4 @@
-import { chromium, type Browser, type BrowserContext } from 'playwright';
+import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 
 export class ProductUnavailableError extends Error {
   constructor(message: string) {
@@ -90,10 +90,47 @@ const CHROMIUM_ARGS = [
   '--no-first-run',
   '--disable-blink-features=AutomationControlled',
   '--disable-infobars',
+  // 👇 MODIFICACIÓN 2: Flags críticos para Raspberry Pi / Linux
+  '--disable-features=IsolateOrigins,site-per-process', 
+  '--disable-site-isolation-trials',
+  '--mute-audio',
+  '--js-flags="--max-old-space-size=256"', // Limita memoria V8
 ];
 
 // Resources we never need — blocks download, src attrs still readable from DOM
 const BLOCKED_TYPES = new Set(['image', 'font', 'media', 'stylesheet']);
+
+// 👇 MODIFICACIÓN 3: Dominios de telemetría y anuncios de Amazon que ahogan la CPU
+const BLOCKED_DOMAINS = [
+  'amazon-adsystem',
+  'fls-eu.amazon',
+  'telemetry',
+  'unagi-eu.amazon',
+  'csm.amazon'
+];
+
+/**
+ * Función utilitaria para aplicar el bloqueo agresivo a una página.
+ * Libera la CPU al no descargar visuales ni ejecutar JS de analíticas.
+ */
+async function optimizePageForScraping(page: Page) {
+  await page.route('**/*', (route) => {
+    const type = route.request().resourceType();
+    const url = route.request().url();
+
+    // Bloquear por tipo (imágenes, CSS) o peticiones en background (ping, beacon)
+    if (BLOCKED_TYPES.has(type) || type === 'ping' || type === 'beacon') {
+      return route.abort('aborted');
+    }
+
+    // Bloquear dominios específicos de telemetría/anuncios
+    if (BLOCKED_DOMAINS.some(domain => url.includes(domain))) {
+      return route.abort('aborted');
+    }
+
+    route.continue();
+  });
+}
 
 // ── Singleton browser — launched once, reused across all products in a cycle ──
 // High enough that we never recycle mid-cycle (430 products × 3 workers = 430 total uses per cycle)
@@ -225,10 +262,8 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
   try {
     const result = await Promise.race([
       (async (): Promise<ScrapeResult> => {
-        // Block heavy resources — src attributes are still readable from the DOM
-        await page.route('**/*', (route) => {
-          BLOCKED_TYPES.has(route.request().resourceType()) ? route.abort() : route.continue();
-        });
+        // 👇 Aplicamos la optimización de recursos aquí
+        await optimizePageForScraping(page);
 
         await page.goto(canonicalUrl, { waitUntil: 'domcontentloaded', timeout: PAGE_LOAD_TIMEOUT_MS })
           .catch((err: Error) => {
@@ -356,7 +391,8 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
     return result;
   } finally {
     clearTimeout(timeoutHandle!);
-    await page.close().catch(() => {});
+    // Se elimina el catch vacío para no esconder errores críticos al cerrar y se fuerza un runBeforeUnload falso
+    await page.close({ runBeforeUnload: false }).catch(() => {});
     await context.close().catch(() => {});
   }
 }
@@ -369,9 +405,8 @@ export async function scrapeWishlist(url: string): Promise<string[]> {
   const page = await context.newPage();
 
   try {
-    await page.route('**/*', (route) => {
-      BLOCKED_TYPES.has(route.request().resourceType()) ? route.abort() : route.continue();
-    });
+    // 👇 Aplicamos la optimización aquí también
+    await optimizePageForScraping(page);
 
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
@@ -420,7 +455,7 @@ export async function scrapeWishlist(url: string): Promise<string[]> {
 
     return results;
   } finally {
-    await page.close().catch(() => {});
+    await page.close({ runBeforeUnload: false }).catch(() => {});
     await context.close().catch(() => {});
   }
 }
@@ -433,9 +468,8 @@ export async function scrapeUrlForAsins(url: string, limit = 200): Promise<strin
   const page = await context.newPage();
 
   try {
-    await page.route('**/*', (route) => {
-      BLOCKED_TYPES.has(route.request().resourceType()) ? route.abort() : route.continue();
-    });
+    // 👇 Aplicamos la optimización
+    await optimizePageForScraping(page);
 
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await randomDelay(800, 1500);
@@ -462,7 +496,7 @@ export async function scrapeUrlForAsins(url: string, limit = 200): Promise<strin
 
     return rawAsins.slice(0, limit).map(asin => `https://www.amazon.es/dp/${asin}`);
   } finally {
-    await page.close().catch(() => {});
+    await page.close({ runBeforeUnload: false }).catch(() => {});
     await context.close().catch(() => {});
   }
 }
@@ -475,9 +509,8 @@ export async function scrapeAmazonCategory(categoryUrl: string, limit = 40): Pro
   const page = await context.newPage();
 
   try {
-    await page.route('**/*', (route) => {
-      BLOCKED_TYPES.has(route.request().resourceType()) ? route.abort() : route.continue();
-    });
+    // 👇 Aplicamos la optimización
+    await optimizePageForScraping(page);
 
     await page.goto(categoryUrl, { waitUntil: 'load', timeout: 30000 });
     await randomDelay(1000, 2000);
@@ -524,7 +557,7 @@ export async function scrapeAmazonCategory(categoryUrl: string, limit = 40): Pro
 
     return results;
   } finally {
-    await page.close().catch(() => {});
+    await page.close({ runBeforeUnload: false }).catch(() => {});
     await context.close().catch(() => {});
   }
 }
