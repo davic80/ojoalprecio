@@ -7,7 +7,6 @@ export class ProductUnavailableError extends Error {
   }
 }
 
-// Nueva excepción para gestionar el bloqueo por CAPTCHA
 export class CaptchaDetectedError extends Error {
   constructor(message: string) {
     super(message);
@@ -25,16 +24,15 @@ export interface ScrapeResult {
   url: string;
 }
 
-// ── Gestión Global de Captcha y Cooldown ─────────────────────────────────────
+// ── Gestión de Estado Global (Captcha Cooldown) ──────────────────────────────
 let captchaDetectedAt: number | null = null;
-const CAPTCHA_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutos de pausa si detectamos bloqueo
+const CAPTCHA_COOLDOWN_MS = 10 * 60 * 1000;
 
 const USER_AGENTS = [
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
   'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 14.7; rv:132.0) Gecko/20100101 Firefox/132.0',
 ];
 
 function randomUserAgent(): string {
@@ -46,12 +44,7 @@ function randomDelay(minMs: number, maxMs: number): Promise<void> {
 }
 
 export function extractAsin(url: string): string | null {
-  const patterns = [
-    /\/dp\/([A-Z0-9]{10})/i,
-    /\/gp\/product\/([A-Z0-9]{10})/i,
-    /\/exec\/obidos\/ASIN\/([A-Z0-9]{10})/i,
-    /\/product\/([A-Z0-9]{10})/i,
-  ];
+  const patterns = [/\/dp\/([A-Z0-9]{10})/i, /\/gp\/product\/([A-Z0-9]{10})/i, /\/exec\/obidos\/ASIN\/([A-Z0-9]{10})/i, /\/product\/([A-Z0-9]{10})/i];
   for (const pattern of patterns) {
     const match = url.match(pattern);
     if (match) return match[1].toUpperCase();
@@ -71,9 +64,7 @@ export function affiliateUrl(url: string): string {
     u.searchParams.delete('tag');
     u.searchParams.set('tag', AFFILIATE_TAG);
     return u.toString();
-  } catch {
-    return url;
-  }
+  } catch { return url; }
 }
 
 function parseSpanishPrice(raw: string): number {
@@ -82,34 +73,20 @@ function parseSpanishPrice(raw: string): number {
   return parseFloat(normalised);
 }
 
-// ── Configuración de Timeouts optimizada para Pi 5 ───────────────────────────
+// ── Timeouts y Configuración de Red ──────────────────────────────────────────
 const SCRAPER_TIMEOUT_SECONDS = Math.max(15, parseInt(process.env.SCRAPER_TIMEOUT_SECONDS ?? '30', 10));
 const HARD_TIMEOUT_MS         = SCRAPER_TIMEOUT_SECONDS * 1000;
 const PAGE_LOAD_TIMEOUT_MS    = Math.round(HARD_TIMEOUT_MS * 0.8);
-const LOCATOR_TIMEOUT_MS      = 10_000; // Subimos de 3s a 10s para evitar los errores de tus logs
-const PRICE_SELECTOR_WAIT_MS  = 5_000; 
-const PRICE_LOCATOR_TIMEOUT_MS = 2_000;
+const LOCATOR_TIMEOUT_MS      = 10_000; // Mejorado para Pi 5
+const PRICE_SELECTOR_WAIT_MS  = 4_000;
 
-// ── Argumentos de Chromium para ahorro de procesos ───────────────────────────
 const CHROMIUM_ARGS = [
-  '--no-sandbox',
-  '--disable-setuid-sandbox',
-  '--disable-dev-shm-usage',
-  '--disable-accelerated-2d-canvas',
-  '--disable-gpu',
-  '--disable-gpu-compositing',
-  '--disable-software-rasterizer',
-  '--no-first-run',
-  '--disable-blink-features=AutomationControlled',
-  '--disable-infobars',
-  '--disable-features=IsolateOrigins,site-per-process', // Clave para reducir subprocesos en Linux
-  '--disable-site-isolation-trials',
-  '--mute-audio',
+  '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
+  '--disable-accelerated-2d-canvas', '--disable-gpu', '--disable-gpu-compositing',
+  '--disable-software-rasterizer', '--no-first-run', '--disable-blink-features=AutomationControlled',
+  '--disable-features=IsolateOrigins,site-per-process', '--mute-audio',
   '--js-flags="--max-old-space-size=256"',
 ];
-
-// Tipos bloqueados (mantenemos stylesheet fuera para que Amazon renderice bien el título)
-const BLOCKED_TYPES = new Set(['image', 'font', 'media', 'other']);
 
 const BLOCKED_DOMAINS = [
   'amazon-adsystem', 'fls-eu.amazon', 'telemetry', 'unagi-eu.amazon', 
@@ -120,14 +97,15 @@ async function optimizePageForScraping(page: Page) {
   await page.route('**/*', (route) => {
     const type = route.request().resourceType();
     const url = route.request().url();
-    if (BLOCKED_TYPES.has(type) || type === 'ping' || type === 'beacon' || BLOCKED_DOMAINS.some(d => url.includes(d))) {
+    // Bloqueamos imágenes y ads para salvar CPU
+    if (['image', 'font', 'media', 'ping', 'beacon'].includes(type) || BLOCKED_DOMAINS.some(d => url.includes(d))) {
       return route.abort('aborted');
     }
     route.continue();
   });
 }
 
-// ── Singleton browser con gestión de Cooldown ────────────────────────────────
+// ── Singleton Browser y Gestión de Sesión ────────────────────────────────────
 const BROWSER_RECYCLE_AFTER = 500;
 let _browser: Browser | null = null;
 let _browserUses = 0;
@@ -135,26 +113,18 @@ let _browserLaunchPromise: Promise<Browser> | null = null;
 let _storageStatePromise: Promise<any> | null = null;
 
 function getBrowser(): Promise<Browser> {
-  // Verificación de pausa por Captcha
   if (captchaDetectedAt && (Date.now() - captchaDetectedAt < CAPTCHA_COOLDOWN_MS)) {
-    const remaining = Math.round((CAPTCHA_COOLDOWN_MS - (Date.now() - captchaDetectedAt)) / 1000);
-    throw new Error(`[SISTEMA PAUSADO] Captcha detectado. Reintentando en ${remaining}s`);
+    throw new Error(`[SISTEMA PAUSADO] Faltan ${Math.round((CAPTCHA_COOLDOWN_MS - (Date.now() - captchaDetectedAt))/1000)}s`);
   }
-
   if (_browser?.isConnected() && _browserUses < BROWSER_RECYCLE_AFTER) {
     _browserUses++;
     return Promise.resolve(_browser);
   }
   if (!_browserLaunchPromise) {
     _browserLaunchPromise = (async () => {
-      if (_browser) { try { await _browser.close(); } catch {} _browser = null; }
-      _storageStatePromise = null;
+      if (_browser) { try { await _browser.close(); } catch {} }
       const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
-      _browser = await chromium.launch({
-        headless: true,
-        executablePath: executablePath || undefined,
-        args: CHROMIUM_ARGS,
-      });
+      _browser = await chromium.launch({ headless: true, executablePath: executablePath || undefined, args: CHROMIUM_ARGS });
       _browserUses = 1;
       return _browser;
     })().finally(() => { _browserLaunchPromise = null; });
@@ -169,8 +139,8 @@ function getAmazonStorageState(): Promise<any> {
       const ctx = await browser.newContext({ userAgent: randomUserAgent(), locale: 'es-ES' });
       const page = await ctx.newPage();
       try {
-        await page.goto('https://www.amazon.es', { waitUntil: 'domcontentloaded', timeout: 20000 });
-        await randomDelay(600, 1200);
+        await page.goto('https://www.amazon.es', { waitUntil: 'domcontentloaded', timeout: 25000 });
+        await randomDelay(1000, 2000);
         return await ctx.storageState();
       } finally {
         await page.close().catch(() => {});
@@ -183,7 +153,7 @@ function getAmazonStorageState(): Promise<any> {
 
 async function newContext(browser: Browser): Promise<BrowserContext> {
   const storageState = await getAmazonStorageState();
-  return await browser.newContext({
+  const context = await browser.newContext({
     userAgent: randomUserAgent(),
     viewport: { width: 1366, height: 768 },
     locale: 'es-ES',
@@ -191,17 +161,19 @@ async function newContext(browser: Browser): Promise<BrowserContext> {
     storageState,
     extraHTTPHeaders: { 'Accept-Language': 'es-ES,es;q=0.9', 'Cache-Control': 'max-age=0' },
   });
+  await context.addInitScript(() => { Object.defineProperty(navigator, 'webdriver', { get: () => undefined }); });
+  return context;
 }
 
 export async function closeBrowser(): Promise<void> {
   if (_browser) { try { await _browser.close(); } catch {} _browser = null; }
 }
 
-// ── Funciones de Scraping ───────────────────────────────────────────────────
+// ── SCRAPE PRODUCT (CON EXTRA IMAGES) ────────────────────────────────────────
 
 export async function scrapeProduct(url: string): Promise<ScrapeResult> {
   const asin = extractAsin(url);
-  if (!asin) throw new Error(`ASIN inválido: ${url}`);
+  if (!asin) throw new Error(`ASIN no válido`);
 
   const canonicalUrl = normaliseAmazonUrl(asin);
   const browser = await getBrowser();
@@ -224,31 +196,40 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
 
         if (pageTitle.includes('Robot Check') || bodyText.includes('Introduce los caracteres')) {
           captchaDetectedAt = Date.now();
-          throw new CaptchaDetectedError('CAPTCHA detectado. Iniciando cooldown.');
+          throw new CaptchaDetectedError('CAPTCHA DETECTADO');
         }
 
         const name = await page.locator('#productTitle').first().textContent({ timeout: LOCATOR_TIMEOUT_MS }).then(t => t?.trim() ?? '');
         if (!name) throw new Error('Título no encontrado');
 
         const availabilityText = await page.locator('#availability').first().textContent({ timeout: 5000 }).catch(() => '');
-        if (availabilityText?.toLowerCase().includes('no disponible')) {
-          throw new ProductUnavailableError('Producto no disponible');
-        }
+        if (availabilityText?.toLowerCase().includes('no disponible')) throw new ProductUnavailableError('No disponible');
 
         await page.waitForSelector('.a-price .a-offscreen', { timeout: PRICE_SELECTOR_WAIT_MS }).catch(() => {});
 
-        const priceSelectors = ['.a-price.aok-align-center .a-offscreen', '#corePriceDisplay_desktop_feature_div .a-price .a-offscreen', '.a-price .a-offscreen'];
+        const priceSelectors = ['.a-price.aok-align-center .a-offscreen', '#corePriceDisplay_desktop_feature_div .a-price .a-offscreen', '#corePrice_desktop .a-price .a-offscreen', '.a-price .a-offscreen'];
         let rawPrice = '';
         for (const selector of priceSelectors) {
-          rawPrice = await page.locator(selector).first().textContent({ timeout: PRICE_LOCATOR_TIMEOUT_MS }).then(t => t?.trim() ?? '').catch(() => '');
+          rawPrice = await page.locator(selector).first().textContent({ timeout: 2000 }).then(t => t?.trim() ?? '').catch(() => '');
           if (rawPrice) break;
         }
 
         if (!rawPrice) throw new Error('Precio no encontrado');
         const price = parseSpanishPrice(rawPrice);
+
         const imageUrl = await page.locator('#imgTagWrappingLink img, #landingImage').first().getAttribute('src', { timeout: 5000 }).catch(() => null);
 
-        return { asin, name, price, currency: 'EUR', imageUrl, extraImages: [], url: canonicalUrl };
+        // Lógica original de Extra Images
+        const extraImages: string[] = await page.evaluate((mainSrc: string | null): string[] => {
+          const normalize = (s: string) => s.replace(/\._[^.]+_\./, '.').split('/I/')[1] ?? '';
+          const mainKey = normalize(mainSrc ?? '');
+          return Array.from(document.querySelectorAll('#altImages .imageThumbnail img, #altImages li img'))
+            .map((el: any) => String(el.src).replace(/\._[^.]+_\./, '._SL500_.'))
+            .filter((src: string) => src.startsWith('https://') && !src.includes('transparent-pixel') && normalize(src) !== mainKey)
+            .slice(0, 2);
+        }, imageUrl);
+
+        return { asin, name, price, currency: 'EUR', imageUrl, extraImages, url: canonicalUrl };
       })(),
       hardTimeout,
     ]);
@@ -260,6 +241,8 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
   }
 }
 
+// ── SCRAPE WISHLIST (LÓGICA DE SCROLL COMPLETA) ──────────────────────────────
+
 export async function scrapeWishlist(url: string): Promise<string[]> {
   const browser = await getBrowser();
   const context = await newContext(browser);
@@ -267,15 +250,17 @@ export async function scrapeWishlist(url: string): Promise<string[]> {
   try {
     await optimizePageForScraping(page);
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    
     let previousCount = 0;
-    for (let i = 0; i < 15; i++) {
+    for (let i = 0; i < 20; i++) { // Mantengo tus 20 intentos de scroll
       await page.evaluate('window.scrollTo(0, document.body.scrollHeight)');
-      await randomDelay(700, 1000);
+      await randomDelay(900, 1500);
       const currentCount = await page.$$eval('a[href*="/dp/"]', els => els.length);
       if (currentCount === previousCount) break;
       previousCount = currentCount;
     }
-    const hrefs: string[] = await page.$$eval('a[href*="/dp/"]', els => (els as { href: string }[]).map(el => el.href));
+
+    const hrefs: string[] = await page.$$eval('a[href*="/dp/"]', els => (els as any).map((el: any) => el.href));
     const seen = new Set<string>();
     const results: string[] = [];
     for (const href of hrefs) {
@@ -292,6 +277,8 @@ export async function scrapeWishlist(url: string): Promise<string[]> {
   }
 }
 
+// ── SCRAPE CATEGORY Y URL FOR ASINS ──────────────────────────────────────────
+
 export async function scrapeUrlForAsins(url: string, limit = 200): Promise<string[]> {
   const browser = await getBrowser();
   const context = await newContext(browser);
@@ -305,14 +292,13 @@ export async function scrapeUrlForAsins(url: string, limit = 200): Promise<strin
       await randomDelay(600, 1000);
     }
     const rawAsins: string[] = await page.evaluate(() => {
-      const win = globalThis as any;
       const seen = new Set<string>();
-      (win.document.querySelectorAll('a[href]') as any[]).forEach((el: any) => {
-        const m = (el.href as string).match(/\/dp\/([A-Z0-9]{10})/i);
+      document.querySelectorAll('a[href]').forEach((el: any) => {
+        const m = el.href.match(/\/dp\/([A-Z0-9]{10})/i);
         if (m) seen.add(m[1].toUpperCase());
       });
-      (win.document.querySelectorAll('[data-asin]') as any[]).forEach((el: any) => {
-        const a = (el.dataset.asin as string ?? '').toUpperCase();
+      document.querySelectorAll('[data-asin]').forEach((el: any) => {
+        const a = (el as HTMLElement).dataset.asin?.toUpperCase();
         if (a && a.length === 10) seen.add(a);
       });
       return Array.from(seen);
@@ -331,12 +317,11 @@ export async function scrapeAmazonCategory(categoryUrl: string, limit = 40): Pro
   try {
     await optimizePageForScraping(page);
     await page.goto(categoryUrl, { waitUntil: 'load', timeout: 30000 });
-    await randomDelay(1000, 2000);
     for (let i = 0; i < 3; i++) {
       await page.evaluate('window.scrollTo(0, document.body.scrollHeight)');
       await randomDelay(800, 1200);
     }
-    const hrefs: string[] = await page.$$eval('a[href*="/dp/"]', els => (els as { href: string }[]).map(el => el.href));
+    const hrefs: string[] = await page.$$eval('a[href*="/dp/"]', els => (els as any).map((el: any) => el.href));
     const seen = new Set<string>();
     const results: string[] = [];
     for (const href of hrefs) {
