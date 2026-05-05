@@ -74,9 +74,9 @@ function parseSpanishPrice(raw: string): number {
 const SCRAPER_TIMEOUT_SECONDS = Math.max(10, parseInt(process.env.SCRAPER_TIMEOUT_SECONDS ?? '25', 10));
 const HARD_TIMEOUT_MS         = SCRAPER_TIMEOUT_SECONDS * 1000;
 const PAGE_LOAD_TIMEOUT_MS    = Math.round(HARD_TIMEOUT_MS * 0.8);
-const LOCATOR_TIMEOUT_MS      = 3_000;   // title, availability, image
-const PRICE_SELECTOR_WAIT_MS  = 3_000;   // waitForSelector before reading price
-const PRICE_LOCATOR_TIMEOUT_MS = 1_000;  // per-selector in the price loop
+const LOCATOR_TIMEOUT_MS      = 3_000; 
+const PRICE_SELECTOR_WAIT_MS  = 3_000; 
+const PRICE_LOCATOR_TIMEOUT_MS = 1_000;
 
 // ── Shared Chromium args ──────────────────────────────────────────────────────
 const CHROMIUM_ARGS = [
@@ -90,23 +90,24 @@ const CHROMIUM_ARGS = [
   '--no-first-run',
   '--disable-blink-features=AutomationControlled',
   '--disable-infobars',
-  // 👇 MODIFICACIÓN 2: Flags críticos para Raspberry Pi / Linux
   '--disable-features=IsolateOrigins,site-per-process', 
   '--disable-site-isolation-trials',
   '--mute-audio',
-  '--js-flags="--max-old-space-size=256"', // Limita memoria V8
+  '--js-flags="--max-old-space-size=256"', // Limita memoria por proceso
 ];
 
-// Resources we never need — blocks download, src attrs still readable from DOM
-const BLOCKED_TYPES = new Set(['image', 'font', 'media', 'stylesheet']);
+const BLOCKED_TYPES = new Set(['image', 'font', 'media', 'stylesheet', 'other']);
 
-// 👇 MODIFICACIÓN 3: Dominios de telemetría y anuncios de Amazon que ahogan la CPU
 const BLOCKED_DOMAINS = [
   'amazon-adsystem',
   'fls-eu.amazon',
   'telemetry',
   'unagi-eu.amazon',
-  'csm.amazon'
+  'csm.amazon',
+  'advertising.amazon',
+  'analytics.amazon',
+  'ue.amazon.es',
+  'completion.amazon.com'
 ];
 
 /**
@@ -118,12 +119,10 @@ async function optimizePageForScraping(page: Page) {
     const type = route.request().resourceType();
     const url = route.request().url();
 
-    // Bloquear por tipo (imágenes, CSS) o peticiones en background (ping, beacon)
     if (BLOCKED_TYPES.has(type) || type === 'ping' || type === 'beacon') {
       return route.abort('aborted');
     }
 
-    // Bloquear dominios específicos de telemetría/anuncios
     if (BLOCKED_DOMAINS.some(domain => url.includes(domain))) {
       return route.abort('aborted');
     }
@@ -132,24 +131,18 @@ async function optimizePageForScraping(page: Page) {
   });
 }
 
-// ── Singleton browser — launched once, reused across all products in a cycle ──
-// High enough that we never recycle mid-cycle (430 products × 3 workers = 430 total uses per cycle)
+// ── Singleton browser ──────────────────────────────────────────────────────
 const BROWSER_RECYCLE_AFTER = 500;
-
 let _browser: Browser | null = null;
 let _browserUses = 0;
-// Promise mutex: prevents race condition when 2 workers call getBrowser() simultaneously
 let _browserLaunchPromise: Promise<Browser> | null = null;
-// Storage state (Amazon session cookies) — fetched once per browser lifecycle
 let _storageStatePromise: Promise<any> | null = null;
 
 function getBrowser(): Promise<Browser> {
-  // Fast path: browser alive and not due for recycle (synchronous check — no race possible)
   if (_browser?.isConnected() && _browserUses < BROWSER_RECYCLE_AFTER) {
     _browserUses++;
     return Promise.resolve(_browser);
   }
-  // Slow path: serialize launch so concurrent workers share the same browser instance
   if (!_browserLaunchPromise) {
     _browserLaunchPromise = (async () => {
       if (_browser) {
@@ -170,8 +163,6 @@ function getBrowser(): Promise<Browser> {
   return _browserLaunchPromise;
 }
 
-// Visit amazon.es once per browser lifecycle and cache the session cookies.
-// All product contexts reuse these cookies — avoids a homepage visit per product.
 function getAmazonStorageState(): Promise<any> {
   if (!_storageStatePromise) {
     _storageStatePromise = (async () => {
@@ -180,10 +171,6 @@ function getAmazonStorageState(): Promise<any> {
         userAgent: randomUserAgent(),
         locale: 'es-ES',
         timezoneId: 'Europe/Madrid',
-        extraHTTPHeaders: { 'Accept-Language': 'es-ES,es;q=0.9' },
-      });
-      await ctx.addInitScript(() => {
-        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
       });
       const page = await ctx.newPage();
       try {
@@ -209,32 +196,12 @@ async function newContext(browser: Browser): Promise<BrowserContext> {
     storageState,
     extraHTTPHeaders: {
       'Accept-Language': 'es-ES,es;q=0.9',
-      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-      'Accept-Encoding': 'gzip, deflate, br',
-      'Upgrade-Insecure-Requests': '1',
-      'Sec-Fetch-Dest': 'document',
-      'Sec-Fetch-Mode': 'navigate',
-      'Sec-Fetch-Site': 'none',
       'Cache-Control': 'max-age=0',
     },
-  });
-  await context.addInitScript(() => {
-    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-    Object.defineProperty(navigator, 'languages', { get: () => ['es-ES', 'es', 'en-US', 'en'] });
-    Object.defineProperty(navigator, 'plugins', {
-      get: () => Object.assign([], {
-        0: { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format', length: 1 },
-        1: { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '', length: 0 },
-        length: 2,
-      }),
-    });
-    // @ts-ignore — browser context
-    window.chrome = { runtime: {}, app: { isInstalled: false } };
   });
   return context;
 }
 
-/** Close the shared browser. Call on process exit. */
 export async function closeBrowser(): Promise<void> {
   if (_browser) {
     try { await _browser.close(); } catch {}
@@ -246,144 +213,52 @@ export async function closeBrowser(): Promise<void> {
 
 export async function scrapeProduct(url: string): Promise<ScrapeResult> {
   const asin = extractAsin(url);
-  if (!asin) throw new Error(`No se pudo extraer el ASIN de la URL: ${url}`);
+  if (!asin) throw new Error(`ASIN inválido: ${url}`);
 
   const canonicalUrl = normaliseAmazonUrl(asin);
   const browser = await getBrowser();
   const context = await newContext(browser);
   const page = await context.newPage();
 
-  // Hard timeout — if exceeded the product is logged as error, process keeps running
   let timeoutHandle: ReturnType<typeof setTimeout>;
   const hardTimeout = new Promise<never>((_, reject) => {
-    timeoutHandle = setTimeout(() => reject(new Error(`[hard_timeout] scrapeProduct exceeded ${SCRAPER_TIMEOUT_SECONDS}s`)), HARD_TIMEOUT_MS);
+    timeoutHandle = setTimeout(() => reject(new Error(`[hard_timeout] ${SCRAPER_TIMEOUT_SECONDS}s`)), HARD_TIMEOUT_MS);
   });
 
   try {
     const result = await Promise.race([
       (async (): Promise<ScrapeResult> => {
-        // 👇 Aplicamos la optimización de recursos aquí
         await optimizePageForScraping(page);
-
-        await page.goto(canonicalUrl, { waitUntil: 'domcontentloaded', timeout: PAGE_LOAD_TIMEOUT_MS })
-          .catch((err: Error) => {
-            const isTimeout = err.name === 'TimeoutError' || err.message.toLowerCase().includes('timeout');
-            throw new Error(isTimeout ? `[page_load_timeout] page.goto exceeded ${PAGE_LOAD_TIMEOUT_MS / 1000}s` : err.message);
-          });
+        await page.goto(canonicalUrl, { waitUntil: 'domcontentloaded', timeout: PAGE_LOAD_TIMEOUT_MS });
 
         const pageTitle = await page.title();
-        const currentUrl = page.url();
-        const bodyText = await page.textContent('body') ?? '';
-
-        if (
-          pageTitle.includes('Robot Check') ||
-          pageTitle.includes('Documento no encontrado') ||
-          pageTitle.includes('Page Not Found') ||
-          pageTitle.includes('503') ||
-          pageTitle.includes('Service Unavailable')
-        ) {
+        if (pageTitle.includes('Robot Check') || pageTitle.includes('503')) {
           throw new Error(`Amazon bloqueó la petición (${pageTitle})`);
         }
 
-        if (
-          currentUrl.includes('validateCaptcha') ||
-          currentUrl.includes('ap/signin') ||
-          bodyText.includes('Enter the characters you see below') ||
-          bodyText.includes('Introduce los caracteres que ves a continuación') ||
-          bodyText.includes('validateCaptcha')
-        ) {
-          throw new Error(currentUrl.includes('ap/signin')
-            ? 'Amazon redirigió al login (sesión expirada)'
-            : 'CAPTCHA detectado en Amazon');
-        }
+        const name = await page.locator('#productTitle').first().textContent({ timeout: LOCATOR_TIMEOUT_MS }).then(t => t?.trim() ?? '');
+        if (!name) throw new Error('Título no encontrado');
 
-        const name = await page
-          .locator('#productTitle').first()
-          .textContent({ timeout: LOCATOR_TIMEOUT_MS })
-          .then((t) => t?.trim() ?? '')
-          .catch((err: Error) => {
-            console.warn(`[locator_timeout] #productTitle — ${err.message.split('\n')[0]}`);
-            return '';
-          });
-
-        if (!name) throw new Error(`Título no encontrado (url: ${page.url().split('?')[0]})`);
-
-        const availabilityText = await page
-          .locator('#availability').first()
-          .textContent({ timeout: LOCATOR_TIMEOUT_MS })
-          .catch((err: Error) => {
-            console.warn(`[locator_timeout] #availability — ${err.message.split('\n')[0]}`);
-            return '';
-          });
-        const normalizedAvail = (availabilityText ?? '').toLowerCase().trim();
-        const unavailableKeywords = [
-          'no disponible', 'actualmente no disponible', 'currently unavailable',
-          'not available', 'agotado', 'out of stock',
-        ];
-        if (unavailableKeywords.some((kw) => normalizedAvail.includes(kw))) {
+        const availabilityText = await page.locator('#availability').first().textContent({ timeout: LOCATOR_TIMEOUT_MS }).catch(() => '');
+        if (availabilityText?.toLowerCase().includes('no disponible')) {
           throw new ProductUnavailableError('Producto no disponible');
         }
 
-        await page
-          .waitForSelector('.a-price .a-offscreen, #priceblock_ourprice, #priceblock_dealprice, .a-price-whole', { timeout: PRICE_SELECTOR_WAIT_MS })
-          .catch((err: Error) => {
-            console.warn(`[price_selector_timeout] waitForSelector exceeded ${PRICE_SELECTOR_WAIT_MS}ms — ${err.message.split('\n')[0]}`);
-          });
+        await page.waitForSelector('.a-price .a-offscreen', { timeout: PRICE_SELECTOR_WAIT_MS }).catch(() => {});
 
-        const priceSelectors = [
-          '.a-price.aok-align-center .a-offscreen',
-          '#corePriceDisplay_desktop_feature_div .a-price .a-offscreen',
-          '#corePrice_desktop .a-price .a-offscreen',
-          '#priceblock_ourprice',
-          '#priceblock_dealprice',
-          '.a-price .a-offscreen',
-          '#sns-base-price',
-        ];
-
+        const priceSelectors = ['.a-price.aok-align-center .a-offscreen', '#corePriceDisplay_desktop_feature_div .a-price .a-offscreen', '.a-price .a-offscreen'];
         let rawPrice = '';
         for (const selector of priceSelectors) {
-          try {
-            rawPrice = await page.locator(selector).first()
-              .textContent({ timeout: PRICE_LOCATOR_TIMEOUT_MS })
-              .then((t) => t?.trim() ?? '');
-            if (rawPrice) break;
-          } catch (err) {
-            const msg = err instanceof Error ? err.message.split('\n')[0] : String(err);
-            console.warn(`[price_locator_timeout] selector="${selector}" — ${msg}`);
-          }
+          rawPrice = await page.locator(selector).first().textContent({ timeout: PRICE_LOCATOR_TIMEOUT_MS }).then(t => t?.trim() ?? '').catch(() => '');
+          if (rawPrice) break;
         }
 
-        if (!rawPrice) throw new Error('No se encontró el precio del producto');
-
+        if (!rawPrice) throw new Error('Precio no encontrado');
         const price = parseSpanishPrice(rawPrice);
-        if (isNaN(price) || price <= 0) throw new Error(`Precio inválido extraído: "${rawPrice}"`);
 
-        // Image src attrs are in the DOM even with images blocked
-        const imageUrl = await page
-          .locator('#imgTagWrappingLink img, #landingImage').first()
-          .getAttribute('src', { timeout: LOCATOR_TIMEOUT_MS })
-          .catch((err: Error) => {
-            console.warn(`[locator_timeout] image — ${err.message.split('\n')[0]}`);
-            return null;
-          });
+        const imageUrl = await page.locator('#imgTagWrappingLink img, #landingImage').first().getAttribute('src', { timeout: LOCATOR_TIMEOUT_MS }).catch(() => null);
 
-        const extraImages: string[] = await page.evaluate((mainSrc: string | null): string[] => {
-          const win = globalThis as any;
-          const normalize = (s: string) => s.replace(/\._[^.]+_\./, '.').split('/I/')[1] ?? '';
-          const mainKey = normalize(mainSrc ?? '');
-          return Array.from(
-            win.document.querySelectorAll('#altImages .imageThumbnail img, #altImages li img') as any[]
-          )
-            .map((el: any) => String(el.src).replace(/\._[^.]+_\./, '._SL500_.'))
-            .filter((src: string) =>
-              src.startsWith('https://') &&
-              !src.includes('transparent-pixel') &&
-              normalize(src) !== mainKey
-            )
-            .slice(0, 2);
-        }, imageUrl);
-
-        return { asin, name, price, currency: 'EUR', imageUrl, extraImages, url: canonicalUrl };
+        return { asin, name, price, currency: 'EUR', imageUrl, extraImages: [], url: canonicalUrl };
       })(),
       hardTimeout,
     ]);
@@ -391,7 +266,6 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
     return result;
   } finally {
     clearTimeout(timeoutHandle!);
-    // Se elimina el catch vacío para no esconder errores críticos al cerrar y se fuerza un runBeforeUnload falso
     await page.close({ runBeforeUnload: false }).catch(() => {});
     await context.close().catch(() => {});
   }
@@ -405,54 +279,34 @@ export async function scrapeWishlist(url: string): Promise<string[]> {
   const page = await context.newPage();
 
   try {
-    // 👇 Aplicamos la optimización aquí también
     await optimizePageForScraping(page);
-
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
     const pageTitle = await page.title();
-    const bodyText = await page.textContent('body') ?? '';
-    if (
-      pageTitle.includes('Documento no encontrado') ||
-      pageTitle.includes('Page Not Found') ||
-      pageTitle.includes('Robot Check') ||
-      page.url().includes('validateCaptcha') ||
-      bodyText.includes('validateCaptcha') ||
-      bodyText.includes('Enter the characters you see below') ||
-      bodyText.includes('Introduce los caracteres que ves a continuación')
-    ) {
-      throw new Error('Amazon bloqueó la petición o la wishlist es privada');
+    if (pageTitle.includes('Robot Check') || pageTitle.includes('503')) {
+      throw new Error('Amazon bloqueó la petición de wishlist');
     }
 
     let previousCount = 0;
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 15; i++) {
       await page.evaluate('window.scrollTo(0, document.body.scrollHeight)');
-      await randomDelay(900, 1200);
+      await randomDelay(700, 1000);
       const currentCount = await page.$$eval('a[href*="/dp/"]', els => els.length);
       if (currentCount === previousCount) break;
       previousCount = currentCount;
     }
 
-    const hrefs: string[] = await page.$$eval('a[href*="/dp/"]', els =>
-      (els as { href: string }[]).map(el => el.href),
-    );
-
-    const asinPattern = /\/dp\/([A-Z0-9]{10})/i;
+    const hrefs: string[] = await page.$$eval('a[href*="/dp/"]', els => (els as { href: string }[]).map(el => el.href));
     const seen = new Set<string>();
     const results: string[] = [];
 
     for (const href of hrefs) {
-      const match = href.match(asinPattern);
+      const match = href.match(/\/dp\/([A-Z0-9]{10})/i);
       if (match) {
         const a = match[1].toUpperCase();
         if (!seen.has(a)) { seen.add(a); results.push(`https://www.amazon.es/dp/${a}`); }
       }
     }
-
-    if (results.length === 0) {
-      throw new Error('La wishlist está vacía o es privada. Asegúrate de que la wishlist es pública en Amazon.');
-    }
-
     return results;
   } finally {
     await page.close({ runBeforeUnload: false }).catch(() => {});
@@ -468,9 +322,7 @@ export async function scrapeUrlForAsins(url: string, limit = 200): Promise<strin
   const page = await context.newPage();
 
   try {
-    // 👇 Aplicamos la optimización
     await optimizePageForScraping(page);
-
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await randomDelay(800, 1500);
 
@@ -509,52 +361,29 @@ export async function scrapeAmazonCategory(categoryUrl: string, limit = 40): Pro
   const page = await context.newPage();
 
   try {
-    // 👇 Aplicamos la optimización
     await optimizePageForScraping(page);
-
     await page.goto(categoryUrl, { waitUntil: 'load', timeout: 30000 });
     await randomDelay(1000, 2000);
-
-    const pageTitle = await page.title();
-    const currentUrl = page.url();
-    if (
-      pageTitle.includes('Robot Check') || pageTitle.includes('503') ||
-      currentUrl.includes('validateCaptcha') || currentUrl.includes('ap/signin')
-    ) {
-      throw new Error(`Amazon bloqueó la petición de categoría (${pageTitle})`);
-    }
 
     for (let i = 0; i < 3; i++) {
       await page.evaluate('window.scrollTo(0, document.body.scrollHeight)');
       await randomDelay(800, 1200);
     }
 
-    const asinPattern = /\/dp\/([A-Z0-9]{10})/i;
+    const hrefs: string[] = await page.$$eval('a[href*="/dp/"]', els => (els as { href: string }[]).map(el => el.href));
     const seen = new Set<string>();
     const results: string[] = [];
 
-    const addAsin = (asin: string) => {
-      const up = asin.toUpperCase();
-      if (!seen.has(up) && results.length < limit) { seen.add(up); results.push(`https://www.amazon.es/dp/${up}`); }
-    };
-
-    const hrefs: string[] = await page.$$eval('a[href*="/dp/"]', els =>
-      (els as { href: string }[]).map(el => el.href),
-    );
     for (const href of hrefs) {
-      const match = href.match(asinPattern);
-      if (match) addAsin(match[1]);
+      const match = href.match(/\/dp\/([A-Z0-9]{10})/i);
+      if (match) {
+        const asin = match[1].toUpperCase();
+        if (!seen.has(asin) && results.length < limit) {
+          seen.add(asin);
+          results.push(`https://www.amazon.es/dp/${asin}`);
+        }
+      }
     }
-
-    if (results.length < 5) {
-      const dataAsins: string[] = await page.$$eval('[data-asin]', els =>
-        (els as { dataset: { asin: string } }[])
-          .map(el => el.dataset.asin)
-          .filter(a => a && /^[A-Z0-9]{10}$/i.test(a)),
-      );
-      for (const asin of dataAsins) addAsin(asin);
-    }
-
     return results;
   } finally {
     await page.close({ runBeforeUnload: false }).catch(() => {});
