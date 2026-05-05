@@ -7,6 +7,14 @@ export class ProductUnavailableError extends Error {
   }
 }
 
+// Nueva excepción para gestionar el bloqueo por CAPTCHA
+export class CaptchaDetectedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CaptchaDetectedError';
+  }
+}
+
 export interface ScrapeResult {
   asin: string;
   name: string;
@@ -16,6 +24,10 @@ export interface ScrapeResult {
   extraImages: string[];
   url: string;
 }
+
+// ── Gestión Global de Captcha y Cooldown ─────────────────────────────────────
+let captchaDetectedAt: number | null = null;
+const CAPTCHA_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutos de pausa si detectamos bloqueo
 
 const USER_AGENTS = [
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
@@ -70,15 +82,15 @@ function parseSpanishPrice(raw: string): number {
   return parseFloat(normalised);
 }
 
-// ── Configurable timeouts ─────────────────────────────────────────────────────
-const SCRAPER_TIMEOUT_SECONDS = Math.max(10, parseInt(process.env.SCRAPER_TIMEOUT_SECONDS ?? '25', 10));
+// ── Configuración de Timeouts optimizada para Pi 5 ───────────────────────────
+const SCRAPER_TIMEOUT_SECONDS = Math.max(15, parseInt(process.env.SCRAPER_TIMEOUT_SECONDS ?? '30', 10));
 const HARD_TIMEOUT_MS         = SCRAPER_TIMEOUT_SECONDS * 1000;
 const PAGE_LOAD_TIMEOUT_MS    = Math.round(HARD_TIMEOUT_MS * 0.8);
-const LOCATOR_TIMEOUT_MS      = 3_000; 
-const PRICE_SELECTOR_WAIT_MS  = 3_000; 
-const PRICE_LOCATOR_TIMEOUT_MS = 1_000;
+const LOCATOR_TIMEOUT_MS      = 10_000; // Subimos de 3s a 10s para evitar los errores de tus logs
+const PRICE_SELECTOR_WAIT_MS  = 5_000; 
+const PRICE_LOCATOR_TIMEOUT_MS = 2_000;
 
-// ── Shared Chromium args ──────────────────────────────────────────────────────
+// ── Argumentos de Chromium para ahorro de procesos ───────────────────────────
 const CHROMIUM_ARGS = [
   '--no-sandbox',
   '--disable-setuid-sandbox',
@@ -90,48 +102,32 @@ const CHROMIUM_ARGS = [
   '--no-first-run',
   '--disable-blink-features=AutomationControlled',
   '--disable-infobars',
-  '--disable-features=IsolateOrigins,site-per-process', 
+  '--disable-features=IsolateOrigins,site-per-process', // Clave para reducir subprocesos en Linux
   '--disable-site-isolation-trials',
   '--mute-audio',
-  '--js-flags="--max-old-space-size=256"', // Limita memoria por proceso
+  '--js-flags="--max-old-space-size=256"',
 ];
 
-const BLOCKED_TYPES = new Set(['image', 'font', 'media', 'stylesheet', 'other']);
+// Tipos bloqueados (mantenemos stylesheet fuera para que Amazon renderice bien el título)
+const BLOCKED_TYPES = new Set(['image', 'font', 'media', 'other']);
 
 const BLOCKED_DOMAINS = [
-  'amazon-adsystem',
-  'fls-eu.amazon',
-  'telemetry',
-  'unagi-eu.amazon',
-  'csm.amazon',
-  'advertising.amazon',
-  'analytics.amazon',
-  'ue.amazon.es',
-  'completion.amazon.com'
+  'amazon-adsystem', 'fls-eu.amazon', 'telemetry', 'unagi-eu.amazon', 
+  'csm.amazon', 'advertising.amazon', 'analytics.amazon', 'ue.amazon.es'
 ];
 
-/**
- * Función utilitaria para aplicar el bloqueo agresivo a una página.
- * Libera la CPU al no descargar visuales ni ejecutar JS de analíticas.
- */
 async function optimizePageForScraping(page: Page) {
   await page.route('**/*', (route) => {
     const type = route.request().resourceType();
     const url = route.request().url();
-
-    if (BLOCKED_TYPES.has(type) || type === 'ping' || type === 'beacon') {
+    if (BLOCKED_TYPES.has(type) || type === 'ping' || type === 'beacon' || BLOCKED_DOMAINS.some(d => url.includes(d))) {
       return route.abort('aborted');
     }
-
-    if (BLOCKED_DOMAINS.some(domain => url.includes(domain))) {
-      return route.abort('aborted');
-    }
-
     route.continue();
   });
 }
 
-// ── Singleton browser ──────────────────────────────────────────────────────
+// ── Singleton browser con gestión de Cooldown ────────────────────────────────
 const BROWSER_RECYCLE_AFTER = 500;
 let _browser: Browser | null = null;
 let _browserUses = 0;
@@ -139,16 +135,19 @@ let _browserLaunchPromise: Promise<Browser> | null = null;
 let _storageStatePromise: Promise<any> | null = null;
 
 function getBrowser(): Promise<Browser> {
+  // Verificación de pausa por Captcha
+  if (captchaDetectedAt && (Date.now() - captchaDetectedAt < CAPTCHA_COOLDOWN_MS)) {
+    const remaining = Math.round((CAPTCHA_COOLDOWN_MS - (Date.now() - captchaDetectedAt)) / 1000);
+    throw new Error(`[SISTEMA PAUSADO] Captcha detectado. Reintentando en ${remaining}s`);
+  }
+
   if (_browser?.isConnected() && _browserUses < BROWSER_RECYCLE_AFTER) {
     _browserUses++;
     return Promise.resolve(_browser);
   }
   if (!_browserLaunchPromise) {
     _browserLaunchPromise = (async () => {
-      if (_browser) {
-        try { await _browser.close(); } catch {}
-        _browser = null;
-      }
+      if (_browser) { try { await _browser.close(); } catch {} _browser = null; }
       _storageStatePromise = null;
       const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
       _browser = await chromium.launch({
@@ -167,11 +166,7 @@ function getAmazonStorageState(): Promise<any> {
   if (!_storageStatePromise) {
     _storageStatePromise = (async () => {
       const browser = await getBrowser();
-      const ctx = await browser.newContext({
-        userAgent: randomUserAgent(),
-        locale: 'es-ES',
-        timezoneId: 'Europe/Madrid',
-      });
+      const ctx = await browser.newContext({ userAgent: randomUserAgent(), locale: 'es-ES' });
       const page = await ctx.newPage();
       try {
         await page.goto('https://www.amazon.es', { waitUntil: 'domcontentloaded', timeout: 20000 });
@@ -188,28 +183,21 @@ function getAmazonStorageState(): Promise<any> {
 
 async function newContext(browser: Browser): Promise<BrowserContext> {
   const storageState = await getAmazonStorageState();
-  const context = await browser.newContext({
+  return await browser.newContext({
     userAgent: randomUserAgent(),
     viewport: { width: 1366, height: 768 },
     locale: 'es-ES',
     timezoneId: 'Europe/Madrid',
     storageState,
-    extraHTTPHeaders: {
-      'Accept-Language': 'es-ES,es;q=0.9',
-      'Cache-Control': 'max-age=0',
-    },
+    extraHTTPHeaders: { 'Accept-Language': 'es-ES,es;q=0.9', 'Cache-Control': 'max-age=0' },
   });
-  return context;
 }
 
 export async function closeBrowser(): Promise<void> {
-  if (_browser) {
-    try { await _browser.close(); } catch {}
-    _browser = null;
-  }
+  if (_browser) { try { await _browser.close(); } catch {} _browser = null; }
 }
 
-// ── scrapeProduct ─────────────────────────────────────────────────────────────
+// ── Funciones de Scraping ───────────────────────────────────────────────────
 
 export async function scrapeProduct(url: string): Promise<ScrapeResult> {
   const asin = extractAsin(url);
@@ -232,14 +220,17 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
         await page.goto(canonicalUrl, { waitUntil: 'domcontentloaded', timeout: PAGE_LOAD_TIMEOUT_MS });
 
         const pageTitle = await page.title();
-        if (pageTitle.includes('Robot Check') || pageTitle.includes('503')) {
-          throw new Error(`Amazon bloqueó la petición (${pageTitle})`);
+        const bodyText = await page.textContent('body') ?? '';
+
+        if (pageTitle.includes('Robot Check') || bodyText.includes('Introduce los caracteres')) {
+          captchaDetectedAt = Date.now();
+          throw new CaptchaDetectedError('CAPTCHA detectado. Iniciando cooldown.');
         }
 
         const name = await page.locator('#productTitle').first().textContent({ timeout: LOCATOR_TIMEOUT_MS }).then(t => t?.trim() ?? '');
         if (!name) throw new Error('Título no encontrado');
 
-        const availabilityText = await page.locator('#availability').first().textContent({ timeout: LOCATOR_TIMEOUT_MS }).catch(() => '');
+        const availabilityText = await page.locator('#availability').first().textContent({ timeout: 5000 }).catch(() => '');
         if (availabilityText?.toLowerCase().includes('no disponible')) {
           throw new ProductUnavailableError('Producto no disponible');
         }
@@ -255,14 +246,12 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
 
         if (!rawPrice) throw new Error('Precio no encontrado');
         const price = parseSpanishPrice(rawPrice);
-
-        const imageUrl = await page.locator('#imgTagWrappingLink img, #landingImage').first().getAttribute('src', { timeout: LOCATOR_TIMEOUT_MS }).catch(() => null);
+        const imageUrl = await page.locator('#imgTagWrappingLink img, #landingImage').first().getAttribute('src', { timeout: 5000 }).catch(() => null);
 
         return { asin, name, price, currency: 'EUR', imageUrl, extraImages: [], url: canonicalUrl };
       })(),
       hardTimeout,
     ]);
-
     return result;
   } finally {
     clearTimeout(timeoutHandle!);
@@ -271,22 +260,13 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
   }
 }
 
-// ── scrapeWishlist ────────────────────────────────────────────────────────────
-
 export async function scrapeWishlist(url: string): Promise<string[]> {
   const browser = await getBrowser();
   const context = await newContext(browser);
   const page = await context.newPage();
-
   try {
     await optimizePageForScraping(page);
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-
-    const pageTitle = await page.title();
-    if (pageTitle.includes('Robot Check') || pageTitle.includes('503')) {
-      throw new Error('Amazon bloqueó la petición de wishlist');
-    }
-
     let previousCount = 0;
     for (let i = 0; i < 15; i++) {
       await page.evaluate('window.scrollTo(0, document.body.scrollHeight)');
@@ -295,11 +275,9 @@ export async function scrapeWishlist(url: string): Promise<string[]> {
       if (currentCount === previousCount) break;
       previousCount = currentCount;
     }
-
     const hrefs: string[] = await page.$$eval('a[href*="/dp/"]', els => (els as { href: string }[]).map(el => el.href));
     const seen = new Set<string>();
     const results: string[] = [];
-
     for (const href of hrefs) {
       const match = href.match(/\/dp\/([A-Z0-9]{10})/i);
       if (match) {
@@ -314,29 +292,23 @@ export async function scrapeWishlist(url: string): Promise<string[]> {
   }
 }
 
-// ── scrapeUrlForAsins ─────────────────────────────────────────────────────────
-
 export async function scrapeUrlForAsins(url: string, limit = 200): Promise<string[]> {
   const browser = await getBrowser();
   const context = await newContext(browser);
   const page = await context.newPage();
-
   try {
     await optimizePageForScraping(page);
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await randomDelay(800, 1500);
-
     for (let i = 0; i < 3; i++) {
       await page.evaluate('window.scrollTo(0, document.body.scrollHeight)');
       await randomDelay(600, 1000);
     }
-
     const rawAsins: string[] = await page.evaluate(() => {
       const win = globalThis as any;
-      const asinRe = /\/dp\/([A-Z0-9]{10})/i;
       const seen = new Set<string>();
       (win.document.querySelectorAll('a[href]') as any[]).forEach((el: any) => {
-        const m = (el.href as string).match(asinRe);
+        const m = (el.href as string).match(/\/dp\/([A-Z0-9]{10})/i);
         if (m) seen.add(m[1].toUpperCase());
       });
       (win.document.querySelectorAll('[data-asin]') as any[]).forEach((el: any) => {
@@ -345,7 +317,6 @@ export async function scrapeUrlForAsins(url: string, limit = 200): Promise<strin
       });
       return Array.from(seen);
     });
-
     return rawAsins.slice(0, limit).map(asin => `https://www.amazon.es/dp/${asin}`);
   } finally {
     await page.close({ runBeforeUnload: false }).catch(() => {});
@@ -353,27 +324,21 @@ export async function scrapeUrlForAsins(url: string, limit = 200): Promise<strin
   }
 }
 
-// ── scrapeAmazonCategory ──────────────────────────────────────────────────────
-
 export async function scrapeAmazonCategory(categoryUrl: string, limit = 40): Promise<string[]> {
   const browser = await getBrowser();
   const context = await newContext(browser);
   const page = await context.newPage();
-
   try {
     await optimizePageForScraping(page);
     await page.goto(categoryUrl, { waitUntil: 'load', timeout: 30000 });
     await randomDelay(1000, 2000);
-
     for (let i = 0; i < 3; i++) {
       await page.evaluate('window.scrollTo(0, document.body.scrollHeight)');
       await randomDelay(800, 1200);
     }
-
     const hrefs: string[] = await page.$$eval('a[href*="/dp/"]', els => (els as { href: string }[]).map(el => el.href));
     const seen = new Set<string>();
     const results: string[] = [];
-
     for (const href of hrefs) {
       const match = href.match(/\/dp\/([A-Z0-9]{10})/i);
       if (match) {
