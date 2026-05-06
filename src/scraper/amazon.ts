@@ -207,7 +207,7 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
   const context = await createNewContext(browser);
   const page = await context.newPage();
 
-  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   const hardTimeout = new Promise<never>((_, reject) => {
     timeoutHandle = setTimeout(() => reject(new Error(`[hard_timeout] ${SCRAPER_TIMEOUT_SECONDS}s`)), HARD_TIMEOUT_MS);
   });
