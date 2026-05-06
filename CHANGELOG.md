@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.32.0] - 2026-05-07
+
+### Added
+- Panel de ajustes admin en `/admin/settings` — configura el sistema en tiempo de real sin reiniciar la app
+- Toggle para desactivar la importación automática de categorías de Amazon (`category_import_enabled`)
+- Ajustes configurables: workers en paralelo, productos fallidos a reintentar, timeout de scraping, tiempo mínimo entre re-scrapes
+- Los cambios son efectivos en el siguiente ciclo horario; los valores en BD tienen prioridad sobre las variables de entorno
+- Link "Ajustes" en el nav de todas las páginas de admin
+
+### Technical
+- Migración 29: tabla `app_settings` (key/value) con 5 entradas iniciales
+- Nuevo módulo `src/db/settings.ts` con `getSetting` / `setSetting` / `getAllSettings`
+- El scheduler lee los 4 parámetros configurables de BD al inicio de cada ciclo (no en startup)
+
 ## [2.31.0] - 2026-05-06
 
 ### Added

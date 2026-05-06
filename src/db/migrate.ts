@@ -357,6 +357,29 @@ const MIGRATIONS = [
   `,
   // Migration 28: was_price — Amazon's "Precio recomendado" / struck-through reference price
   `ALTER TABLE products ADD COLUMN IF NOT EXISTS was_price NUMERIC(10,2);`,
+  // Migration 29: runtime-configurable app settings (DB overrides env vars)
+  `
+  CREATE TABLE IF NOT EXISTS app_settings (
+    key        VARCHAR(100) PRIMARY KEY,
+    value      TEXT         NOT NULL,
+    value_type VARCHAR(20)  NOT NULL DEFAULT 'string',
+    label      VARCHAR(200) NOT NULL DEFAULT '',
+    hint       TEXT,
+    updated_at TIMESTAMP    DEFAULT NOW() NOT NULL
+  );
+  INSERT INTO app_settings (key, value, value_type, label, hint) VALUES
+    ('category_import_enabled', 'true', 'boolean', 'Importación automática de categorías',
+     'Activa o desactiva el scraping horario de categorías de Amazon para añadir productos nuevos.'),
+    ('scraper_concurrency',     '3',    'integer', 'Workers Chromium en paralelo (1–8)',
+     'Número de instancias de Chromium que se ejecutan simultáneamente. Reduce si la Pi se satura.'),
+    ('retry_failed_per_cycle',  '30',   'integer', 'Productos fallidos a reintentar por ciclo (0–100)',
+     'Cuántos productos marcados como fallidos se reintroducen en cada ciclo horario.'),
+    ('scraper_timeout_seconds', '30',   'integer', 'Timeout de scraping por producto en segundos (15–120)',
+     'Tiempo máximo antes de abortar el scraping de un producto y marcarlo como error.'),
+    ('min_age_minutes',         '59',   'integer', 'Tiempo mínimo entre re-scrapes del mismo producto (30–1440 min)',
+     'Un producto no se vuelve a scrapear si fue comprobado más recientemente que este valor.')
+  ON CONFLICT (key) DO NOTHING;
+  `,
 ];
 
 export async function migrate(): Promise<void> {

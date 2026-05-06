@@ -3,6 +3,7 @@ import { db } from '../db/client';
 import { products, users, amazonCategorySources } from '../db/schema';
 import { eq, sql } from 'drizzle-orm';
 import { scrapeAmazonCategory, normaliseAmazonUrl, extractAsin } from '../scraper/amazon';
+import { getSetting } from '../db/settings';
 
 const SYSTEM_EMAIL = 'system@ojoalprecio.local';
 const PRODUCTS_PER_HOUR = 40;
@@ -18,6 +19,12 @@ async function getSystemUserId(): Promise<number | null> {
 }
 
 async function importNextCategory(): Promise<void> {
+  const enabled = Boolean(await getSetting('category_import_enabled', true));
+  if (!enabled) {
+    console.log('[category-import] Desactivado via ajustes admin, saltando.');
+    return;
+  }
+
   const systemUserId = await getSystemUserId();
   if (!systemUserId) {
     console.log('[category-import] System user not found, skipping.');

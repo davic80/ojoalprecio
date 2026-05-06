@@ -173,3 +173,14 @@ export const amazonCategorySources = pgTable('amazon_category_sources', {
   lastImportedAt: timestamp('last_imported_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
+
+// ── App Settings ──────────────────────────────────────────────────────────────
+
+export const appSettings = pgTable('app_settings', {
+  key:       varchar('key',        { length: 100 }).primaryKey(),
+  value:     text('value').notNull(),
+  valueType: varchar('value_type', { length: 20 }).notNull().default('string'),
+  label:     varchar('label',      { length: 200 }).notNull().default(''),
+  hint:      text('hint'),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});

@@ -7,6 +7,7 @@ import { requireAdmin } from '../middleware/admin';
 import { scrapeUrlForAsins, extractAsin, normaliseAmazonUrl } from '../scraper/amazon';
 import { getScraperStatus } from '../scheduler';
 import { getBestUnpostedDeal, postDailyDeal, POST_HOURS } from '../scheduler/social';
+import { getAllSettings, setSetting } from '../db/settings';
 
 const SYSTEM_EMAIL = 'system@ojoalprecio.local';
 
@@ -554,6 +555,43 @@ router.delete('/admin/lists/:id', requireAuth, requireAdmin, async (req: Request
 
   if (req.headers['hx-request']) return res.send('');
   res.redirect('/admin/lists');
+});
+
+// ── GET /admin/settings ───────────────────────────────────────────────────────
+router.get('/admin/settings', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const settings = await getAllSettings();
+  const envDefaults: Record<string, string> = {
+    category_import_enabled: 'true',
+    scraper_concurrency:     process.env.SCRAPER_CONCURRENCY     ?? '3',
+    retry_failed_per_cycle:  process.env.RETRY_FAILED_PER_CYCLE  ?? '30',
+    scraper_timeout_seconds: process.env.SCRAPER_TIMEOUT_SECONDS ?? '30',
+    min_age_minutes:         process.env.MIN_AGE_MS_MINUTES      ?? '59',
+  };
+  res.render('admin-settings', { user: { email: req.session.userEmail }, settings, envDefaults });
+});
+
+// ── POST /admin/settings/:key ─────────────────────────────────────────────────
+const SETTINGS_WHITELIST = new Set([
+  'category_import_enabled',
+  'scraper_concurrency',
+  'retry_failed_per_cycle',
+  'scraper_timeout_seconds',
+  'min_age_minutes',
+]);
+
+router.post('/admin/settings/:key', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const key = String(req.params.key);
+  if (!SETTINGS_WHITELIST.has(key)) return res.status(400).send('Clave no permitida');
+
+  // Checkbox sends 'true' when checked; hidden field sends 'false' as fallback
+  const raw = req.body.value;
+  const value = String(Array.isArray(raw) ? raw[raw.length - 1] : (raw ?? '')).trim();
+  await setSetting(key, value);
+
+  if (req.headers['hx-request']) {
+    return res.send(`<span class="setting-saved" id="saved-${key}">✓ Guardado</span>`);
+  }
+  res.redirect('/admin/settings');
 });
 
 export default router;
