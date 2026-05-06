@@ -106,10 +106,11 @@ const CHROMIUM_ARGS = [
   '--js-flags=--max-old-space-size=256',
 ];
 
-const BLOCKED_TYPES = new Set(['image', 'font', 'media', 'other']);
+// image y font se permiten — bloquearlos es señal de bot para Amazon
+const BLOCKED_TYPES = new Set(['media', 'other', 'ping', 'beacon']);
 const BLOCKED_DOMAINS = [
-  'amazon-adsystem', 'fls-eu.amazon', 'telemetry', 'unagi-eu.amazon', 
-  'csm.amazon', 'advertising.amazon', 'analytics.amazon', 'ue.amazon.es'
+  'amazon-adsystem', 'fls-eu.amazon', 'telemetry', 'unagi-eu.amazon',
+  'csm.amazon', 'advertising.amazon', 'analytics.amazon', 'ue.amazon.es',
 ];
 
 async function optimizePageForScraping(page: Page) {
@@ -133,7 +134,7 @@ let _storageStatePromise: Promise<any> | null = null;
 function getBrowser(): Promise<Browser> {
   if (captchaDetectedAt && (Date.now() - captchaDetectedAt < CAPTCHA_COOLDOWN_MS)) {
     const remaining = Math.round((CAPTCHA_COOLDOWN_MS - (Date.now() - captchaDetectedAt)) / 1000);
-    throw new Error(`[PAUSA] Captcha detectado. Esperando ${remaining}s`);
+    throw new CaptchaDetectedError(`[PAUSA] Amazon bloqueado. Esperando ${remaining}s`);
   }
 
   if (_browser?.isConnected() && _browserUses < BROWSER_RECYCLE_AFTER) {
@@ -219,11 +220,23 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
         await page.goto(canonicalUrl, { waitUntil: 'domcontentloaded', timeout: PAGE_LOAD_TIMEOUT_MS });
 
         const pageTitle = await page.title();
-        const bodyText = await page.textContent('body') ?? '';
 
-        if (pageTitle.includes('Robot Check') || bodyText.includes('Introduce los caracteres')) {
+        // Detectar bloqueo por título (Amazon cambia el mensaje periódicamente)
+        const isTitleBlock =
+          pageTitle.includes('Robot Check') ||
+          pageTitle.toLowerCase().includes('sorry') ||
+          pageTitle.includes('503') ||
+          pageTitle.includes('CAPTCHA');
+
+        // Verificación rápida de estructura: toda página de producto tiene #dp
+        const hasProductStructure = await page.locator('#dp, #dp-container').first()
+          .isVisible({ timeout: 2_000 }).catch(() => false);
+
+        if (isTitleBlock || !hasProductStructure) {
           captchaDetectedAt = Date.now();
-          throw new CaptchaDetectedError('CAPTCHA detectado');
+          _storageStatePromise = null; // invalidar cookies envenenadas
+          const bodySnippet = (await page.textContent('body') ?? '').slice(0, 120).replace(/\s+/g, ' ');
+          throw new CaptchaDetectedError(`Bloqueo Amazon (título: "${pageTitle}" | body: "${bodySnippet}")`);
         }
 
         const name = await page.locator('#productTitle').first().textContent({ timeout: LOCATOR_TIMEOUT_MS }).then(t => t?.trim() ?? '');

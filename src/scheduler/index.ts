@@ -2,7 +2,7 @@ import cron from 'node-cron';
 import { db } from '../db/client';
 import { products, priceHistory, alerts, alertEvents, users } from '../db/schema';
 import { eq, and, desc, min, isNull, sql } from 'drizzle-orm';
-import { scrapeProduct, affiliateUrl, ProductUnavailableError } from '../scraper/amazon';
+import { scrapeProduct, affiliateUrl, ProductUnavailableError, CaptchaDetectedError } from '../scraper/amazon';
 import { sendPriceAlert, sendBackInStockAlert } from '../mailer';
 import { sendTelegramAlert, sendTelegramBackInStock } from '../mailer/telegram';
 
@@ -176,6 +176,9 @@ async function checkProduct(productId: number, url: string, label: string): Prom
       // Reset stock alerts so they fire again when the product comes back
       await db.update(alerts).set({ notifiedAt: null })
         .where(and(eq(alerts.productId, productId), eq(alerts.alertType, 'stock')));
+    } else if (err instanceof CaptchaDetectedError) {
+      // Pausa global por bloqueo Amazon — no penalizar el producto
+      console.log(`[scheduler] ${label} → ${err.message}`);
     } else {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[scheduler] Failed for ${label}: ${msg}`);
