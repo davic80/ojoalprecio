@@ -22,6 +22,7 @@ export interface ScrapeResult {
   imageUrl: string | null;
   extraImages: string[];
   url: string;
+  wasPrice: number | null;
 }
 
 // ── Gestión Global de Captcha ────────────────────────────────────────────────
@@ -266,6 +267,23 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
         if (!rawPrice) throw new Error('Precio no encontrado');
         const price = parseSpanishPrice(rawPrice);
 
+        // Precio recomendado / "Antes:" — optional, short timeout
+        const wasPriceSelectors = [
+          '#corePriceDisplay_desktop_feature_div .basisPrice .a-offscreen',
+          '#corePrice_desktop .basisPrice .a-offscreen',
+          '.basisPrice .a-offscreen',
+        ];
+        let rawWasPrice = '';
+        for (const selector of wasPriceSelectors) {
+          try {
+            rawWasPrice = await page.locator(selector).first().textContent({ timeout: 1_000 }).then(t => t?.trim() ?? '');
+            if (rawWasPrice) break;
+          } catch {}
+        }
+        const wasPriceRaw = rawWasPrice ? parseSpanishPrice(rawWasPrice) : null;
+        // Only valid if it's meaningfully above current price (at least 1%)
+        const wasPrice = wasPriceRaw && wasPriceRaw > price * 1.01 ? wasPriceRaw : null;
+
         const imageUrl = await page.locator('#imgTagWrappingLink img, #landingImage').first().getAttribute('src', { timeout: 5000 }).catch(() => null);
 
         // EXTRA IMAGES: Restaurada lógica original
@@ -278,7 +296,7 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
             .slice(0, 2);
         }, imageUrl);
 
-        return { asin, name, price, currency: 'EUR', imageUrl, extraImages, url: canonicalUrl };
+        return { asin, name, price, currency: 'EUR', imageUrl, extraImages, url: canonicalUrl, wasPrice };
       })(),
       hardTimeout,
     ]);

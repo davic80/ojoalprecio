@@ -82,22 +82,30 @@
     <% } %>
   </div>
 
-  <!-- Add product -->
+  <!-- Add product — live search -->
   <div class="card add-card" style="margin-top:12px">
     <h2>Añadir producto</h2>
-    <form action="/admin/lists/<%= list.id %>/items" method="POST" class="add-form">
-      <div class="input-group">
-        <select name="productId" class="input" required>
-          <option value="">— Selecciona un producto —</option>
-          <% allProducts.forEach(function(p) { %>
-            <option value="<%= p.id %>">
-              <%= p.name ?? p.asin %><% if (p.currentPrice) { %> · <%= parseFloat(p.currentPrice).toFixed(2) %> €<% } %>
-            </option>
-          <% }); %>
-        </select>
-        <button type="submit" class="btn btn-primary">Añadir</button>
+    <div style="position:relative">
+      <input
+        type="text"
+        id="product-search"
+        placeholder="Buscar por nombre, ASIN o ID de producto…"
+        class="input"
+        autocomplete="off"
+        style="width:100%"
+      >
+      <div id="search-results" style="display:none;position:absolute;z-index:200;left:0;right:0;background:#fff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,.12);margin-top:4px;max-height:320px;overflow-y:auto"></div>
+    </div>
+
+    <form id="add-product-form" action="/admin/lists/<%= list.id %>/items" method="POST" style="display:none;margin-top:12px">
+      <input type="hidden" name="productId" id="selected-product-id">
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span id="selected-product-name" style="font-size:14px;font-weight:600;flex:1;min-width:0"></span>
+        <span id="selected-product-price" style="font-size:13px;color:var(--gray-500);white-space:nowrap"></span>
+        <button type="button" id="cancel-selection" class="btn btn-sm btn-ghost" style="padding:0 8px">✕</button>
       </div>
-      <input type="text" name="note" placeholder="Nota opcional (ej: 'La mejor relación calidad-precio')" class="input" style="margin-top:8px" maxlength="500">
+      <input type="text" name="note" placeholder="Nota opcional (ej: 'La mejor relación calidad-precio')" class="input" style="margin-bottom:8px" maxlength="500">
+      <button type="submit" class="btn btn-primary">Añadir a la lista</button>
     </form>
   </div>
 
@@ -112,6 +120,70 @@
   <p>OjoAlPrecio v<%= process.env['APP_VERSION'] ?? 'dev' %> Admin &nbsp;·&nbsp; <a href="/ofertas">Ver ofertas públicas</a></p>
 </footer>
 
+<style>
+.search-result-item { padding:10px 14px; cursor:pointer; border-bottom:1px solid #f1f5f9; font-size:13px; }
+.search-result-item:last-child { border-bottom:none; }
+.search-result-item:hover { background:#f8fafc; }
+</style>
+<script>
+(function() {
+  const listId = '<%= list.id %>';
+  const searchInput  = document.getElementById('product-search');
+  const resultsDiv   = document.getElementById('search-results');
+  const addForm      = document.getElementById('add-product-form');
+  const selectedId   = document.getElementById('selected-product-id');
+  const selectedName = document.getElementById('selected-product-name');
+  const selectedPrice = document.getElementById('selected-product-price');
+  const cancelBtn    = document.getElementById('cancel-selection');
+  let debounce;
+
+  searchInput.addEventListener('input', function() {
+    clearTimeout(debounce);
+    const q = this.value.trim();
+    if (q.length < 2) { resultsDiv.style.display = 'none'; return; }
+    debounce = setTimeout(function() {
+      fetch('/admin/lists/' + listId + '/search-products?q=' + encodeURIComponent(q))
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (!data.length) {
+            resultsDiv.innerHTML = '<div style="padding:12px 14px;color:var(--gray-400);font-size:13px">Sin resultados</div>';
+          } else {
+            resultsDiv.innerHTML = data.map(function(p) {
+              const label = p.name ? (p.name.length > 65 ? p.name.slice(0, 65) + '…' : p.name) : p.asin;
+              const price = p.currentPrice ? parseFloat(p.currentPrice).toFixed(2) + ' €' : '';
+              return '<div class="search-result-item" data-id="' + p.id + '" data-name="' + label.replace(/"/g, '&quot;') + '" data-price="' + price + '">'
+                + '<span style="font-weight:500">' + label + '</span>'
+                + '<span style="color:var(--gray-400);margin-left:8px;font-size:12px">' + price + (price ? ' · ' : '') + 'ID ' + p.id + '</span>'
+                + '</div>';
+            }).join('');
+          }
+          resultsDiv.style.display = '';
+          resultsDiv.querySelectorAll('.search-result-item').forEach(function(item) {
+            item.addEventListener('click', function() {
+              selectedId.value = this.dataset.id;
+              selectedName.textContent = this.dataset.name;
+              selectedPrice.textContent = this.dataset.price;
+              resultsDiv.style.display = 'none';
+              searchInput.value = '';
+              addForm.style.display = '';
+            });
+          });
+        });
+    }, 220);
+  });
+
+  cancelBtn.addEventListener('click', function() {
+    addForm.style.display = 'none';
+    selectedId.value = '';
+  });
+
+  document.addEventListener('click', function(e) {
+    if (!searchInput.contains(e.target) && !resultsDiv.contains(e.target)) {
+      resultsDiv.style.display = 'none';
+    }
+  });
+})();
+</script>
 <script src="/js/scrape-widget.js"></script>
 </body>
 </html>

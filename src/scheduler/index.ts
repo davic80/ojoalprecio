@@ -158,6 +158,7 @@ async function checkProduct(productId: number, url: string, label: string): Prom
       isOnSale: saleInfo?.isOnSale ?? false,
       saleTier: saleInfo?.saleTier ?? null,
       dealScore: saleInfo?.dealScore != null ? String(saleInfo.dealScore.toFixed(1)) : null,
+      ...(result.wasPrice != null ? { wasPrice: String(result.wasPrice.toFixed(2)) } : {}),
     }).where(eq(products.id, productId));
 
     console.log(`[scheduler] ${label} → ${result.price} ${result.currency}`);

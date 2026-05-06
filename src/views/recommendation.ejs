@@ -66,7 +66,19 @@
             <% if (!item.isAvailable) { %>
               <div class="price-unavailable">Sin stock</div>
             <% } else if (item.currentPrice) { %>
-              <div class="price-current"><%= item.currentPrice.toFixed(2) %> €</div>
+              <div class="price-row">
+                <div class="price-current"><%= item.currentPrice.toFixed(2) %> €</div>
+                <% if (item.wasPrice && item.wasPrice > item.currentPrice) {
+                  const savingsPct = Math.round((1 - item.currentPrice / item.wasPrice) * 100);
+                %>
+                  <span class="trend-down">−<%= savingsPct %>%</span>
+                <% } %>
+              </div>
+              <% if (item.wasPrice && item.wasPrice > item.currentPrice) { %>
+                <div style="font-size:11px;color:var(--gray-400);text-decoration:line-through;margin-top:1px">
+                  antes <%= item.wasPrice.toFixed(2) %> €
+                </div>
+              <% } %>
               <% if (item.minPrice && item.maxPrice) { %>
                 <div class="price-range">
                   <span class="price-min">↓ <%= item.minPrice.toFixed(2) %> €</span>

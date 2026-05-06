@@ -355,6 +355,8 @@ const MIGRATIONS = [
     ADD COLUMN IF NOT EXISTS deal_score DECIMAL(5,1);
   UPDATE products SET is_on_sale = FALSE, sale_tier = NULL, deal_score = NULL;
   `,
+  // Migration 28: was_price — Amazon's "Precio recomendado" / struck-through reference price
+  `ALTER TABLE products ADD COLUMN IF NOT EXISTS was_price NUMERIC(10,2);`,
 ];
 
 export async function migrate(): Promise<void> {

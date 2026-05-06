@@ -472,7 +472,7 @@ router.post('/admin/lists', requireAuth, requireAdmin, async (req: Request, res:
 router.get('/admin/lists/:id', requireAuth, requireAdmin, async (req: Request, res: Response) => {
   const id = parseInt(String(req.params.id), 10);
 
-  const [listRow, itemRows, allProducts] = await Promise.all([
+  const [listRow, itemRows] = await Promise.all([
     db.execute(sql`SELECT id, slug, name, description FROM recommendation_lists WHERE id = ${id} LIMIT 1`),
     db.execute(sql`
       SELECT ri.id AS "itemId", ri.note, ri.position, p.id, p.asin, p.name,
@@ -482,15 +482,6 @@ router.get('/admin/lists/:id', requireAuth, requireAdmin, async (req: Request, r
       WHERE ri.list_id = ${id}
       ORDER BY ri.position ASC, ri.created_at ASC
     `),
-    db.execute(sql`
-      SELECT p.id, p.asin, p.name,
-        (SELECT ph.price FROM price_history ph WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1) AS "currentPrice"
-      FROM products p
-      WHERE p.is_active = TRUE
-        AND p.id NOT IN (SELECT product_id FROM recommendation_items WHERE list_id = ${id})
-      ORDER BY p.name ASC NULLS LAST
-      LIMIT 200
-    `),
   ]);
 
   const list = (listRow.rows as any[])[0];
@@ -499,10 +490,28 @@ router.get('/admin/lists/:id', requireAuth, requireAdmin, async (req: Request, r
   res.render('admin-list-edit', {
     list,
     items: itemRows.rows,
-    allProducts: allProducts.rows,
     user: { email: req.session.userEmail },
     isAdmin: true,
   });
+});
+
+// ── GET /admin/lists/:id/search-products ─────────────────────────────────────
+router.get('/admin/lists/:id/search-products', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const listId = parseInt(String(req.params.id), 10);
+  const q = String(req.query.q ?? '').trim();
+  if (q.length < 2) return res.json([]);
+
+  const rows = await db.execute(sql`
+    SELECT p.id, p.asin, p.name,
+      (SELECT ph.price FROM price_history ph WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1) AS "currentPrice"
+    FROM products p
+    WHERE p.is_active = TRUE
+      AND p.id NOT IN (SELECT product_id FROM recommendation_items WHERE list_id = ${listId})
+      AND (p.name ILIKE ${'%' + q + '%'} OR p.asin ILIKE ${'%' + q + '%'} OR p.id::text = ${q})
+    ORDER BY p.name ASC NULLS LAST
+    LIMIT 20
+  `);
+  res.json(rows.rows);
 });
 
 // ── POST /admin/lists/:id/items ───────────────────────────────────────────────

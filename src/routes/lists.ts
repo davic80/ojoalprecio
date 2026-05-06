@@ -21,6 +21,7 @@ router.get('/:slug([a-z0-9-]+)', async (req: Request, res: Response, next: NextF
       ri.note, ri.position,
       p.id, p.asin, p.name, p.image_url AS "imageUrl", p.url,
       p.is_available AS "isAvailable",
+      p.was_price    AS "wasPrice",
       (
         SELECT ph.price FROM price_history ph
         WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1
@@ -37,6 +38,7 @@ router.get('/:slug([a-z0-9-]+)', async (req: Request, res: Response, next: NextF
     ...r,
     amazonUrl: affiliateUrl(r.url),
     currentPrice: r.currentPrice ? parseFloat(r.currentPrice) : null,
+    wasPrice: r.wasPrice ? parseFloat(r.wasPrice) : null,
     minPrice: r.minPrice ? parseFloat(r.minPrice) : null,
     maxPrice: r.maxPrice ? parseFloat(r.maxPrice) : null,
     isAtLow: r.minPrice && r.currentPrice && parseFloat(r.currentPrice) <= parseFloat(r.minPrice) + 0.01,
