@@ -37,6 +37,24 @@
     <p class="subtitle">Configuración en tiempo real. Los valores de BD tienen prioridad sobre las variables de entorno. Cambios efectivos en el siguiente ciclo sin reiniciar.</p>
   </div>
 
+  <!-- System load -->
+  <div class="card" style="padding:14px 18px;margin-bottom:16px;display:flex;align-items:center;gap:24px;flex-wrap:wrap">
+    <div>
+      <div style="font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Carga del sistema</div>
+      <div id="sys-load" style="font-size:15px;font-weight:600;font-family:monospace;color:var(--gray-900)">—</div>
+      <div style="font-size:11px;color:var(--gray-400);margin-top:2px">1 min · 5 min · 15 min</div>
+    </div>
+    <div>
+      <div style="font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">RAM libre</div>
+      <div id="sys-mem" style="font-size:15px;font-weight:600;font-family:monospace;color:var(--gray-900)">—</div>
+    </div>
+    <div>
+      <div style="font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Uptime</div>
+      <div id="sys-uptime" style="font-size:15px;font-weight:600;font-family:monospace;color:var(--gray-900)">—</div>
+    </div>
+    <div style="margin-left:auto;font-size:11px;color:var(--gray-300)" id="sys-ts"></div>
+  </div>
+
   <div class="card">
     <% settings.forEach(function(s, i) { %>
       <div style="<%= i > 0 ? 'border-top:1px solid var(--gray-100);' : '' %>padding:16px 0;display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap">
@@ -110,5 +128,30 @@
 @keyframes fadeout { 0%,70% { opacity:1 } 100% { opacity:0 } }
 </style>
 <script src="/js/scrape-widget.js"></script>
+<script>
+(function () {
+  function fmtUptime(s) {
+    var d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+    if (d > 0) return d + 'd ' + h + 'h';
+    if (h > 0) return h + 'h ' + m + 'm';
+    return m + 'm';
+  }
+  function poll() {
+    fetch('/admin/system-stats').then(function (r) { return r.json(); }).then(function (d) {
+      var load = d.load;
+      var usedMb = d.mem.totalMb - d.mem.freeMb;
+      var pct = Math.round(usedMb / d.mem.totalMb * 100);
+      var loadColor = parseFloat(load.l1) > 3 ? 'var(--red,#dc2626)' : parseFloat(load.l1) > 1.5 ? 'var(--orange,#ea580c)' : 'var(--gray-900)';
+      document.getElementById('sys-load').style.color = loadColor;
+      document.getElementById('sys-load').textContent  = load.l1 + ' · ' + load.l5 + ' · ' + load.l15;
+      document.getElementById('sys-mem').textContent   = usedMb + ' / ' + d.mem.totalMb + ' MB (' + pct + '%)';
+      document.getElementById('sys-uptime').textContent = fmtUptime(d.uptime);
+      document.getElementById('sys-ts').textContent    = 'actualizado ' + new Date().toLocaleTimeString('es-ES');
+    }).catch(function () {});
+  }
+  poll();
+  setInterval(poll, 10000);
+})();
+</script>
 </body>
 </html>

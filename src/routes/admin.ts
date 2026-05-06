@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from 'express';
+import os from 'os';
 import { db } from '../db/client';
 import { categories, products, users, recommendationLists, recommendationItems } from '../db/schema';
 import { eq, sql, asc, desc } from 'drizzle-orm';
@@ -282,6 +283,18 @@ router.post('/admin/social/post-now', requireAuth, requireAdmin, async (req: Req
 // ── GET /admin/scrape-status ──────────────────────────────────────────────────
 router.get('/admin/scrape-status', requireAuth, requireAdmin, (_req: Request, res: Response) => {
   res.json(getScraperStatus());
+});
+
+// ── GET /admin/system-stats ───────────────────────────────────────────────────
+router.get('/admin/system-stats', requireAuth, requireAdmin, (_req: Request, res: Response) => {
+  const [l1, l5, l15] = os.loadavg();
+  const totalMem = os.totalmem();
+  const freeMem  = os.freemem();
+  res.json({
+    load: { l1: l1.toFixed(2), l5: l5.toFixed(2), l15: l15.toFixed(2) },
+    mem:  { totalMb: Math.round(totalMem / 1024 / 1024), freeMb: Math.round(freeMem / 1024 / 1024) },
+    uptime: Math.round(os.uptime()),
+  });
 });
 
 // ── POST /admin/scrape/trigger — Force-start a new scrape cycle ───────────────
