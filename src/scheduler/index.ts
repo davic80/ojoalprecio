@@ -88,7 +88,10 @@ async function checkAllProducts(): Promise<void> {
         let ok = true;
         try {
           await checkProduct(product.id, product.url, product.name ?? product.asin);
-        } catch { ok = false; }
+        } catch (e) {
+          ok = false;
+          if (e instanceof CaptchaDetectedError) break; // stop this worker — whole IP is blocked
+        }
         state.log.unshift({ id: product.id, name: product.name ?? product.asin, asin: product.asin, ok, ts: Date.now() });
         if (state.log.length > 50) state.log.pop();
         state.done++;
@@ -193,8 +196,9 @@ async function checkProduct(productId: number, url: string, label: string): Prom
       await db.update(alerts).set({ notifiedAt: null })
         .where(and(eq(alerts.productId, productId), eq(alerts.alertType, 'stock')));
     } else if (err instanceof CaptchaDetectedError) {
-      // Pausa global por bloqueo Amazon — no penalizar el producto
+      // Pausa global por bloqueo Amazon — no penalizar el producto, abortar ciclo
       console.log(`[scheduler] ${label} → ${err.message}`);
+      throw err; // propagate so the worker stops immediately
     } else {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[scheduler] Failed for ${label}: ${msg}`);
