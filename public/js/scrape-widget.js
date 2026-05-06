@@ -5,12 +5,37 @@
   let dropdown = null;
   let open = false;
 
+  async function triggerCycle() {
+    try {
+      const res = await fetch('/admin/scrape/trigger', { method: 'POST' });
+      const d = await res.json();
+      if (!d.started) alert(d.message);
+      else poll();
+    } catch (_) {}
+  }
+
   function render(s) {
     if (!s.isRunning) {
-      widget.innerHTML = '';
+      if (!widget.querySelector('#scrape-trigger-btn')) {
+        widget.innerHTML =
+          '<button id="scrape-trigger-btn" onclick="(function(){' +
+            'var b=document.getElementById(\'scrape-trigger-btn\');' +
+            'b.disabled=true;b.textContent=\'…\';' +
+            'fetch(\'/admin/scrape/trigger\',{method:\'POST\'})' +
+              '.then(function(r){return r.json();})' +
+              '.then(function(d){if(!d.started)alert(d.message);})' +
+              '.catch(function(){})' +
+              '.finally(function(){b.disabled=false;b.textContent=\'▶ Forzar ciclo\';});' +
+          '})()" style="' +
+            'background:transparent;color:var(--gray-500,#6b7280);border:1px solid var(--gray-200,#e5e7eb);' +
+            'border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;white-space:nowrap' +
+          '">▶ Forzar ciclo</button>';
+      }
       open = false;
       return;
     }
+    const existing = widget.querySelector('#scrape-trigger-btn');
+    if (existing) existing.remove();
 
     const pct = s.total > 0 ? Math.round((s.done / s.total) * 100) : 0;
     const label = s.total > 0 ? s.done + '/' + s.total : '…';

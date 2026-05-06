@@ -5,7 +5,7 @@ import { eq, sql, asc, desc } from 'drizzle-orm';
 import { requireAuth } from '../middleware/auth';
 import { requireAdmin } from '../middleware/admin';
 import { scrapeUrlForAsins, extractAsin, normaliseAmazonUrl } from '../scraper/amazon';
-import { getScraperStatus } from '../scheduler';
+import { getScraperStatus, triggerScrape } from '../scheduler';
 import { getBestUnpostedDeal, postDailyDeal, POST_HOURS } from '../scheduler/social';
 import { getAllSettings, setSetting } from '../db/settings';
 
@@ -282,6 +282,12 @@ router.post('/admin/social/post-now', requireAuth, requireAdmin, async (req: Req
 // ── GET /admin/scrape-status ──────────────────────────────────────────────────
 router.get('/admin/scrape-status', requireAuth, requireAdmin, (_req: Request, res: Response) => {
   res.json(getScraperStatus());
+});
+
+// ── POST /admin/scrape/trigger — Force-start a new scrape cycle ───────────────
+router.post('/admin/scrape/trigger', requireAuth, requireAdmin, (_req: Request, res: Response) => {
+  const started = triggerScrape();
+  res.json({ started, message: started ? 'Ciclo iniciado.' : 'Ya hay un ciclo en marcha.' });
 });
 
 // ── GET /admin/deals ──────────────────────────────────────────────────────────

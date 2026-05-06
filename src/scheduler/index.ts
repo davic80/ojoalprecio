@@ -382,6 +382,12 @@ async function processAlerts(
   }
 }
 
+export function triggerScrape(): boolean {
+  if (isRunning) return false;
+  checkAllProducts().catch(err => console.error('[scheduler] Manual trigger error:', err));
+  return true;
+}
+
 export function startScheduler(): void {
   console.log(`[scheduler] Starting with schedule: "${CHECK_INTERVAL}"`);
   checkAllProducts();
