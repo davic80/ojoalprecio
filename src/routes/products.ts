@@ -67,14 +67,13 @@ router.get('/', (req: Request, res: Response, next) => {
         (SELECT json_agg(sub.price ORDER BY sub.scraped_at ASC)
          FROM (SELECT price, scraped_at FROM price_history WHERE product_id = p.id ORDER BY scraped_at DESC LIMIT 20) sub
         ) AS "sparklineData",
-        (SELECT ph.price  FROM price_history ph WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1)::float AS "_sortPrice",
-        (SELECT MAX(ph3.price) FROM price_history ph3 WHERE ph3.product_id = p.id)::float AS "_sortMax"
+        (SELECT ph.price  FROM price_history ph WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1)::float AS "_sortPrice"
       FROM products p
       WHERE ${where}
       ORDER BY ${
         sortBy === 'price_desc' ? sql`"_sortPrice" DESC NULLS LAST` :
         sortBy === 'price_asc'  ? sql`"_sortPrice" ASC  NULLS LAST` :
-        sortBy === 'discount'   ? sql`CASE WHEN "_sortMax" > 0 THEN ("_sortMax" - "_sortPrice") / "_sortMax" ELSE 0 END DESC NULLS LAST` :
+        sortBy === 'discount'   ? sql`p.deal_score DESC NULLS LAST` :
         sql`p.created_at DESC`
       }
       LIMIT ${perPage} OFFSET ${offset}
