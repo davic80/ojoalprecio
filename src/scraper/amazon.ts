@@ -193,19 +193,102 @@ function getAmazonStorageState(): Promise<any> {
   return _storageStatePromise;
 }
 
+const VIEWPORTS = [
+  { width: 1920, height: 1080 },
+  { width: 1440, height: 900  },
+  { width: 1536, height: 864  },
+  { width: 1366, height: 768  },
+  { width: 1280, height: 720  },
+];
+function randomViewport() { return VIEWPORTS[Math.floor(Math.random() * VIEWPORTS.length)]; }
+
 async function createNewContext(browser: Browser): Promise<BrowserContext> {
   const storageState = await getAmazonStorageState();
+  const ua = randomUserAgent();
+  const vp = randomViewport();
+
+  // Build sec-ch-ua to match Chrome 131 UA strings
+  const isChrome = ua.includes('Chrome/131');
+  const secChUa = isChrome
+    ? '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"'
+    : '"Firefox";v="132", "Not_A Brand";v="99"';
+
   const context = await browser.newContext({
-    userAgent: randomUserAgent(),
-    viewport: { width: 1366, height: 768 },
+    userAgent: ua,
+    viewport: vp,
     locale: 'es-ES',
     timezoneId: 'Europe/Madrid',
     storageState,
-    extraHTTPHeaders: { 'Accept-Language': 'es-ES,es;q=0.9', 'Cache-Control': 'max-age=0' },
+    extraHTTPHeaders: {
+      'Accept-Language':         'es-ES,es;q=0.9,en;q=0.8',
+      'Cache-Control':           'max-age=0',
+      'Sec-CH-UA':               secChUa,
+      'Sec-CH-UA-Mobile':        '?0',
+      'Sec-CH-UA-Platform':      '"Windows"',
+      'Upgrade-Insecure-Requests': '1',
+    },
   });
-  await context.addInitScript(() => {
+
+  await context.addInitScript((vp: { width: number; height: number }) => {
+    // Hide webdriver flag
     Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-  });
+
+    // window.chrome — absent in headless, present in real Chrome
+    if (!(window as any).chrome) {
+      (window as any).chrome = {
+        app: { isInstalled: false },
+        runtime: { id: undefined },
+        loadTimes: () => {},
+        csi: () => {},
+      };
+    }
+
+    // Realistic plugin list (empty = headless tell)
+    Object.defineProperty(navigator, 'plugins', {
+      get: () => {
+        const mkPlugin = (name: string, filename: string, desc: string) => {
+          const p = Object.create(Plugin.prototype);
+          Object.defineProperty(p, 'name',        { value: name });
+          Object.defineProperty(p, 'filename',    { value: filename });
+          Object.defineProperty(p, 'description', { value: desc });
+          Object.defineProperty(p, 'length',      { value: 0 });
+          return p;
+        };
+        const arr: any = [
+          mkPlugin('Chrome PDF Plugin',         'internal-pdf-viewer',   'Portable Document Format'),
+          mkPlugin('Chrome PDF Viewer',          'mhjfbmdgcfjbbpaeojofohoefgiehjai', ''),
+          mkPlugin('Native Client',              'internal-nacl-plugin',  ''),
+        ];
+        arr.item = (i: number) => arr[i];
+        arr.namedItem = (n: string) => arr.find((p: any) => p.name === n) ?? null;
+        arr.refresh = () => {};
+        return arr;
+      },
+    });
+
+    // Consistent language
+    Object.defineProperty(navigator, 'languages', { get: () => ['es-ES', 'es', 'en-US', 'en'] });
+
+    // Screen matches the viewport
+    Object.defineProperty(screen, 'width',       { get: () => vp.width });
+    Object.defineProperty(screen, 'height',      { get: () => vp.height });
+    Object.defineProperty(screen, 'availWidth',  { get: () => vp.width });
+    Object.defineProperty(screen, 'availHeight', { get: () => vp.height - 40 });
+    Object.defineProperty(screen, 'colorDepth',  { get: () => 24 });
+    Object.defineProperty(screen, 'pixelDepth',  { get: () => 24 });
+    Object.defineProperty(window, 'outerWidth',  { get: () => vp.width });
+    Object.defineProperty(window, 'outerHeight', { get: () => vp.height });
+
+    // permissions.query — headless throws for 'notifications'
+    const origQuery = window.navigator.permissions?.query?.bind(navigator.permissions);
+    if (origQuery) {
+      (navigator.permissions as any).query = (params: any) => {
+        if (params.name === 'notifications') return Promise.resolve({ state: 'denied' } as PermissionStatus);
+        return origQuery(params);
+      };
+    }
+  }, vp);
+
   return context;
 }
 
