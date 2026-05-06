@@ -24,6 +24,37 @@ function toSlug(name: string): string {
     .replace(/^-|-$/g, '');
 }
 
+// ── GET /admin — Hub page ─────────────────────────────────────────────────────
+router.get('/admin', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const statsRow = await db.execute(sql`
+    SELECT
+      COUNT(*)                                              AS total,
+      COUNT(*) FILTER (WHERE is_on_sale = TRUE)            AS on_sale,
+      COUNT(*) FILTER (WHERE is_failed = TRUE)             AS failed,
+      COUNT(*) FILTER (WHERE is_available = FALSE)         AS unavailable,
+      COUNT(*) FILTER (WHERE last_error IS NOT NULL)       AS with_error,
+      (SELECT COUNT(*) FROM users)                         AS users_total,
+      (SELECT COUNT(*) FROM recommendation_lists)          AS lists_total
+    FROM products
+    WHERE is_active = TRUE
+  `);
+  const s = statsRow.rows[0] as any ?? {};
+  const scraperStatus = getScraperStatus();
+  res.render('admin-hub', {
+    user: { email: req.session.userEmail },
+    stats: {
+      total:       parseInt(s.total, 10),
+      onSale:      parseInt(s.on_sale, 10),
+      failed:      parseInt(s.failed, 10),
+      unavailable: parseInt(s.unavailable, 10),
+      withError:   parseInt(s.with_error, 10),
+      users:       parseInt(s.users_total, 10),
+      lists:       parseInt(s.lists_total, 10),
+    },
+    scraperStatus,
+  });
+});
+
 // ── GET /admin/categories ─────────────────────────────────────────────────────
 router.get('/admin/categories', requireAuth, requireAdmin, async (req: Request, res: Response) => {
   const [cats, uncatRow] = await Promise.all([

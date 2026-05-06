@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Panel Admin — OjoAlPrecio</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <a href="/" class="navbar-brand">
+    <span class="brand-icon">👁</span>
+    <span class="brand-name">OjoAlPrecio</span>
+  </a>
+  <div class="navbar-actions">
+    <span id="scrape-widget" style="position:relative;margin-right:4px"></span>
+    <a href="/account" class="user-email user-email-link"><%= user.email %></a>
+    <form action="/auth/logout" method="POST" style="display:inline">
+      <button type="submit" class="btn btn-ghost btn-sm">Salir</button>
+    </form>
+  </div>
+</nav>
+
+<main class="container">
+
+  <div class="page-header">
+    <h1>Panel de administración</h1>
+  </div>
+
+  <!-- Stats rápidas -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:28px">
+    <div class="card" style="padding:16px;text-align:center">
+      <div style="font-size:26px;font-weight:700;color:var(--gray-900)"><%= stats.total %></div>
+      <div class="hint" style="margin-top:4px">Productos activos</div>
+    </div>
+    <div class="card" style="padding:16px;text-align:center">
+      <div style="font-size:26px;font-weight:700;color:var(--primary)"><%= stats.onSale %></div>
+      <div class="hint" style="margin-top:4px">En oferta</div>
+    </div>
+    <div class="card" style="padding:16px;text-align:center">
+      <div style="font-size:26px;font-weight:700;color:<%= stats.failed > 0 ? 'var(--red,#dc2626)' : 'var(--gray-400)' %>"><%= stats.failed %></div>
+      <div class="hint" style="margin-top:4px">Fallidos</div>
+    </div>
+    <div class="card" style="padding:16px;text-align:center">
+      <div style="font-size:26px;font-weight:700;color:<%= stats.withError > 0 ? 'var(--orange,#ea580c)' : 'var(--gray-400)' %>"><%= stats.withError %></div>
+      <div class="hint" style="margin-top:4px">Con error</div>
+    </div>
+    <div class="card" style="padding:16px;text-align:center">
+      <div style="font-size:26px;font-weight:700;color:var(--gray-700)"><%= stats.users %></div>
+      <div class="hint" style="margin-top:4px">Usuarios</div>
+    </div>
+    <div class="card" style="padding:16px;text-align:center">
+      <div style="font-size:26px;font-weight:700;color:var(--gray-700)"><%= stats.lists %></div>
+      <div class="hint" style="margin-top:4px">Listas</div>
+    </div>
+  </div>
+
+  <!-- Scraper status -->
+  <% if (scraperStatus.isRunning) { %>
+  <div class="card" style="padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;gap:12px">
+    <span style="width:10px;height:10px;border-radius:50%;background:var(--primary);display:inline-block;animation:pulse 1.2s infinite"></span>
+    <span style="font-size:14px">
+      Scraper activo — <%= scraperStatus.done %>/<%= scraperStatus.total %> productos
+      <% if (scraperStatus.current) { %><span class="hint">· <%= scraperStatus.current.name.slice(0,60) %></span><% } %>
+    </span>
+  </div>
+  <% } %>
+
+  <!-- Secciones -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px">
+
+    <a href="/admin/deals" class="card admin-hub-card">
+      <div class="admin-hub-icon">🏷️</div>
+      <div class="admin-hub-title">Chollos</div>
+      <div class="hint">Productos en oferta ordenados por descuento</div>
+    </a>
+
+    <a href="/" class="card admin-hub-card">
+      <div class="admin-hub-icon">📦</div>
+      <div class="admin-hub-title">Mis productos</div>
+      <div class="hint">Dashboard de todos los productos rastreados</div>
+    </a>
+
+    <a href="/admin/lists" class="card admin-hub-card">
+      <div class="admin-hub-icon">📋</div>
+      <div class="admin-hub-title">Listas</div>
+      <div class="hint">Listas de recomendación públicas</div>
+    </a>
+
+    <a href="/admin/categories" class="card admin-hub-card">
+      <div class="admin-hub-icon">🗂️</div>
+      <div class="admin-hub-title">Categorías</div>
+      <div class="hint">Gestionar categorías de productos</div>
+    </a>
+
+    <a href="/admin/social" class="card admin-hub-card">
+      <div class="admin-hub-icon">📢</div>
+      <div class="admin-hub-title">Social</div>
+      <div class="hint">Publicaciones en Telegram y redes</div>
+    </a>
+
+    <a href="/admin/stats" class="card admin-hub-card">
+      <div class="admin-hub-icon">📊</div>
+      <div class="admin-hub-title">Estadísticas</div>
+      <div class="hint">Visitas, fuentes de tráfico y alertas</div>
+    </a>
+
+    <a href="/admin/users" class="card admin-hub-card">
+      <div class="admin-hub-icon">👥</div>
+      <div class="admin-hub-title">Usuarios</div>
+      <div class="hint">Gestionar cuentas de usuario</div>
+    </a>
+
+    <a href="/admin/import-url" class="card admin-hub-card">
+      <div class="admin-hub-icon">🔗</div>
+      <div class="admin-hub-title">Importar URL</div>
+      <div class="hint">Añadir productos desde URL de Amazon</div>
+    </a>
+
+    <a href="/admin/settings" class="card admin-hub-card">
+      <div class="admin-hub-icon">⚙️</div>
+      <div class="admin-hub-title">Ajustes</div>
+      <div class="hint">Workers, timeouts, importación automática</div>
+    </a>
+
+    <a href="/admin/alerts" class="card admin-hub-card">
+      <div class="admin-hub-icon">🔔</div>
+      <div class="admin-hub-title">Alertas</div>
+      <div class="hint">Alertas de precio configuradas</div>
+    </a>
+
+  </div>
+
+</main>
+
+<footer class="footer">
+  <p>OjoAlPrecio v<%= process.env['APP_VERSION'] ?? 'dev' %> Admin &nbsp;·&nbsp; <a href="/ofertas">Ver ofertas públicas</a></p>
+</footer>
+
+<style>
+.admin-hub-card {
+  display: block;
+  padding: 20px;
+  text-decoration: none;
+  color: inherit;
+  transition: box-shadow 0.15s, transform 0.15s;
+  cursor: pointer;
+}
+.admin-hub-card:hover {
+  box-shadow: 0 4px 16px rgba(0,0,0,.10);
+  transform: translateY(-2px);
+  text-decoration: none;
+}
+.admin-hub-icon { font-size: 28px; margin-bottom: 8px; }
+.admin-hub-title { font-size: 15px; font-weight: 600; color: var(--gray-900); margin-bottom: 4px; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+</style>
+<script src="/js/scrape-widget.js"></script>
+</body>
+</html>
