@@ -105,8 +105,8 @@ async function checkAllProducts(): Promise<void> {
 
 interface SaleInfo { isOnSale: boolean; saleTier: string | null; dealScore: number | null; }
 
-function calcSaleTier(currentPrice: number, allTimeMax: number): SaleInfo {
-  const pctOff = (allTimeMax - currentPrice) / allTimeMax * 100;
+function calcSaleTier(currentPrice: number, reference: number): SaleInfo {
+  const pctOff = (reference - currentPrice) / reference * 100;
   if (pctOff >= 67) return { isOnSale: true, saleTier: '67oferta',      dealScore: pctOff };
   if (pctOff >= 50) return { isOnSale: true, saleTier: 'broooooferton', dealScore: pctOff };
   if (pctOff >= 30) return { isOnSale: true, saleTier: 'mega-oferta',   dealScore: pctOff };
@@ -140,11 +140,17 @@ async function checkProduct(productId: number, url: string, label: string): Prom
 
     await db.insert(priceHistory).values({ productId, price: String(result.price), currency: result.currency });
 
-    // Sale detection: requires ≥5 scrapes, ≥2 days of data, and at least one all-time drop
-    const hasEnoughData = scrapeCount >= 5 && daysSpan >= 2 && allTimeMax !== null && result.price < allTimeMax;
-    const saleInfo = hasEnoughData ? calcSaleTier(result.price, allTimeMax!) : null;
-    if (saleInfo?.isOnSale) {
-      console.log(`[scheduler] ${label} → ${saleInfo.saleTier} (${saleInfo.dealScore!.toFixed(1)}% off, max ${allTimeMax})`);
+    // Sale detection: use was_price (Amazon RRP) as reference when available;
+    // fall back to all-time historical max with minimum data gate.
+    const wasPriceRef = (result.wasPrice && result.wasPrice > result.price) ? result.wasPrice : null;
+    const historicalRef = (scrapeCount >= 5 && daysSpan >= 2 && allTimeMax !== null && result.price < allTimeMax) ? allTimeMax : null;
+    const saleReference = Math.max(wasPriceRef ?? 0, historicalRef ?? 0) || null;
+    const saleInfo: SaleInfo = saleReference
+      ? calcSaleTier(result.price, saleReference)
+      : { isOnSale: false, saleTier: null, dealScore: null };
+    if (saleInfo.isOnSale) {
+      const refSrc = (wasPriceRef && wasPriceRef >= (historicalRef ?? 0)) ? 'was_price' : 'all_time_max';
+      console.log(`[scheduler] ${label} → ${saleInfo.saleTier} (${saleInfo.dealScore!.toFixed(1)}% off, ref ${saleReference?.toFixed(2)} [${refSrc}])`);
     }
 
     await db.update(products).set({
@@ -155,9 +161,9 @@ async function checkProduct(productId: number, url: string, label: string): Prom
       isAvailable: true,
       consecutiveFailures: 0,
       isFailed: false,
-      isOnSale: saleInfo?.isOnSale ?? false,
-      saleTier: saleInfo?.saleTier ?? null,
-      dealScore: saleInfo?.dealScore != null ? String(saleInfo.dealScore.toFixed(1)) : null,
+      isOnSale: saleInfo.isOnSale,
+      saleTier: saleInfo.saleTier,
+      dealScore: saleInfo.dealScore != null ? String(saleInfo.dealScore.toFixed(1)) : null,
       ...(result.wasPrice != null ? { wasPrice: String(result.wasPrice.toFixed(2)) } : {}),
     }).where(eq(products.id, productId));
 
@@ -173,7 +179,10 @@ async function checkProduct(productId: number, url: string, label: string): Prom
   } catch (err) {
     if (err instanceof ProductUnavailableError) {
       console.log(`[scheduler] ${label} → No disponible`);
-      await db.update(products).set({ isAvailable: false, lastError: null }).where(eq(products.id, productId));
+      await db.update(products).set({
+        isAvailable: false, lastError: null,
+        isOnSale: false, saleTier: null, dealScore: null,
+      }).where(eq(products.id, productId));
       // Reset stock alerts so they fire again when the product comes back
       await db.update(alerts).set({ notifiedAt: null })
         .where(and(eq(alerts.productId, productId), eq(alerts.alertType, 'stock')));

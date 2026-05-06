@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.31.0] - 2026-05-06
+
+### Added
+- Detección de ofertas usa `was_price` (PVP recomendado de Amazon) como referencia cuando está disponible, sin necesitar historial mínimo — un producto con PVP 100 € y precio actual 80 € aparece como oferta desde el primer scrape
+- Referencia efectiva = `MAX(was_price, all_time_max)` — se usa siempre el precio de referencia más alto disponible
+
+### Fixed
+- Scraper: detectores de bloqueo ahora usan `locator.count()` en vez de `isVisible({timeout:2000})` — el check es instantáneo, ahorrando hasta 2 s en páginas de bloqueo
+- Scraper: todas las consultas DOM se ejecutan en paralelo con `Promise.all` + `Promise.any` para selectores múltiples — reduce el tiempo medio por producto de ~10 s a ~5 s
+- Scraper: eliminado el `waitForSelector` redundante (4 s) antes del bucle de selectores de precio
+- Scheduler: productos marcados como "Sin stock" ahora resetean `is_on_sale`, `sale_tier` y `deal_score` a NULL — antes se quedaban marcados como "en oferta" indefinidamente aunque estuvieran sin stock
+
 ## [2.30.1] - 2026-05-06
 
 ### Fixed

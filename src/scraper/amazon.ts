@@ -109,6 +109,21 @@ const CHROMIUM_ARGS = [
 
 // image y font se permiten — bloquearlos es señal de bot para Amazon
 const BLOCKED_TYPES = new Set(['media', 'other', 'ping', 'beacon']);
+
+const PRICE_SELECTORS = [
+  '.a-price.aok-align-center .a-offscreen',
+  '#corePriceDisplay_desktop_feature_div .a-price .a-offscreen',
+  '#corePrice_desktop .a-price .a-offscreen',
+  '#priceblock_ourprice',
+  '#priceblock_dealprice',
+  '.a-price .a-offscreen',
+];
+const WAS_PRICE_SELECTORS = [
+  '#corePriceDisplay_desktop_feature_div .basisPrice .a-offscreen',
+  '#corePrice_desktop .basisPrice .a-offscreen',
+  '.basisPrice .a-offscreen',
+];
+
 const BLOCKED_DOMAINS = [
   'amazon-adsystem', 'fls-eu.amazon', 'telemetry', 'unagi-eu.amazon',
   'csm.amazon', 'advertising.amazon', 'analytics.amazon', 'ue.amazon.es',
@@ -222,71 +237,58 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
 
         const pageTitle = await page.title();
 
-        // Detectar bloqueo por título (Amazon cambia el mensaje periódicamente)
         const isTitleBlock =
           pageTitle.includes('Robot Check') ||
           pageTitle.toLowerCase().includes('sorry') ||
           pageTitle.includes('503') ||
           pageTitle.includes('CAPTCHA');
 
-        // Verificación rápida de estructura: toda página de producto tiene #dp
-        const hasProductStructure = await page.locator('#dp, #dp-container').first()
-          .isVisible({ timeout: 2_000 }).catch(() => false);
-
-        if (isTitleBlock || !hasProductStructure) {
+        // count() is instant — no wait. All product pages have #dp in static HTML.
+        const dpCount = await page.locator('#dp, #dp-container').count();
+        if (isTitleBlock || dpCount === 0) {
           captchaDetectedAt = Date.now();
-          _storageStatePromise = null; // invalidar cookies envenenadas
+          _storageStatePromise = null;
           const bodySnippet = (await page.textContent('body') ?? '').slice(0, 120).replace(/\s+/g, ' ');
           throw new CaptchaDetectedError(`Bloqueo Amazon (título: "${pageTitle}" | body: "${bodySnippet}")`);
         }
 
-        const name = await page.locator('#productTitle').first().textContent({ timeout: LOCATOR_TIMEOUT_MS }).then(t => t?.trim() ?? '');
+        // Phase 1: name + availability in parallel (both instant after domcontentloaded)
+        const [name, availabilityText] = await Promise.all([
+          page.locator('#productTitle').first().textContent({ timeout: LOCATOR_TIMEOUT_MS }).then(t => t?.trim() ?? ''),
+          page.locator('#availability').first().textContent({ timeout: 5000 }).catch(() => ''),
+        ]);
         if (!name) throw new Error('Título no encontrado');
-
-        const availabilityText = await page.locator('#availability').first().textContent({ timeout: 5000 }).catch(() => '');
         if (availabilityText?.toLowerCase().includes('no disponible')) throw new ProductUnavailableError('Producto no disponible');
 
-        await page.waitForSelector('.a-price .a-offscreen, #priceblock_ourprice, #priceblock_dealprice', { timeout: PRICE_SELECTOR_WAIT_MS }).catch(() => {});
-
-        const priceSelectors = [
-          '.a-price.aok-align-center .a-offscreen',
-          '#corePriceDisplay_desktop_feature_div .a-price .a-offscreen',
-          '#corePrice_desktop .a-price .a-offscreen',
-          '#priceblock_ourprice',
-          '#priceblock_dealprice',
-          '.a-price .a-offscreen'
-        ];
-        let rawPrice = '';
-        for (const selector of priceSelectors) {
-          try {
-            rawPrice = await page.locator(selector).first().textContent({ timeout: PRICE_LOCATOR_TIMEOUT_MS }).then(t => t?.trim() ?? '');
-            if (rawPrice) break;
-          } catch {}
-        }
+        // Phase 2: price + wasPrice + image all in parallel
+        // Promise.any races all selectors simultaneously — resolves on first non-empty match
+        const [rawPrice, rawWasPrice, imageUrl] = await Promise.all([
+          Promise.any(
+            PRICE_SELECTORS.map(sel =>
+              page.locator(sel).first().textContent({ timeout: PRICE_SELECTOR_WAIT_MS }).then(t => {
+                const s = t?.trim() ?? '';
+                if (!s) throw new Error('empty');
+                return s;
+              })
+            )
+          ).catch(() => ''),
+          Promise.any(
+            WAS_PRICE_SELECTORS.map(sel =>
+              page.locator(sel).first().textContent({ timeout: 2_000 }).then(t => {
+                const s = t?.trim() ?? '';
+                if (!s) throw new Error('empty');
+                return s;
+              })
+            )
+          ).catch(() => ''),
+          page.locator('#imgTagWrappingLink img, #landingImage').first().getAttribute('src', { timeout: 5000 }).catch(() => null),
+        ]);
 
         if (!rawPrice) throw new Error('Precio no encontrado');
         const price = parseSpanishPrice(rawPrice);
-
-        // Precio recomendado / "Antes:" — optional, short timeout
-        const wasPriceSelectors = [
-          '#corePriceDisplay_desktop_feature_div .basisPrice .a-offscreen',
-          '#corePrice_desktop .basisPrice .a-offscreen',
-          '.basisPrice .a-offscreen',
-        ];
-        let rawWasPrice = '';
-        for (const selector of wasPriceSelectors) {
-          try {
-            rawWasPrice = await page.locator(selector).first().textContent({ timeout: 1_000 }).then(t => t?.trim() ?? '');
-            if (rawWasPrice) break;
-          } catch {}
-        }
         const wasPriceRaw = rawWasPrice ? parseSpanishPrice(rawWasPrice) : null;
-        // Only valid if it's meaningfully above current price (at least 1%)
         const wasPrice = wasPriceRaw && wasPriceRaw > price * 1.01 ? wasPriceRaw : null;
 
-        const imageUrl = await page.locator('#imgTagWrappingLink img, #landingImage').first().getAttribute('src', { timeout: 5000 }).catch(() => null);
-
-        // EXTRA IMAGES: Restaurada lógica original
         const extraImages: string[] = await page.evaluate((mainSrc: string | null): string[] => {
           const normalize = (s: string) => s.replace(/\._[^.]+_\./, '.').split('/I/')[1] ?? '';
           const mainKey = normalize(mainSrc ?? '');
