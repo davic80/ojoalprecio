@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.29.0] - 2026-05-06
+
+### Fixed
+- Scraper: `--js-flags` de Chromium pasaba comillas literales (`"--max-old-space-size=256"`) que Chromium ignoraba — corregido a `--js-flags=--max-old-space-size=256`
+- Scraper: `timeoutHandle` tipado como `any` — cambiado a `ReturnType<typeof setTimeout> | null` para que `npm run build` pase en GitHub Actions
+- Scraper: `route.continue()` sin `return` en `optimizePageForScraping` — bajo concurrencia alta Playwright lanzaba "Route is already handled!"
+
+### Summary (v2.28–2.29)
+- **Carga Crítica (CPU & Red):** Chromium args `--disable-features=IsolateOrigins,site-per-process` y `--js-flags=--max-old-space-size=256`; interceptación de rutas para abortar `image`, `font`, `media`, `other`, `ping`, `beacon`; blacklist de dominios de telemetría Amazon
+- **Higiene de Procesos:** `page.close({ runBeforeUnload: false })` en todos los `finally`; `LOCATOR_TIMEOUT_MS` a 10s; tipado estricto de `timeoutHandle`
+- **Anti-Bloqueo (Captcha Cooldown):** variable global `captchaDetectedAt`; pausa de 10 min en `getBrowser()` si se detecta captcha; detección de "Robot Check" / "Introduce los caracteres"
+
 ## [2.27.0] - 2026-05-02
 
 ### Added

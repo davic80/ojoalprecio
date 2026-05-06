@@ -103,7 +103,7 @@ const CHROMIUM_ARGS = [
   '--disable-features=IsolateOrigins,site-per-process', 
   '--disable-site-isolation-trials',
   '--mute-audio',
-  '--js-flags="--max-old-space-size=256"',
+  '--js-flags=--max-old-space-size=256',
 ];
 
 const BLOCKED_TYPES = new Set(['image', 'font', 'media', 'other']);
@@ -119,7 +119,7 @@ async function optimizePageForScraping(page: Page) {
     if (BLOCKED_TYPES.has(type) || type === 'ping' || type === 'beacon' || BLOCKED_DOMAINS.some(d => url.includes(d))) {
       return route.abort('aborted');
     }
-    route.continue();
+    return route.continue();
   });
 }
 
@@ -207,7 +207,7 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
   const context = await createNewContext(browser);
   const page = await context.newPage();
 
-  let timeoutHandle: any;
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
   const hardTimeout = new Promise<never>((_, reject) => {
     timeoutHandle = setTimeout(() => reject(new Error(`[hard_timeout] ${SCRAPER_TIMEOUT_SECONDS}s`)), HARD_TIMEOUT_MS);
   });
