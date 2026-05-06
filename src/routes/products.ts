@@ -128,7 +128,13 @@ router.post(
     const { url } = req.body as { url: string };
     const userId = req.session.userId!;
 
-    const asin = extractAsin(url);
+    let asin = extractAsin(url);
+    if (!asin && /amzn\.(eu|to)|a\.co/i.test(url)) {
+      try {
+        const resolved = await fetch(url, { method: 'HEAD', redirect: 'follow', signal: AbortSignal.timeout(6000) });
+        asin = extractAsin(resolved.url);
+      } catch { /* ignore */ }
+    }
     if (!asin) {
       return res.status(400).json({ error: 'No se pudo extraer el ASIN. ¿Es una URL válida de Amazon.es?' });
     }

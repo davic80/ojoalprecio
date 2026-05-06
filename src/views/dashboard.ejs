@@ -102,22 +102,24 @@ function trendBadge(current, previous) {
       hx-post="/products"
       hx-target="#product-list"
       hx-swap="beforeend"
-      hx-on::after-request="if(event.detail.successful) { this.reset(); location.reload(); }"
+      hx-on::after-request="(function(e){if(e.detail.successful){this.reset();document.getElementById('add-error').textContent='';location.reload();}else{var err=document.getElementById('add-error');try{err.textContent=JSON.parse(e.detail.xhr.responseText).error||'Error al añadir el producto';}catch(x){err.textContent='Error al añadir el producto';}}})(event)"
       class="add-form"
       id="add-form"
     >
       <div class="input-group">
         <input
-          type="url"
+          type="text"
           name="url"
-          placeholder="https://www.amazon.es/dp/B0XXXXXXXX"
+          placeholder="https://www.amazon.es/dp/B0… o amzn.eu/…"
           required
           class="input"
           autocomplete="off"
+          inputmode="url"
         >
         <button type="submit" class="btn btn-primary" id="add-btn">Añadir</button>
       </div>
-      <p class="hint">Pega la URL de cualquier artículo de Amazon.es</p>
+      <p id="add-error" style="margin:6px 0 0;font-size:13px;color:var(--red,#dc2626)"></p>
+      <p class="hint" style="margin-top:4px">Pega la URL de cualquier artículo de Amazon.es (también links cortos amzn.eu)</p>
     </form>
 
     <% if (typeof isAdmin !== 'undefined' && isAdmin) { %>
