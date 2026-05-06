@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.30.0] - 2026-05-02
+
+### Added
+- Captura del `was_price` (precio recomendado / tachado de Amazon) durante el scrape — se guarda en la columna `was_price` de `products`
+- Las listas de recomendación muestran el precio recomendado tachado y el porcentaje de ahorro calculado sobre ese precio (no sobre el máximo histórico)
+- Migración 28: columna `was_price NUMERIC(10,2)` en `products`
+
+### Changed
+- Editor de listas de admin: sustituido el `<select>` con 590+ productos por un campo de búsqueda live con debounce 220 ms — muestra hasta 20 resultados filtrados por nombre, ASIN o ID
+- Nuevo endpoint `GET /admin/lists/:id/search-products?q=` que excluye productos ya en la lista
+
+## [2.29.1] - 2026-05-02
+
+### Fixed
+- Scraper: detección de bloqueo ampliada — además de comprobar el título, se verifica que `#dp` / `#dp-container` sea visible en 2 s; si no lo es, se considera bloqueo independientemente del texto de la página
+- Scraper: al detectar un bloqueo se resetea `_storageStatePromise` a `null` para no arrastrar cookies envenenadas en scrapes posteriores
+- Scraper: `getBrowser()` lanza `CaptchaDetectedError` durante el cooldown de captcha (antes lanzaba `Error` genérico, lo que incrementaba `consecutive_failures` erróneamente)
+- Scraper: `image` y `font` eliminados de `BLOCKED_TYPES` — bloquearlos era una señal de bot que aumentaba la tasa de captchas
+
 ## [2.29.0] - 2026-05-06
 
 ### Fixed
