@@ -42,13 +42,13 @@ router.post(
       req.session.userId = user.id;
       req.session.userEmail = user.email;
       req.session.emailVerified = false;
-      return res.redirect('/auth/verify-pending');
+      return req.session.save(() => res.redirect('/auth/verify-pending'));
     }
 
     req.session.userId = user.id;
     req.session.userEmail = user.email;
     req.session.emailVerified = true;
-    res.redirect('/');
+    req.session.save(() => res.redirect('/'));
   },
 );
 
@@ -102,7 +102,7 @@ router.post(
     req.session.userId = user.id;
     req.session.userEmail = user.email;
     req.session.emailVerified = false;
-    res.redirect('/auth/verify-pending');
+    req.session.save(() => res.redirect('/auth/verify-pending'));
   },
 );
 

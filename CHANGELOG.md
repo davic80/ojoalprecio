@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.30.1] - 2026-05-06
+
+### Fixed
+- Sesión: añadido `rolling: true` — el cookie y el registro en BD se renuevan a 30 días en cada request; sin esto la sesión expiraba desde el momento del login original
+- Sesión: `req.session.save()` explícito antes de cada redirect post-login — evita la race condition entre el write async a PostgreSQL y el redirect inmediato que en móvil causaba perder la sesión recién creada
+- Sesión: `ttl` explícito de 30 días en `connect-pg-simple` — garantiza que el registro en BD dure lo mismo que el cookie del navegador
+- Servidor: `app.set('trust proxy', 1)` — necesario cuando la app está detrás de nginx para que Express maneje correctamente las cabeceras de protocolo y las cookies seguras
+
 ## [2.30.0] - 2026-05-02
 
 ### Added

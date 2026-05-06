@@ -27,16 +27,20 @@ export function createApp() {
   app.use(express.urlencoded({ extended: true }));
   app.use(express.json());
 
+  app.set('trust proxy', 1);
+
   app.use(
     session({
       store: new PgSession({
         pool,
         tableName: 'user_sessions',
         createTableIfMissing: true,
+        ttl: 30 * 24 * 60 * 60, // 30 days in seconds
       }),
       secret: process.env.SESSION_SECRET ?? 'change_me_to_a_random_secret',
       resave: false,
       saveUninitialized: false,
+      rolling: true,
       cookie: {
         secure: process.env.SESSION_COOKIE_SECURE === 'true',
         httpOnly: true,
