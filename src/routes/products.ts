@@ -131,8 +131,19 @@ router.post(
     let asin = extractAsin(url);
     if (!asin && /amzn\.(eu|to)|a\.co/i.test(url)) {
       try {
-        const resolved = await fetch(url, { method: 'HEAD', redirect: 'follow', signal: AbortSignal.timeout(6000) });
-        asin = extractAsin(resolved.url);
+        // Follow the short-URL redirect chain; check every hop for an ASIN
+        let next: string | null = url;
+        for (let hop = 0; hop < 5 && next && !asin; hop++) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const resp: any = await fetch(next, {
+            method: 'GET', redirect: 'manual',
+            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; OjoAlPrecio/1.0)' },
+            signal: AbortSignal.timeout(6000),
+          });
+          const loc: string | null = resp.headers.get('location');
+          asin = extractAsin(resp.url) ?? (loc ? extractAsin(loc) : null);
+          next = loc;
+        }
       } catch { /* ignore */ }
     }
     if (!asin) {
