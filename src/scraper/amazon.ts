@@ -414,22 +414,23 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
 
         // If selector-based was_price failed, scan the full DOM for any strikethrough price > current
         let wasPriceRaw = rawWasPrice ? parseSpanishPrice(rawWasPrice) : null;
+        let wasPriceSrc = 'selector';
         if (!wasPriceRaw || wasPriceRaw <= price * 1.01) {
-          const fallback = await page.evaluate((currentPrice: number): string | null => {
-            // .a-text-price is Amazon's class for strikethrough/RRP prices
+          const fallback = await page.evaluate((): string | null => {
             const candidates = Array.from(document.querySelectorAll('.a-text-price .a-offscreen, .basisPrice .a-offscreen'));
             for (const el of candidates) {
               const txt = el.textContent?.trim() ?? '';
               if (txt) return txt;
             }
             return null;
-          }, price).catch(() => null);
+          }).catch(() => null);
           if (fallback) {
             const parsed = parseSpanishPrice(fallback);
-            if (isFinite(parsed) && parsed > price * 1.01) wasPriceRaw = parsed;
+            if (isFinite(parsed) && parsed > price * 1.01) { wasPriceRaw = parsed; wasPriceSrc = 'dom-fallback'; }
           }
         }
         const wasPrice = wasPriceRaw && wasPriceRaw > price * 1.01 ? wasPriceRaw : null;
+        if (wasPrice) console.log(`[scraper] ${asin} → PVP ${wasPrice.toFixed(2)} € (${wasPriceSrc})`);
 
         const extraImages: string[] = await page.evaluate((mainSrc: string | null): string[] => {
           const normalize = (s: string) => s.replace(/\._[^.]+_\./, '.').split('/I/')[1] ?? '';
