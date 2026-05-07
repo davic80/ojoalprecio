@@ -119,12 +119,18 @@ const CHROMIUM_ARGS = [
 const BLOCKED_TYPES = new Set(['media', 'other', 'ping', 'beacon']);
 
 const PRICE_SELECTORS = [
+  // Specific buybox containers — ordered most-to-least specific
+  '#corePriceDisplay_desktop_feature_div .a-price:not(.a-text-price) .a-offscreen',
+  '#corePrice_feature_div .a-price:not(.a-text-price) .a-offscreen',
+  '#corePrice_desktop .a-price:not(.a-text-price) .a-offscreen',
+  '#apex_desktop_qualifiedBuybox .a-price:not(.a-text-price) .a-offscreen',
+  '#rightCol .a-price:not(.a-text-price) .a-offscreen',
+  '#buybox .a-price:not(.a-text-price) .a-offscreen',
   '.a-price.aok-align-center .a-offscreen',
-  '#corePriceDisplay_desktop_feature_div .a-price .a-offscreen',
-  '#corePrice_desktop .a-price .a-offscreen',
   '#priceblock_ourprice',
   '#priceblock_dealprice',
-  '.a-price .a-offscreen',
+  // Last resort: scoped to #dp (product detail page container) — avoids sponsored/accessories
+  '#dp .a-price:not(.a-text-price) .a-offscreen',
 ];
 const WAS_PRICE_SELECTORS = [
   // basisPrice — most common for Amazon.es RRP
