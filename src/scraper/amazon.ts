@@ -122,6 +122,13 @@ const WAS_PRICE_SELECTORS = [
   '#corePriceDisplay_desktop_feature_div .basisPrice .a-offscreen',
   '#corePrice_desktop .basisPrice .a-offscreen',
   '.basisPrice .a-offscreen',
+  // "Precio recomendado" shown as strikethrough next to current price
+  '#corePriceDisplay_desktop_feature_div .a-price.a-text-price .a-offscreen',
+  '#corePrice_feature_div .a-price.a-text-price .a-offscreen',
+  '#corePrice_desktop .a-price.a-text-price .a-offscreen',
+  // Deal / savings block (e.g. "Antes: 429,00 €")
+  '.a-section.a-spacing-small .a-price.a-text-price .a-offscreen',
+  '#apex_desktop_qualifiedBuybox .a-text-price .a-offscreen',
 ];
 
 const BLOCKED_DOMAINS = [
@@ -341,7 +348,8 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
               const dpCountAfter = await page.locator('#dp, #dp-container').count();
               if (dpCountAfter > 0) {
                 console.log('[scraper] Interstitial superado con clic.');
-                // Fall through to normal scraping below
+                // Update shared storage state so next contexts skip the interstitial
+                _storageStatePromise = context.storageState().catch(() => null) as any;
               } else {
                 captchaDetectedAt = Date.now();
                 _storageStatePromise = null;
