@@ -358,8 +358,21 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
         // count() is instant — no wait. All product pages have #dp in static HTML.
         const dpCount = await page.locator('#dp, #dp-container').count();
         if (isTitleBlock || dpCount === 0) {
+          const bodyText = (await page.textContent('body') ?? '').slice(0, 400).replace(/\s+/g, ' ');
+
+          // Amazon 404 / product-not-found page — not a block, treat as unavailable
+          const isNotFound =
+            bodyText.includes('¿Estás buscando algo?') ||
+            bodyText.toLowerCase().includes('documento no encontrado') ||
+            bodyText.toLowerCase().includes('page not found') ||
+            bodyText.includes('Lo sentimos. La dirección') ||
+            pageTitle.toLowerCase().includes('página no encontrada') ||
+            pageTitle.toLowerCase().includes('not found');
+          if (isNotFound) {
+            throw new ProductUnavailableError('Producto no encontrado en Amazon (ASIN eliminado o URL inválida)');
+          }
+
           // Try clicking through Amazon's interstitial ("Haz clic en el botón de abajo para seguir")
-          const bodyText = (await page.textContent('body') ?? '').slice(0, 300).replace(/\s+/g, ' ');
           if (bodyText.includes('botón de abajo') || bodyText.includes('continuar')) {
             const btn = page.locator('input[type="submit"], button[type="submit"], a.a-button-text').first();
             if (await btn.count() > 0) {

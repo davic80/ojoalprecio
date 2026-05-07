@@ -105,7 +105,7 @@ async function checkAllProducts(): Promise<void> {
         if (state.log.length > 50) state.log.pop();
         state.done++;
         // Delay skewed toward lower bound: x² pushes ~75% of values into the bottom half of the range
-        await new Promise(r => setTimeout(r, 2000 + Math.floor(Math.random() ** 2 * 6000)));
+        await new Promise(r => setTimeout(r, 1000 + Math.floor(Math.random() ** 2 * 4000)));
       }
     }
 
