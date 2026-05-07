@@ -411,7 +411,24 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
         if (!rawPrice) throw new Error('Precio no encontrado');
         const price = parseSpanishPrice(rawPrice);
         if (!isFinite(price) || price < 0.5) throw new Error(`Precio inválido: "${rawPrice}" → ${price}`);
-        const wasPriceRaw = rawWasPrice ? parseSpanishPrice(rawWasPrice) : null;
+
+        // If selector-based was_price failed, scan the full DOM for any strikethrough price > current
+        let wasPriceRaw = rawWasPrice ? parseSpanishPrice(rawWasPrice) : null;
+        if (!wasPriceRaw || wasPriceRaw <= price * 1.01) {
+          const fallback = await page.evaluate((currentPrice: number): string | null => {
+            // .a-text-price is Amazon's class for strikethrough/RRP prices
+            const candidates = Array.from(document.querySelectorAll('.a-text-price .a-offscreen, .basisPrice .a-offscreen'));
+            for (const el of candidates) {
+              const txt = el.textContent?.trim() ?? '';
+              if (txt) return txt;
+            }
+            return null;
+          }, price).catch(() => null);
+          if (fallback) {
+            const parsed = parseSpanishPrice(fallback);
+            if (isFinite(parsed) && parsed > price * 1.01) wasPriceRaw = parsed;
+          }
+        }
         const wasPrice = wasPriceRaw && wasPriceRaw > price * 1.01 ? wasPriceRaw : null;
 
         const extraImages: string[] = await page.evaluate((mainSrc: string | null): string[] => {
