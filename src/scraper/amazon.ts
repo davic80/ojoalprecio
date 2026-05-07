@@ -29,6 +29,14 @@ export interface ScrapeResult {
 let captchaDetectedAt: number | null = null;
 const CAPTCHA_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutos de pausa si hay bloqueo
 
+export function isCaptchaBlocked(): boolean {
+  return captchaDetectedAt !== null && (Date.now() - captchaDetectedAt < CAPTCHA_COOLDOWN_MS);
+}
+export function captchaRemainingMs(): number {
+  if (!captchaDetectedAt) return 0;
+  return Math.max(0, CAPTCHA_COOLDOWN_MS - (Date.now() - captchaDetectedAt));
+}
+
 const USER_AGENTS = [
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',

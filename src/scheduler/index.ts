@@ -2,7 +2,7 @@ import cron from 'node-cron';
 import { db } from '../db/client';
 import { products, priceHistory, alerts, alertEvents, users } from '../db/schema';
 import { eq, and, desc, min, isNull, sql } from 'drizzle-orm';
-import { scrapeProduct, affiliateUrl, ProductUnavailableError, CaptchaDetectedError } from '../scraper/amazon';
+import { scrapeProduct, affiliateUrl, ProductUnavailableError, CaptchaDetectedError, isCaptchaBlocked, captchaRemainingMs } from '../scraper/amazon';
 import { sendPriceAlert, sendBackInStockAlert } from '../mailer';
 import { sendTelegramAlert, sendTelegramBackInStock } from '../mailer/telegram';
 import { getSetting } from '../db/settings';
@@ -36,9 +36,18 @@ async function checkAllProducts(): Promise<void> {
   state.done = 0;
   state.log = [];
 
+  // Abort cycle early if IP is still in captcha cooldown
+  if (isCaptchaBlocked()) {
+    const secs = Math.round(captchaRemainingMs() / 1000);
+    console.log(`[scheduler] IP bloqueada, saltando ciclo. Cooldown restante: ${secs}s`);
+    isRunning = false;
+    state.isRunning = false;
+    return;
+  }
+
   // Read live settings from DB each cycle (env vars are fallback defaults)
   const CONCURRENCY = Math.max(1, Math.min(8,
-    Number(await getSetting('scraper_concurrency', parseInt(process.env.SCRAPER_CONCURRENCY ?? '3', 10)))));
+    Number(await getSetting('scraper_concurrency', parseInt(process.env.SCRAPER_CONCURRENCY ?? '1', 10)))));
   const RETRY_FAILED_PER_CYCLE = Math.max(0, Math.min(100,
     Number(await getSetting('retry_failed_per_cycle', parseInt(process.env.RETRY_FAILED_PER_CYCLE ?? '30', 10)))));
   const MIN_AGE_MINUTES = Math.max(1, Math.min(1440,
@@ -95,8 +104,8 @@ async function checkAllProducts(): Promise<void> {
         state.log.unshift({ id: product.id, name: product.name ?? product.asin, asin: product.asin, ok, ts: Date.now() });
         if (state.log.length > 50) state.log.pop();
         state.done++;
-        // Small random delay per worker to avoid simultaneous bursts
-        await new Promise(r => setTimeout(r, 1000 + Math.random() * 3000));
+        // Delay between products: randomised to mimic human browsing
+        await new Promise(r => setTimeout(r, 5000 + Math.random() * 7000));
       }
     }
 
