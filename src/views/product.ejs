@@ -19,7 +19,7 @@
   </a>
   <div class="navbar-actions">
     <% if (typeof isAdmin !== 'undefined' && isAdmin) { %>
-      <a href="/admin/categories" class="nav-link">Admin</a>
+      <a href="/admin" class="nav-link">Admin</a>
     <% } %>
     <a href="/account" class="user-email user-email-link"><%= user.email %></a>
     <form action="/auth/logout" method="POST" style="display:inline">
@@ -128,27 +128,61 @@
     </div>
   </div>
 
-  <!-- Manual refresh (admin only) -->
+  <!-- Admin panel -->
   <% if (isAdmin) { %>
-  <div class="toolbar" style="align-items:center;gap:12px;flex-wrap:wrap">
-    <button
-      id="refresh-btn"
-      class="btn <%= product.isFailed ? 'btn-primary' : 'btn-outline' %> btn-sm"
-      hx-post="/products/<%= product.id %>/refresh"
-      hx-disabled-elt="#refresh-btn"
-      hx-on::before-request="this.textContent='Actualizando…'"
-      hx-on::after-request="location.reload()"
-    >
-      <%= product.isFailed ? '↺ Reintentar scrape' : 'Actualizar ahora' %>
-    </button>
-    <% if (history.length > 0) { %>
-      <span class="hint">Último scrape: <%= new Date(history[0].scrapedAt).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' }) %></span>
-    <% } else { %>
-      <span class="hint" style="color:var(--gray-400)">Sin datos todavía</span>
-    <% } %>
-    <% if (product.isFailed) { %>
-      <span style="font-size:12px;color:#b91c1c;font-weight:500"><%= product.consecutiveFailures %> errores consecutivos</span>
-    <% } %>
+  <div class="card" style="border-left:3px solid var(--primary,#e63946);margin-bottom:20px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+      <div style="font-size:13px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.06em">Panel de admin</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button
+          id="refresh-btn"
+          class="btn <%= product.isFailed ? 'btn-primary' : 'btn-outline' %> btn-sm"
+          hx-post="/products/<%= product.id %>/refresh"
+          hx-disabled-elt="#refresh-btn"
+          hx-on::before-request="this.textContent='Actualizando…'"
+          hx-on::after-request="location.reload()"
+        ><%= product.isFailed ? '↺ Reintentar' : '↺ Forzar scrape' %></button>
+        <button
+          class="btn btn-danger btn-sm"
+          hx-delete="/products/<%= product.id %>"
+          hx-confirm="¿Eliminar este producto y todo su historial de precios? Esta acción no se puede deshacer."
+        >Eliminar producto</button>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:24px;flex-wrap:wrap;font-size:13px">
+      <div>
+        <div style="font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Propietario</div>
+        <% if (productOwner) { %>
+          <a href="/admin/users?q=<%= encodeURIComponent(productOwner.email) %>" style="color:var(--primary,#e63946);font-weight:500"><%= productOwner.email %></a>
+          <span style="color:var(--gray-400);margin-left:4px">#<%= productOwner.id %></span>
+        <% } else { %>
+          <span style="color:var(--gray-400)">—</span>
+        <% } %>
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">ID producto</div>
+        <span style="font-family:monospace;font-weight:600">#<%= product.id %></span>
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Añadido</div>
+        <span><%= new Date(product.createdAt).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' }) %></span>
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Último scrape</div>
+        <% if (history.length > 0) { %>
+          <span><%= new Date(history[0].scrapedAt).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' }) %></span>
+        <% } else { %>
+          <span style="color:var(--gray-400)">Sin datos</span>
+        <% } %>
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Fallos</div>
+        <span style="<%= product.isFailed ? 'color:#b91c1c;font-weight:600' : '' %>">
+          <%= product.consecutiveFailures %> consec · <%= product.totalFailures ?? 0 %> total
+        </span>
+      </div>
+    </div>
   </div>
   <% } %>
 
@@ -238,6 +272,7 @@
               <th>Fecha</th>
               <th>Precio</th>
               <th>Variación</th>
+              <% if (isAdmin) { %><th></th><% } %>
             </tr>
           </thead>
           <tbody>
@@ -246,7 +281,7 @@
               const diff = prev ? parseFloat(h.price) - parseFloat(prev.price) : null;
               const pct = (prev && parseFloat(prev.price) !== 0) ? diff / parseFloat(prev.price) * 100 : null;
             %>
-              <tr>
+              <tr id="hist-<%= h.id %>">
                 <td><%= new Date(h.scrapedAt).toLocaleString('es-ES') %></td>
                 <td class="price-cell"><%= parseFloat(h.price).toFixed(2) %> €</td>
                 <td class="price-cell">
@@ -256,6 +291,18 @@
                     </span>
                   <% } else { %>—<% } %>
                 </td>
+                <% if (isAdmin) { %>
+                <td style="text-align:right;padding:4px 8px">
+                  <button
+                    class="btn btn-danger btn-sm"
+                    style="padding:2px 7px;font-size:11px"
+                    hx-delete="/products/<%= product.id %>/history/<%= h.id %>"
+                    hx-target="#hist-<%= h.id %>"
+                    hx-swap="outerHTML"
+                    hx-confirm="¿Eliminar este registro?"
+                  >×</button>
+                </td>
+                <% } %>
               </tr>
             <% }); %>
           </tbody>

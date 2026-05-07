@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { body, validationResult } from 'express-validator';
 import { db } from '../db/client';
-import { products, priceHistory, alerts, categories } from '../db/schema';
+import { products, priceHistory, alerts, categories, users } from '../db/schema';
 import { eq, and, desc, sql, asc, inArray } from 'drizzle-orm';
 import { extractAsin, normaliseAmazonUrl, scrapeProduct, scrapeWishlist, affiliateUrl, ProductUnavailableError } from '../scraper/amazon';
 import { requireAuth } from '../middleware/auth';
@@ -217,6 +217,11 @@ router.delete('/products/:id', requireAuth, async (req: Request, res: Response) 
   await db.delete(products).where(eq(products.id, productId));
 
   if (req.headers['hx-request']) {
+    const referer = String(req.headers.referer ?? '');
+    if (referer.includes(`/products/${productId}`)) {
+      res.setHeader('HX-Redirect', '/');
+      return res.status(200).send('');
+    }
     return res.send('');
   }
   res.json({ success: true });
@@ -247,9 +252,14 @@ router.get('/products/:id', requireAuth, async (req: Request, res: Response) => 
     .from(alerts)
     .where(and(eq(alerts.productId, productId), eq(alerts.userId, userId)));
 
-  const [allCategories, viewCountRow] = await Promise.all([
+  const adminUser = isAdmin(req);
+
+  const [allCategories, viewCountRow, ownerRow] = await Promise.all([
     db.select().from(categories).orderBy(asc(categories.name)),
     db.execute(sql`SELECT COALESCE(SUM(count),0) AS views FROM page_views WHERE path = ${'/p/' + product.asin}`),
+    adminUser
+      ? db.select({ id: users.id, email: users.email }).from(users).where(eq(users.id, product.userId)).limit(1)
+      : Promise.resolve([] as { id: number; email: string }[]),
   ]);
 
   res.render('product', {
@@ -259,8 +269,9 @@ router.get('/products/:id', requireAuth, async (req: Request, res: Response) => 
     categories: allCategories,
     user: { email: req.session.userEmail },
     amazonUrl: affiliateUrl(product.url),
-    isAdmin: isAdmin(req),
+    isAdmin: adminUser,
     viewCount: parseInt(String((viewCountRow.rows[0] as any)?.views ?? '0'), 10),
+    productOwner: ownerRow[0] ?? null,
   });
 });
 
@@ -354,6 +365,18 @@ router.post('/products/:id/set-category', requireAuth, async (req: Request, res:
     return res.status(200).send('');
   }
   res.json({ success: true });
+});
+
+// ── DELETE /products/:id/history/:historyId — Delete single price record ──────
+router.delete('/products/:id/history/:historyId', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const productId  = parseInt(String(req.params.id), 10);
+  const historyId  = parseInt(String(req.params.historyId), 10);
+
+  await db
+    .delete(priceHistory)
+    .where(and(eq(priceHistory.id, historyId), eq(priceHistory.productId, productId)));
+
+  return res.status(200).send('');
 });
 
 // ── POST /products/import-wishlist ────────────────────────────────────────────
