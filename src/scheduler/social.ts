@@ -2,16 +2,21 @@ import cron from 'node-cron';
 import { db } from '../db/client';
 import { sql } from 'drizzle-orm';
 import { affiliateUrl } from '../scraper/amazon';
+import { getSetting } from '../db/settings';
 
 const SITE_URL = process.env.SITE_URL ?? 'https://ojoalprecio.com';
 
-function telegramEnabled(): boolean {
-  return !!(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_PUBLIC_CHANNEL);
+async function getTelegramChannel(): Promise<string> {
+  return String(await getSetting('telegram_public_channel', process.env.TELEGRAM_PUBLIC_CHANNEL ?? ''));
+}
+
+async function telegramEnabled(): Promise<boolean> {
+  return !!(process.env.TELEGRAM_BOT_TOKEN && await getTelegramChannel());
 }
 
 async function sendTelegramPost(text: string): Promise<string | null> {
   const token   = process.env.TELEGRAM_BOT_TOKEN;
-  const channel = process.env.TELEGRAM_PUBLIC_CHANNEL;
+  const channel = await getTelegramChannel();
   if (!token || !channel) return null;
 
   const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -85,7 +90,7 @@ export async function postDailyDeal(): Promise<void> {
   const tgText = buildTelegramText(deal);
 
   // Telegram
-  if (telegramEnabled()) {
+  if (await telegramEnabled()) {
     try {
       const msgId = await sendTelegramPost(tgText);
       if (msgId) {
@@ -104,11 +109,8 @@ export async function postDailyDeal(): Promise<void> {
 export const POST_HOURS = [9, 13, 21];
 
 export function startSocialScheduler(): void {
-  const telegramOk = telegramEnabled();
-  if (!telegramOk) {
-    console.log('[social] Sin TELEGRAM_PUBLIC_CHANNEL configurado, scheduler desactivado.');
-    return;
-  }
+  // Telegram enablement is checked per-run from DB; always start the cron.
+  // sendDeal() will skip posting if neither token nor channel is set.
   const tz = 'Europe/Madrid';
   console.log(`[social] Scheduler activado — publica a las ${POST_HOURS.map(h => h + ':00').join(', ')} hora Madrid.`);
   cron.schedule('0 9 * * *',  () => { postDailyDeal(); }, { timezone: tz });

@@ -382,6 +382,14 @@ const MIGRATIONS = [
   `,
   // Migration 30: is_default flag on alerts — marks auto-created 1% watch alerts
   `ALTER TABLE alerts ADD COLUMN IF NOT EXISTS is_default BOOLEAN DEFAULT FALSE NOT NULL;`,
+  // Migration 31: telegram_public_channel moves from .env to app_settings for runtime control
+  `
+  INSERT INTO app_settings (key, value, value_type, label, hint) VALUES
+    ('telegram_public_channel', '', 'string',
+     'Canal público de Telegram (handle sin @)',
+     'Handle del canal donde se publican ofertas automáticamente (ej: ojoalprecio). Vacío = desactivado.')
+  ON CONFLICT (key) DO NOTHING;
+  `,
 ];
 
 export async function migrate(): Promise<void> {

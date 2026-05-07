@@ -611,11 +611,12 @@ router.delete('/admin/lists/:id', requireAuth, requireAdmin, async (req: Request
 router.get('/admin/settings', requireAuth, requireAdmin, async (req: Request, res: Response) => {
   const settings = await getAllSettings();
   const envDefaults: Record<string, string> = {
-    category_import_enabled: 'true',
-    scraper_concurrency:     process.env.SCRAPER_CONCURRENCY     ?? '3',
-    retry_failed_per_cycle:  process.env.RETRY_FAILED_PER_CYCLE  ?? '30',
-    scraper_timeout_seconds: process.env.SCRAPER_TIMEOUT_SECONDS ?? '30',
-    min_age_minutes:         process.env.MIN_AGE_MS_MINUTES      ?? '59',
+    category_import_enabled:  'true',
+    scraper_concurrency:      '2',
+    retry_failed_per_cycle:   '30',
+    scraper_timeout_seconds:  '30',
+    min_age_minutes:          '59',
+    telegram_public_channel:  '',
   };
   res.render('admin-settings', { user: { email: req.session.userEmail }, settings, envDefaults });
 });
@@ -627,6 +628,7 @@ const SETTINGS_WHITELIST = new Set([
   'retry_failed_per_cycle',
   'scraper_timeout_seconds',
   'min_age_minutes',
+  'telegram_public_channel',
 ]);
 
 router.post('/admin/settings/:key', requireAuth, requireAdmin, async (req: Request, res: Response) => {

@@ -45,13 +45,11 @@ async function checkAllProducts(): Promise<void> {
     return;
   }
 
-  // Read live settings from DB each cycle (env vars are fallback defaults)
-  const CONCURRENCY = Math.max(1, Math.min(8,
-    Number(await getSetting('scraper_concurrency', parseInt(process.env.SCRAPER_CONCURRENCY ?? '1', 10)))));
-  const RETRY_FAILED_PER_CYCLE = Math.max(0, Math.min(100,
-    Number(await getSetting('retry_failed_per_cycle', parseInt(process.env.RETRY_FAILED_PER_CYCLE ?? '30', 10)))));
-  const MIN_AGE_MINUTES = Math.max(1, Math.min(1440,
-    Number(await getSetting('min_age_minutes', parseInt(process.env.MIN_AGE_MS_MINUTES ?? '59', 10)))));
+  // Read live settings from DB each cycle — DB is source of truth, no env fallbacks
+  const CONCURRENCY            = Math.max(1, Math.min(8,   Number(await getSetting('scraper_concurrency',    2))));
+  const RETRY_FAILED_PER_CYCLE = Math.max(0, Math.min(100, Number(await getSetting('retry_failed_per_cycle', 30))));
+  const MIN_AGE_MINUTES        = Math.max(1, Math.min(1440,Number(await getSetting('min_age_minutes',        59))));
+  const SCRAPER_TIMEOUT        = Math.max(15,Math.min(120, Number(await getSetting('scraper_timeout_seconds',30))));
   const MIN_AGE_MS = MIN_AGE_MINUTES * 60 * 1000;
 
   try {
@@ -96,7 +94,7 @@ async function checkAllProducts(): Promise<void> {
         state.current = { id: product.id, name: product.name ?? product.asin, asin: product.asin };
         let ok = true;
         try {
-          await checkProduct(product.id, product.url, product.name ?? product.asin);
+          await checkProduct(product.id, product.url, product.name ?? product.asin, SCRAPER_TIMEOUT);
         } catch (e) {
           ok = false;
           if (e instanceof CaptchaDetectedError) break; // stop this worker — whole IP is blocked
@@ -133,7 +131,7 @@ function calcSaleTier(currentPrice: number, reference: number): SaleInfo {
   return { isOnSale: false, saleTier: null, dealScore: null };
 }
 
-async function checkProduct(productId: number, url: string, label: string): Promise<void> {
+async function checkProduct(productId: number, url: string, label: string, timeoutSeconds = 30): Promise<void> {
   // Load current state to detect availability transitions and track failures
   const [current] = await db.select({ isAvailable: products.isAvailable, consecutiveFailures: products.consecutiveFailures }).from(products).where(eq(products.id, productId)).limit(1);
   const wasUnavailable = current ? !current.isAvailable : false;
@@ -154,7 +152,7 @@ async function checkProduct(productId: number, url: string, label: string): Prom
 
   try {
     console.log(`[scheduler] Scraping: ${label}`);
-    const result = await scrapeProduct(url);
+    const result = await scrapeProduct(url, timeoutSeconds);
 
     await db.insert(priceHistory).values({ productId, price: String(result.price), currency: result.currency });
 

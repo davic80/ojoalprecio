@@ -90,10 +90,9 @@ function parseSpanishPrice(raw: string): number {
 }
 
 // ── Configuración de Timeouts ────────────────────────────────────────────────
-const SCRAPER_TIMEOUT_SECONDS = Math.max(15, parseInt(process.env.SCRAPER_TIMEOUT_SECONDS ?? '30', 10));
-const HARD_TIMEOUT_MS         = SCRAPER_TIMEOUT_SECONDS * 1000;
-const PAGE_LOAD_TIMEOUT_MS    = Math.round(HARD_TIMEOUT_MS * 0.8);
-const LOCATOR_TIMEOUT_MS      = 10_000; // Aumentado para evitar fallos bajo carga
+// timeoutSeconds is passed per-call from the scheduler (reads app_settings DB).
+// These are fixed per-scrape constants that don't depend on the timeout param.
+const LOCATOR_TIMEOUT_MS      = 10_000;
 const PRICE_SELECTOR_WAIT_MS  = 4_000;
 const PRICE_LOCATOR_TIMEOUT_MS = 2_000;
 
@@ -327,9 +326,12 @@ export async function closeBrowser(): Promise<void> {
 
 // ── SCRAPE PRODUCT (LÓGICA COMPLETA) ─────────────────────────────────────────
 
-export async function scrapeProduct(url: string): Promise<ScrapeResult> {
+export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<ScrapeResult> {
   const asin = extractAsin(url);
   if (!asin) throw new Error(`ASIN inválido: ${url}`);
+
+  const hardTimeoutMs      = Math.max(15, timeoutSeconds) * 1000;
+  const pageLoadTimeoutMs  = Math.round(hardTimeoutMs * 0.8);
 
   const canonicalUrl = normaliseAmazonUrl(asin);
   const browser = await getBrowser();
@@ -338,14 +340,14 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
 
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   const hardTimeout = new Promise<never>((_, reject) => {
-    timeoutHandle = setTimeout(() => reject(new Error(`[hard_timeout] ${SCRAPER_TIMEOUT_SECONDS}s`)), HARD_TIMEOUT_MS);
+    timeoutHandle = setTimeout(() => reject(new Error(`[hard_timeout] ${timeoutSeconds}s`)), hardTimeoutMs);
   });
 
   try {
     const result = await Promise.race([
       (async (): Promise<ScrapeResult> => {
         await optimizePageForScraping(page);
-        await page.goto(canonicalUrl, { waitUntil: 'domcontentloaded', timeout: PAGE_LOAD_TIMEOUT_MS });
+        await page.goto(canonicalUrl, { waitUntil: 'domcontentloaded', timeout: pageLoadTimeoutMs });
 
         const pageTitle = await page.title();
 
