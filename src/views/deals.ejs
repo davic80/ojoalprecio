@@ -75,9 +75,10 @@
           <% group.deals.forEach(function(d) {
             const allImages = [d.imageUrl, ...d.extraImages].filter(Boolean).slice(0, 3);
             const hasCarousel = allImages.length > 1;
+            const productHref = (typeof user !== 'undefined' && user) ? '/products/' + d.id : '/p/' + d.asin;
           %>
             <div class="product-card">
-              <a href="/p/<%= d.asin %>" class="product-card-link">
+              <a href="<%= productHref %>" class="product-card-link">
                 <div class="product-img-wrap"<% if (hasCarousel) { %> data-images="<%- JSON.stringify(allImages).replace(/"/g, '&quot;') %>"<% } %>>
                   <% if (d.imageUrl) { %>
                     <img src="<%= d.imageUrl %>" alt="<%= d.name ?? d.asin %>" class="product-img" loading="lazy">
@@ -126,7 +127,7 @@
                 <% } %>
               </div>
               <div class="product-actions">
-                <a href="/p/<%= d.asin %>" class="btn btn-sm btn-outline">Ver historial</a>
+                <a href="<%= productHref %>" class="btn btn-sm btn-outline">Ver historial</a>
                 <a href="<%= d.amazonUrl %>" target="_blank" rel="noopener sponsored" class="btn btn-sm btn-primary">Amazon ↗</a>
               </div>
             </div>
