@@ -367,6 +367,23 @@ router.post('/products/:id/set-category', requireAuth, async (req: Request, res:
   res.json({ success: true });
 });
 
+// ── POST /products/:id/set-was-price — Admin: manually set was_price ─────────
+router.post('/products/:id/set-was-price', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const productId = parseInt(String(req.params.id), 10);
+  const raw = String(req.body.wasPrice ?? '').trim();
+  const wasPrice = raw === '' ? null : parseFloat(raw);
+
+  if (wasPrice !== null && (!isFinite(wasPrice) || wasPrice < 0.5)) {
+    return res.status(400).send('Valor inválido');
+  }
+
+  await db.update(products)
+    .set({ wasPrice: wasPrice != null ? String(wasPrice.toFixed(2)) : null })
+    .where(eq(products.id, productId));
+
+  return res.send('✓ Guardado');
+});
+
 // ── DELETE /products/:id/history/:historyId — Delete single price record ──────
 router.delete('/products/:id/history/:historyId', requireAuth, requireAdmin, async (req: Request, res: Response) => {
   const productId  = parseInt(String(req.params.id), 10);

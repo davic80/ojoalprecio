@@ -202,6 +202,18 @@
           <%= product.consecutiveFailures %> consec · <%= product.totalFailures ?? 0 %> total
         </span>
       </div>
+      <div>
+        <div style="font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">PVP recomendado</div>
+        <form hx-post="/products/<%= product.id %>/set-was-price" hx-target="#was-price-msg" hx-swap="innerHTML" style="display:flex;align-items:center;gap:6px">
+          <input type="number" name="wasPrice" min="0" step="0.01"
+            value="<%= wasPrice ? wasPrice.toFixed(2) : '' %>"
+            placeholder="0.00"
+            class="input" style="width:90px;padding:4px 8px;font-size:13px;text-align:right">
+          <span style="font-size:13px;color:var(--gray-500)">€</span>
+          <button type="submit" class="btn btn-outline btn-sm">Fijar</button>
+          <span id="was-price-msg" style="font-size:12px;color:var(--success,#16a34a)"></span>
+        </form>
+      </div>
     </div>
   </div>
   <% } %>

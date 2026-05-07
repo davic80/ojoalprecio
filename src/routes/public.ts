@@ -145,7 +145,15 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
   `);
 
   const product = (rows.rows as any[])[0];
-  if (!product) return res.status(404).render('404', { user: null });
+  if (!product) {
+    // If logged in, try to find the product by ASIN regardless of public status
+    if (req.session.userId) {
+      const anyRow = await db.execute(sql`SELECT id FROM products WHERE asin = ${asin} LIMIT 1`);
+      const any = (anyRow.rows as any[])[0];
+      if (any) return res.redirect(`/products/${any.id}`);
+    }
+    return res.status(404).render('404', { user: req.session.userId ? { email: req.session.userEmail } : null });
+  }
 
   const history = await db
     .select()
