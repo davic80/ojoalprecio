@@ -8,7 +8,7 @@ import { isAdmin } from '../middleware/admin';
 const router = Router();
 
 // ── GET /ofertas — Public deals page ─────────────────────────────────────────
-router.get('/ofertas', async (_req: Request, res: Response) => {
+router.get('/ofertas', async (req: Request, res: Response) => {
   const rows = await db.execute(sql`
     SELECT
       p.id, p.asin, p.name, p.image_url AS "imageUrl", p.extra_images AS "extraImages", p.url,
@@ -71,7 +71,11 @@ router.get('/ofertas', async (_req: Request, res: Response) => {
     }),
   }));
 
-  res.render('deals', { groups });
+  res.render('deals', {
+    groups,
+    user: req.session.userId ? { email: req.session.userEmail } : null,
+    isAdmin: isAdmin(req),
+  });
 });
 
 // ── GET /c/:slug — Public category page ──────────────────────────────────────
