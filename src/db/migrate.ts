@@ -370,7 +370,7 @@ const MIGRATIONS = [
   INSERT INTO app_settings (key, value, value_type, label, hint) VALUES
     ('category_import_enabled', 'true', 'boolean', 'Importación automática de categorías',
      'Activa o desactiva el scraping horario de categorías de Amazon para añadir productos nuevos.'),
-    ('scraper_concurrency',     '3',    'integer', 'Workers Chromium en paralelo (1–8)',
+    ('scraper_concurrency',     '1',    'integer', 'Workers Chromium en paralelo (1–8)',
      'Número de instancias de Chromium que se ejecutan simultáneamente. Reduce si la Pi se satura.'),
     ('retry_failed_per_cycle',  '30',   'integer', 'Productos fallidos a reintentar por ciclo (0–100)',
      'Cuántos productos marcados como fallidos se reintroducen en cada ciclo horario.'),
