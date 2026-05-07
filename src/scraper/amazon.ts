@@ -437,8 +437,10 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
             if (isFinite(parsed) && parsed > price * 1.01) { wasPriceRaw = parsed; wasPriceSrc = 'dom-fallback'; }
           }
         }
-        const wasPrice = wasPriceRaw && wasPriceRaw > price * 1.01 ? wasPriceRaw : null;
+        // Sanity check: real RRP is never more than 4× the deal price
+        const wasPrice = wasPriceRaw && wasPriceRaw > price * 1.01 && wasPriceRaw <= price * 4 ? wasPriceRaw : null;
         if (wasPrice) console.log(`[scraper] ${asin} → PVP ${wasPrice.toFixed(2)} € (${wasPriceSrc})`);
+        else if (wasPriceRaw && wasPriceRaw > price * 4) console.log(`[scraper] ${asin} → PVP descartado (${wasPriceRaw.toFixed(2)} € = ${(wasPriceRaw/price).toFixed(1)}x — probable falso positivo)`);
 
         const extraImages: string[] = await page.evaluate((mainSrc: string | null): string[] => {
           const normalize = (s: string) => s.replace(/\._[^.]+_\./, '.').split('/I/')[1] ?? '';
