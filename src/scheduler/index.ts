@@ -104,8 +104,8 @@ async function checkAllProducts(): Promise<void> {
         state.log.unshift({ id: product.id, name: product.name ?? product.asin, asin: product.asin, ok, ts: Date.now() });
         if (state.log.length > 50) state.log.pop();
         state.done++;
-        // Delay between products: randomised to mimic human browsing
-        await new Promise(r => setTimeout(r, 5000 + Math.random() * 7000));
+        // Delay skewed toward lower bound: x² pushes ~75% of values into the bottom half of the range
+        await new Promise(r => setTimeout(r, 2000 + Math.floor(Math.random() ** 2 * 6000)));
       }
     }
 
