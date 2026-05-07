@@ -329,10 +329,35 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
         // count() is instant — no wait. All product pages have #dp in static HTML.
         const dpCount = await page.locator('#dp, #dp-container').count();
         if (isTitleBlock || dpCount === 0) {
-          captchaDetectedAt = Date.now();
-          _storageStatePromise = null;
-          const bodySnippet = (await page.textContent('body') ?? '').slice(0, 120).replace(/\s+/g, ' ');
-          throw new CaptchaDetectedError(`Bloqueo Amazon (título: "${pageTitle}" | body: "${bodySnippet}")`);
+          // Try clicking through Amazon's interstitial ("Haz clic en el botón de abajo para seguir")
+          const bodyText = (await page.textContent('body') ?? '').slice(0, 300).replace(/\s+/g, ' ');
+          if (bodyText.includes('botón de abajo') || bodyText.includes('continuar')) {
+            const btn = page.locator('input[type="submit"], button[type="submit"], a.a-button-text').first();
+            if (await btn.count() > 0) {
+              console.log('[scraper] Interstitial detectado — intentando clic...');
+              await btn.click({ timeout: 3000 }).catch(() => {});
+              await randomDelay(1500, 2500);
+              // Re-check after click
+              const dpCountAfter = await page.locator('#dp, #dp-container').count();
+              if (dpCountAfter > 0) {
+                console.log('[scraper] Interstitial superado con clic.');
+                // Fall through to normal scraping below
+              } else {
+                captchaDetectedAt = Date.now();
+                _storageStatePromise = null;
+                throw new CaptchaDetectedError(`Bloqueo Amazon (título: "${pageTitle}" | body: "${bodyText.slice(0, 120)}")`);
+              }
+            } else {
+              captchaDetectedAt = Date.now();
+              _storageStatePromise = null;
+              throw new CaptchaDetectedError(`Bloqueo Amazon (título: "${pageTitle}" | body: "${bodyText.slice(0, 120)}")`);
+            }
+          } else {
+            captchaDetectedAt = Date.now();
+            _storageStatePromise = null;
+            const bodySnippet = bodyText.slice(0, 120);
+            throw new CaptchaDetectedError(`Bloqueo Amazon (título: "${pageTitle}" | body: "${bodySnippet}")`);
+          }
         }
 
         // Phase 1: name + availability in parallel (both instant after domcontentloaded)
@@ -369,6 +394,7 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
 
         if (!rawPrice) throw new Error('Precio no encontrado');
         const price = parseSpanishPrice(rawPrice);
+        if (!isFinite(price) || price < 0.5) throw new Error(`Precio inválido: "${rawPrice}" → ${price}`);
         const wasPriceRaw = rawWasPrice ? parseSpanishPrice(rawWasPrice) : null;
         const wasPrice = wasPriceRaw && wasPriceRaw > price * 1.01 ? wasPriceRaw : null;
 
