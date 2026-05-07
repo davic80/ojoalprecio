@@ -106,12 +106,32 @@
       const currentPrice = prices[0] ?? null;
       const minPrice = prices.length ? Math.min(...prices) : null;
       const maxPrice = prices.length ? Math.max(...prices) : null;
+      const wasPrice = product.wasPrice ? parseFloat(String(product.wasPrice)) : null;
+      const discountPct = (wasPrice && currentPrice && wasPrice > currentPrice)
+        ? Math.round((wasPrice - currentPrice) / wasPrice * 100) : null;
+      const saleTierLabels = { 'oferta': 'Oferta', 'super-oferta': 'Super Oferta', 'mega-oferta': 'Mega Oferta', 'broooooferton': 'Brooooofertón', '67oferta': '67% oferta' };
     %>
     <div class="price-stats">
       <a href="<%= amazonUrl %>" target="_blank" rel="noopener sponsored" class="stat-box stat-current stat-box-link" title="Ver en Amazon.es">
         <div class="stat-label">Precio actual ↗</div>
+        <% if (wasPrice && discountPct && product.isAvailable) { %>
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
+            <span style="font-size:13px;text-decoration:line-through;color:var(--gray-400)"><%= wasPrice.toFixed(2) %> €</span>
+            <span style="font-size:12px;font-weight:700;background:#dc2626;color:#fff;border-radius:4px;padding:1px 5px">-<%= discountPct %>%</span>
+          </div>
+        <% } %>
         <div class="stat-value"><%= !product.isAvailable ? 'Sin stock' : (currentPrice ? currentPrice.toFixed(2) + ' €' : '—') %></div>
+        <% if (product.isOnSale && product.saleTier) { %>
+          <div style="margin-top:4px"><span class="badge-sale badge-tier-<%= product.saleTier %>"><%= saleTierLabels[product.saleTier] || 'Oferta' %></span></div>
+        <% } %>
       </a>
+      <% if (wasPrice) { %>
+      <div class="stat-box" style="border-left:3px solid #dc2626">
+        <div class="stat-label">PVP recomendado</div>
+        <div class="stat-value" style="text-decoration:line-through;color:var(--gray-400)"><%= wasPrice.toFixed(2) %> €</div>
+        <% if (discountPct) { %><div class="stat-sublabel" style="color:#dc2626;font-weight:600">Ahorras un <%= discountPct %>%</div><% } %>
+      </div>
+      <% } %>
       <div class="stat-box stat-min">
         <div class="stat-label">Precio mínimo</div>
         <div class="stat-value"><%= minPrice ? minPrice.toFixed(2) + ' €' : '—' %></div>

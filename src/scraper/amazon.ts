@@ -119,16 +119,24 @@ const PRICE_SELECTORS = [
   '.a-price .a-offscreen',
 ];
 const WAS_PRICE_SELECTORS = [
+  // basisPrice — most common for Amazon.es RRP
   '#corePriceDisplay_desktop_feature_div .basisPrice .a-offscreen',
+  '#corePrice_desktop_feature_div .basisPrice .a-offscreen',
+  '#corePrice_feature_div .basisPrice .a-offscreen',
   '#corePrice_desktop .basisPrice .a-offscreen',
+  '#apex_desktop .basisPrice .a-offscreen',
+  '#rightCol .basisPrice .a-offscreen',
   '.basisPrice .a-offscreen',
-  // "Precio recomendado" shown as strikethrough next to current price
+  // a-text-price — strikethrough "Antes: X€" shown next to deal price
   '#corePriceDisplay_desktop_feature_div .a-price.a-text-price .a-offscreen',
   '#corePrice_feature_div .a-price.a-text-price .a-offscreen',
   '#corePrice_desktop .a-price.a-text-price .a-offscreen',
-  // Deal / savings block (e.g. "Antes: 429,00 €")
-  '.a-section.a-spacing-small .a-price.a-text-price .a-offscreen',
   '#apex_desktop_qualifiedBuybox .a-text-price .a-offscreen',
+  '#apex_desktop .a-text-price .a-offscreen',
+  // Generic fallbacks for deal/savings blocks
+  '.a-section.a-spacing-small .a-price.a-text-price .a-offscreen',
+  '[data-feature-name="corePriceDisplay"] .basisPrice .a-offscreen',
+  '[data-feature-name="corePrice"] .basisPrice .a-offscreen',
 ];
 
 const BLOCKED_DOMAINS = [
@@ -390,7 +398,7 @@ export async function scrapeProduct(url: string): Promise<ScrapeResult> {
           ).catch(() => ''),
           Promise.any(
             WAS_PRICE_SELECTORS.map(sel =>
-              page.locator(sel).first().textContent({ timeout: 2_000 }).then(t => {
+              page.locator(sel).first().textContent({ timeout: 4_000 }).then(t => {
                 const s = t?.trim() ?? '';
                 if (!s) throw new Error('empty');
                 return s;
