@@ -380,6 +380,8 @@ const MIGRATIONS = [
      'Un producto no se vuelve a scrapear si fue comprobado más recientemente que este valor.')
   ON CONFLICT (key) DO NOTHING;
   `,
+  // Migration 30: is_default flag on alerts — marks auto-created 1% watch alerts
+  `ALTER TABLE alerts ADD COLUMN IF NOT EXISTS is_default BOOLEAN DEFAULT FALSE NOT NULL;`,
 ];
 
 export async function migrate(): Promise<void> {

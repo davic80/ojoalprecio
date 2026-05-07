@@ -477,7 +477,8 @@
               <%
                 let alertLabel = '';
                 if (alert.alertType === 'percent') {
-                  alertLabel = '−' + parseFloat(alert.percentageDrop).toFixed(0) + '% desde ' + parseFloat(alert.referencePrice).toFixed(2) + ' €';
+                  const refP = alert.referencePrice ? parseFloat(alert.referencePrice) : null;
+                  alertLabel = '−' + parseFloat(alert.percentageDrop).toFixed(0) + '%' + (refP ? ' desde ' + refP.toFixed(2) + ' €' : ' (pendiente primer precio)');
                 } else if (alert.alertType === 'alltime_low') {
                   alertLabel = 'Nuevo precio mínimo';
                 } else if (alert.alertType === 'stock') {
@@ -487,6 +488,7 @@
                 }
               %>
               <span class="alert-threshold"><%= alertLabel %></span>
+              <% if (alert.isDefault) { %><span class="alert-badge" style="background:var(--muted,#6b7280);color:#fff;font-size:0.68rem;padding:1px 6px;border-radius:4px">auto</span><% } %>
               <span class="alert-email"><%= alert.notificationEmail %></span>
               <% if (alert.notifiedAt) { %>
                 <span class="alert-badge badge-triggered">Enviada <%= new Date(alert.notifiedAt).toLocaleString('es-ES') %></span>

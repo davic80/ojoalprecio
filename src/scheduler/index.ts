@@ -325,8 +325,13 @@ async function processAlerts(
     } else if (type === 'percent') {
       const ref = parseFloat(String(alert.referencePrice ?? 0));
       const drop = parseFloat(String(alert.percentageDrop ?? 0));
+      // No referencePrice yet (immediate scrape failed when product was added) — initialize now, fire next cycle
+      if (ref === 0) {
+        await db.update(alerts).set({ referencePrice: String(currentPrice.toFixed(2)) }).where(eq(alerts.id, alert.id));
+        continue;
+      }
       const targetPrice = ref * (1 - drop / 100);
-      shouldFire = ref > 0 && drop > 0 && currentPrice <= targetPrice;
+      shouldFire = drop > 0 && currentPrice <= targetPrice;
       thresholdLabel = `−${drop.toFixed(0)}% desde ${ref.toFixed(2)} €`;
       if (alert.notifiedAt && currentPrice > targetPrice + 0.01) {
         await db.update(alerts).set({ notifiedAt: null }).where(eq(alerts.id, alert.id));

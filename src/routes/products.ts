@@ -169,6 +169,24 @@ router.post(
       .values({ userId, asin, url: canonicalUrl })
       .returning();
 
+    // Default 1% drop alert for regular users (not admin)
+    const userEmail = req.session.userEmail!;
+    let defaultAlertId: number | null = null;
+    if (!isAdmin(req)) {
+      const [defaultAlert] = await db.insert(alerts).values({
+        productId: product.id,
+        userId,
+        alertType: 'percent',
+        percentageDrop: '1.00',
+        referencePrice: null,
+        notificationEmail: userEmail,
+        notificationChannel: 'email',
+        isActive: true,
+        isDefault: true,
+      }).returning({ id: alerts.id });
+      defaultAlertId = defaultAlert.id;
+    }
+
     // Trigger an immediate scrape in background (non-blocking)
     scrapeProduct(canonicalUrl)
       .then(async (result) => {
@@ -182,6 +200,13 @@ router.post(
           price: String(result.price),
           currency: result.currency,
         });
+
+        // Set referencePrice on the default alert so it starts tracking from current price
+        if (defaultAlertId !== null) {
+          await db.update(alerts)
+            .set({ referencePrice: String(result.price.toFixed(2)) })
+            .where(eq(alerts.id, defaultAlertId));
+        }
       })
       .catch(async (err) => {
         if (err instanceof ProductUnavailableError) {
@@ -427,9 +452,25 @@ router.post('/products/import-wishlist', requireAuth, async (req: Request, res: 
     const [product] = await db.insert(products).values({ userId, asin, url: canonicalUrl }).returning();
     added++;
 
+    // Default 1% alert for wishlist imports (non-admin)
+    const wishlistUserEmail = req.session.userEmail!;
+    let wishlistDefaultAlertId: number | null = null;
+    if (!isAdmin(req)) {
+      const [da] = await db.insert(alerts).values({
+        productId: product.id, userId,
+        alertType: 'percent', percentageDrop: '1.00', referencePrice: null,
+        notificationEmail: wishlistUserEmail, notificationChannel: 'email',
+        isActive: true, isDefault: true,
+      }).returning({ id: alerts.id });
+      wishlistDefaultAlertId = da.id;
+    }
+
     scrapeProduct(canonicalUrl).then(async result => {
       await db.update(products).set({ name: result.name, imageUrl: result.imageUrl, extraImages: result.extraImages.length ? JSON.stringify(result.extraImages) : null, lastError: null }).where(eq(products.id, product.id));
       await db.insert(priceHistory).values({ productId: product.id, price: String(result.price), currency: result.currency });
+      if (wishlistDefaultAlertId !== null) {
+        await db.update(alerts).set({ referencePrice: String(result.price.toFixed(2)) }).where(eq(alerts.id, wishlistDefaultAlertId));
+      }
     }).catch(async err => {
       const msg = err instanceof Error ? err.message : String(err);
       await db.update(products).set({ lastError: msg }).where(eq(products.id, product.id));

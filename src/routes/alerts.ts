@@ -49,6 +49,9 @@ router.post(
       referencePrice = latest?.price ?? undefined;
     }
 
+    // Remove the auto-created default alert for this product when user sets a custom one
+    await db.delete(alerts).where(and(eq(alerts.productId, productId), eq(alerts.userId, userId), eq(alerts.isDefault, true)));
+
     await db.insert(alerts).values({
       productId,
       userId,
@@ -61,6 +64,7 @@ router.post(
       notificationChannel: notificationChannel ?? 'email',
       telegramChatId: telegramChatId || null,
       isActive: true,
+      isDefault: false,
     });
 
     if (req.headers['hx-request']) {

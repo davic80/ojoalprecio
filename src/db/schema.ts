@@ -91,6 +91,7 @@ export const alerts = pgTable('alerts', {
   notificationChannel: varchar('notification_channel', { length: 20 }).default('email').notNull(),
   telegramChatId: varchar('telegram_chat_id', { length: 50 }),
   isActive: boolean('is_active').default(true).notNull(),
+  isDefault: boolean('is_default').default(false).notNull(),
   notifiedAt: timestamp('notified_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
