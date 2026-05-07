@@ -142,7 +142,6 @@ async function checkProduct(productId: number, url: string, label: string): Prom
   const statsResult = await db.execute(sql`
     SELECT
       MAX(price)::float                                      AS all_time_max,
-      MIN(price)::float                                      AS all_time_min,
       COUNT(*)::int                                          AS scrape_count,
       EXTRACT(DAY FROM (NOW() - MIN(scraped_at)))::int       AS days_span
     FROM price_history
@@ -150,20 +149,12 @@ async function checkProduct(productId: number, url: string, label: string): Prom
   `);
   const statsRow    = statsResult.rows[0] as any;
   const allTimeMax  = (statsRow?.all_time_max  ?? null)  as number | null;
-  const allTimeMin  = (statsRow?.all_time_min  ?? null)  as number | null;
   const scrapeCount = (statsRow?.scrape_count  ?? 0)     as number;
   const daysSpan    = (statsRow?.days_span     ?? 0)     as number;
 
   try {
     console.log(`[scheduler] Scraping: ${label}`);
     const result = await scrapeProduct(url);
-
-    // Sanity check: reject prices that are implausibly low vs historical minimum.
-    // Catches DOM-mismatch bugs (e.g. accessory price instead of main product).
-    if (scrapeCount >= 5 && allTimeMin !== null && result.price < allTimeMin * 0.25) {
-      console.warn(`[scheduler] ${label} → precio sospechoso ${result.price} € (< 25% del mínimo histórico ${allTimeMin} €), ignorando`);
-      return;
-    }
 
     await db.insert(priceHistory).values({ productId, price: String(result.price), currency: result.currency });
 
