@@ -118,7 +118,10 @@ const CHROMIUM_ARGS = [
 const BLOCKED_TYPES = new Set(['media', 'other', 'ping', 'beacon']);
 
 const PRICE_SELECTORS = [
-  // Specific buybox containers — ordered most-to-least specific
+  // Buybox containers only — ordered most-to-least specific.
+  // No broad #dp fallback: if none of these match the product has no buybox price
+  // (variant unselected, unavailable) and should fail cleanly rather than grab
+  // an accessory / "frequently bought together" price from elsewhere in #dp.
   '#corePriceDisplay_desktop_feature_div .a-price:not(.a-text-price) .a-offscreen',
   '#corePrice_feature_div .a-price:not(.a-text-price) .a-offscreen',
   '#corePrice_desktop .a-price:not(.a-text-price) .a-offscreen',
@@ -128,8 +131,6 @@ const PRICE_SELECTORS = [
   '.a-price.aok-align-center .a-offscreen',
   '#priceblock_ourprice',
   '#priceblock_dealprice',
-  // Last resort: scoped to #dp (product detail page container) — avoids sponsored/accessories
-  '#dp .a-price:not(.a-text-price) .a-offscreen',
 ];
 const WAS_PRICE_SELECTORS = [
   // basisPrice — most common for Amazon.es RRP
