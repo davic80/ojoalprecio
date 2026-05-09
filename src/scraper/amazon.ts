@@ -421,14 +421,17 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
         if (!name) throw new Error('Título no encontrado');
         if (availabilityText?.toLowerCase().includes('no disponible')) throw new ProductUnavailableError('Producto no disponible');
 
-        // Detect "used-only" buybox: when there's no new offer available, Amazon
-        // promotes the cheapest used/refurbished offer into the same #corePrice
-        // container that normally holds the new buybox price. Our tightened
-        // selectors match it indiscriminately, so we have to filter here.
-        // Scope the textual check to the buybox containers themselves (not the
-        // whole page) to avoid false positives from "ver opciones de 2ª mano"
-        // links elsewhere on the page when a new offer IS present.
-        const isUsedBuybox = await page.evaluate(() => {
+        // Detect pages where Amazon has no qualifying offer of its own:
+        //  - 'used'        — main buybox has been replaced by a used/refurbished
+        //                    offer (#corePrice* contains "de 2ª mano" etc.)
+        //  - 'unqualified' — no qualified buybox at all; Amazon renders
+        //                    #unqualifiedBuyBox_feature_div instead (only third-
+        //                    party sellers, often at inflated prices, e.g.
+        //                    B01N7RLGIJ Mario Kart at 285€).
+        // In either case, our price selectors might still match something
+        // misleading, so we throw ProductUnavailableError here and let the
+        // existing no-stock flow record the product as unavailable.
+        const offerState: 'used' | 'unqualified' | null = await page.evaluate(() => {
           const containers = [
             '#corePriceDisplay_desktop_feature_div',
             '#corePrice_feature_div',
@@ -441,13 +444,18 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
             if (!el) continue;
             const text = (el.textContent ?? '').toLowerCase();
             if (/de 2[ªa]? ?mano|segunda mano|reacondicionado|renewed|certified refurbished|warehouse/.test(text)) {
-              return true;
+              return 'used';
             }
           }
-          return false;
-        }).catch(() => false);
-        if (isUsedBuybox) {
+          const unq = document.querySelector('#unqualifiedBuyBox_feature_div');
+          if (unq && (unq.textContent?.trim().length ?? 0) > 30) return 'unqualified';
+          return null;
+        }).catch(() => null);
+        if (offerState === 'used') {
           throw new ProductUnavailableError('Solo segunda mano / reacondicionado disponible');
+        }
+        if (offerState === 'unqualified') {
+          throw new ProductUnavailableError('Sin oferta de Amazon — solo terceros vendedores');
         }
 
         // Phase 2: price + wasPrice + image all in parallel
