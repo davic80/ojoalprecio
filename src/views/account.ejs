@@ -98,7 +98,7 @@
           %>
           <tr id="alert-row-<%= a.id %>">
             <td>
-              <a href="/products/<%= a.productId %>" style="font-weight:500; font-size:13px">
+              <a href="/p/<%= a.productAsin %>" style="font-weight:500; font-size:13px">
                 <%= a.productName ? (a.productName.length > 50 ? a.productName.slice(0,50) + '…' : a.productName) : a.productAsin %>
               </a>
             </td>

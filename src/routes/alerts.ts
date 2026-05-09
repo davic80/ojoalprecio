@@ -125,7 +125,8 @@ router.patch('/alerts/:id/reset', requireAuth, async (req: Request, res: Respons
     if (fromAccount) {
       res.setHeader('HX-Refresh', 'true');
     } else {
-      res.setHeader('HX-Redirect', `/products/${alert.productId}`);
+      const [prod] = await db.select({ asin: products.asin }).from(products).where(eq(products.id, alert.productId)).limit(1);
+      res.setHeader('HX-Redirect', prod ? `/p/${prod.asin}` : '/account');
     }
     return res.status(200).send('');
   }

@@ -298,23 +298,21 @@ router.delete('/products/:id', requireAuth, async (req: Request, res: Response) 
   res.json({ success: true });
 });
 
-// ── GET /products/:id — Product detail (admin / followers) ───────────────────
+// ── GET /products/:id — Internal admin management view ──────────────────────
+// All product viewing happens at /p/:asin (the canonical public page). This
+// route exists only for admin DB management (refresh, set was_price, delete
+// history records, toggle featured, set category, etc.). Non-admin users —
+// even followers — get redirected to /p/:asin where they see their alerts.
 router.get('/products/:id', requireAuth, async (req: Request, res: Response) => {
   const productId = parseInt(String(req.params.id), 10);
-  const userId = req.session.userId!;
 
   const [product] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
   if (!product) return res.status(404).render('404', { user: { email: req.session.userEmail } });
 
   if (!isAdmin(req)) {
-    const [follow] = await db.select().from(userProducts)
-      .where(and(eq(userProducts.userId, userId), eq(userProducts.productId, productId)))
-      .limit(1);
-    if (!follow) {
-      // Non-follower regular user: send them to the public page instead
-      return res.redirect(`/p/${product.asin}`);
-    }
+    return res.redirect(`/p/${product.asin}`);
   }
+  const userId = req.session.userId!;
 
   const history = await db
     .select()

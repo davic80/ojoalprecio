@@ -240,7 +240,7 @@ function trendBadge(current, previous) {
         <input type="checkbox" class="product-checkbox" data-id="<%= p.id %>">
       </label>
       <% } %>
-      <a href="/products/<%= p.id %>" class="product-card-link">
+      <a href="/p/<%= p.asin %>" class="product-card-link">
         <div class="product-img-wrap">
           <% if (p.imageUrl) { %>
             <img src="<%= p.imageUrl %>" alt="<%= p.name ?? p.asin %>" class="product-img" loading="lazy">
@@ -296,7 +296,7 @@ function trendBadge(current, previous) {
       </div>
 
       <div class="product-actions">
-        <a href="/products/<%= p.id %>" class="btn btn-sm btn-outline">Ver historial</a>
+        <a href="/p/<%= p.asin %>" class="btn btn-sm btn-outline">Ver historial</a>
         <% if (typeof isAdmin !== 'undefined' && isAdmin) { %>
           <button
             class="btn btn-sm public-toggle"

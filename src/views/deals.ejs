@@ -75,7 +75,7 @@
           <% group.deals.forEach(function(d) {
             const allImages = [d.imageUrl, ...d.extraImages].filter(Boolean).slice(0, 3);
             const hasCarousel = allImages.length > 1;
-            const productHref = (typeof user !== 'undefined' && user) ? '/products/' + d.id : '/p/' + d.asin;
+            const productHref = '/p/' + d.asin;
           %>
             <div class="product-card">
               <a href="<%= productHref %>" class="product-card-link">

@@ -30,6 +30,11 @@
 
 <main class="container">
 
+  <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 12px;margin-bottom:16px;font-size:13px;color:#475569">
+    🔧 <strong>Vista interna de gestión</strong> — la página pública del producto está en
+    <a href="/p/<%= product.asin %>" target="_blank" style="color:#2563eb">/p/<%= product.asin %> ↗</a>
+  </div>
+
   <div class="back-link">
     <a href="/" onclick="if(history.length>1){event.preventDefault();history.back()}">← Volver al dashboard</a>
   </div>
