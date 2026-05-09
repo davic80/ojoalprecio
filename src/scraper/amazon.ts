@@ -416,6 +416,35 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
         if (!name) throw new Error('Título no encontrado');
         if (availabilityText?.toLowerCase().includes('no disponible')) throw new ProductUnavailableError('Producto no disponible');
 
+        // Detect "used-only" buybox: when there's no new offer available, Amazon
+        // promotes the cheapest used/refurbished offer into the same #corePrice
+        // container that normally holds the new buybox price. Our tightened
+        // selectors match it indiscriminately, so we have to filter here.
+        // Scope the textual check to the buybox containers themselves (not the
+        // whole page) to avoid false positives from "ver opciones de 2ª mano"
+        // links elsewhere on the page when a new offer IS present.
+        const isUsedBuybox = await page.evaluate(() => {
+          const containers = [
+            '#corePriceDisplay_desktop_feature_div',
+            '#corePrice_feature_div',
+            '#corePrice_desktop',
+            '#apex_desktop_qualifiedBuybox',
+            '#tabular-buybox',
+          ];
+          for (const sel of containers) {
+            const el = document.querySelector(sel);
+            if (!el) continue;
+            const text = (el.textContent ?? '').toLowerCase();
+            if (/de 2[ªa]? ?mano|segunda mano|reacondicionado|renewed|certified refurbished|warehouse/.test(text)) {
+              return true;
+            }
+          }
+          return false;
+        }).catch(() => false);
+        if (isUsedBuybox) {
+          throw new ProductUnavailableError('Solo segunda mano / reacondicionado disponible');
+        }
+
         // Phase 2: price + wasPrice + image all in parallel
         // Promise.any races all selectors simultaneously — resolves on first non-empty match
         const [rawPrice, rawWasPrice, imageUrl] = await Promise.all([
