@@ -99,7 +99,7 @@
             <% } %>
           </td>
           <td style="max-width:280px">
-            <a href="/products/<%= d.id %>" class="hint-link" style="font-size:13px;font-weight:500;">
+            <a href="/p/<%= d.asin %>" class="hint-link" style="font-size:13px;font-weight:500;">
               <%= d.name ? (d.name.length > 70 ? d.name.slice(0,70) + '…' : d.name) : d.asin %>
             </a>
             <% if (atMin) { %>

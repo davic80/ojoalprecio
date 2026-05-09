@@ -116,8 +116,80 @@ router.post('/admin/categories/:id/rename', requireAuth, requireAdmin, async (re
   res.redirect('/admin/categories');
 });
 
-// ── GET /admin/alerts ─────────────────────────────────────────────────────────
+// ── GET /admin/alerts — Configured alerts (filterable list) ───────────────────
 router.get('/admin/alerts', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const q          = String(req.query.q          ?? '').trim();
+  const userEmail  = String(req.query.user       ?? '').trim();
+  const alertType  = String(req.query.type       ?? '').trim();
+  const channel    = String(req.query.channel    ?? '').trim();
+  const status     = String(req.query.status     ?? '').trim(); // active | notified | inactive | default
+  const sort       = ['recent', 'oldest', 'user', 'product'].includes(String(req.query.sort ?? '')) ? String(req.query.sort) : 'recent';
+
+  const where: any[] = [];
+  if (q)         where.push(sql`(p.name ILIKE ${'%' + q + '%'} OR p.asin ILIKE ${'%' + q + '%'})`);
+  if (userEmail) where.push(sql`u.email = ${userEmail}`);
+  if (alertType) where.push(sql`a.alert_type = ${alertType}`);
+  if (channel)   where.push(sql`a.notification_channel = ${channel}`);
+  if (status === 'active')   where.push(sql`a.is_active = TRUE  AND a.notified_at IS NULL`);
+  if (status === 'notified') where.push(sql`a.notified_at IS NOT NULL`);
+  if (status === 'inactive') where.push(sql`a.is_active = FALSE`);
+  if (status === 'default')  where.push(sql`a.is_default = TRUE`);
+  if (status === 'custom')   where.push(sql`a.is_default = FALSE`);
+  const whereSql = where.length ? sql.join([sql`WHERE`, sql.join(where, sql` AND `)], sql` `) : sql``;
+
+  const orderSql =
+    sort === 'oldest'  ? sql`ORDER BY a.created_at ASC` :
+    sort === 'user'    ? sql`ORDER BY u.email ASC, a.created_at DESC` :
+    sort === 'product' ? sql`ORDER BY p.name ASC NULLS LAST, a.created_at DESC` :
+                         sql`ORDER BY a.created_at DESC`;
+
+  const [rows, totalRow, userOptions, channelStats, typeStats] = await Promise.all([
+    db.execute(sql`
+      SELECT
+        a.id, a.alert_type AS "alertType",
+        a.threshold_price::float AS "thresholdPrice",
+        a.percentage_drop::float AS "percentageDrop",
+        a.reference_price::float AS "referencePrice",
+        a.notification_email     AS "notificationEmail",
+        a.notification_channel   AS "notificationChannel",
+        a.telegram_chat_id       AS "telegramChatId",
+        a.is_active              AS "isActive",
+        a.is_default             AS "isDefault",
+        a.notified_at            AS "notifiedAt",
+        a.created_at             AS "createdAt",
+        p.id    AS "productId",
+        p.asin  AS "productAsin",
+        p.name  AS "productName",
+        u.id    AS "userId",
+        u.email AS "userEmail",
+        (SELECT ph.price::float FROM price_history ph WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1) AS "currentPrice"
+      FROM alerts a
+      JOIN products p ON p.id = a.product_id
+      JOIN users    u ON u.id = a.user_id
+      ${whereSql}
+      ${orderSql}
+      LIMIT 500
+    `),
+    db.execute(sql`SELECT COUNT(*)::int AS n FROM alerts a JOIN products p ON p.id = a.product_id JOIN users u ON u.id = a.user_id ${whereSql}`),
+    db.execute(sql`SELECT u.email FROM users u WHERE EXISTS (SELECT 1 FROM alerts a WHERE a.user_id = u.id) ORDER BY u.email`),
+    db.execute(sql`SELECT notification_channel AS c, COUNT(*)::int AS n FROM alerts GROUP BY notification_channel`),
+    db.execute(sql`SELECT alert_type AS t, COUNT(*)::int AS n FROM alerts GROUP BY alert_type`),
+  ]);
+
+  res.render('admin-alerts', {
+    alerts: rows.rows,
+    total: (totalRow.rows[0] as any)?.n ?? 0,
+    filters: { q, user: userEmail, type: alertType, channel, status, sort },
+    userOptions: (userOptions.rows as any[]).map(r => r.email),
+    channelStats: channelStats.rows,
+    typeStats: typeStats.rows,
+    user: { email: req.session.userEmail },
+    isAdmin: true,
+  });
+});
+
+// ── GET /admin/alerts/events — Historical alert firings ───────────────────────
+router.get('/admin/alerts/events', requireAuth, requireAdmin, async (req: Request, res: Response) => {
   const events = await db.execute(sql`
     SELECT
       ae.id,
@@ -136,11 +208,30 @@ router.get('/admin/alerts', requireAuth, requireAdmin, async (req: Request, res:
     LIMIT 200
   `);
 
-  res.render('admin-alerts', {
+  res.render('admin-alert-events', {
     events: events.rows,
     user: { email: req.session.userEmail },
     isAdmin: true,
   });
+});
+
+// ── DELETE /admin/alerts/:id — Force-delete any user's alert ──────────────────
+router.delete('/admin/alerts/:id', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params.id), 10);
+  await db.execute(sql`DELETE FROM alerts WHERE id = ${id}`);
+  if (req.headers['hx-request']) return res.send('');
+  res.json({ success: true });
+});
+
+// ── POST /admin/alerts/:id/toggle-active — Activate / pause an alert ──────────
+router.post('/admin/alerts/:id/toggle-active', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params.id), 10);
+  await db.execute(sql`UPDATE alerts SET is_active = NOT is_active WHERE id = ${id}`);
+  if (req.headers['hx-request']) {
+    res.setHeader('HX-Refresh', 'true');
+    return res.status(200).send('');
+  }
+  res.json({ success: true });
 });
 
 // ── GET /admin/import-url ─────────────────────────────────────────────────────

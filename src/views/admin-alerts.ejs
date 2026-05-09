@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Historial de alertas — Admin OjoAlPrecio</title>
+  <title>Alertas configuradas — Admin OjoAlPrecio</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
   <link rel="stylesheet" href="/css/style.css">
   <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js" defer></script>
@@ -19,7 +19,7 @@
     <a href="/admin/categories" class="nav-link">Categorías</a>
     <a href="/admin/deals" class="nav-link">Chollos</a>
     <a href="/admin/social" class="nav-link">Social</a>
-    <a href="/admin/stats" class="nav-link nav-link-active">Stats</a>
+    <a href="/admin/stats" class="nav-link">Stats</a>
     <a href="/admin/users" class="nav-link">Usuarios</a>
     <a href="/admin/settings" class="nav-link">Ajustes</a>
     <span id="scrape-widget" style="position:relative;margin-right:4px"></span>
@@ -33,44 +33,172 @@
 <main class="container">
 
   <div class="page-header">
-    <h1>Historial de alertas</h1>
-    <p class="subtitle">Últimas 200 alertas disparadas en el sistema.</p>
+    <h1>Alertas configuradas</h1>
+    <p class="subtitle"><%= total %> alerta<%= total === 1 ? '' : 's' %> configurada<%= total === 1 ? '' : 's' %> · mostrando hasta 500 con los filtros aplicados</p>
+    <div style="display:flex;gap:12px;margin-top:8px;border-bottom:1px solid var(--border,#e2e8f0);padding-bottom:8px">
+      <a href="/admin/alerts" class="hint-link" style="font-weight:600;color:var(--gray-900)">Configuradas</a>
+      <a href="/admin/alerts/events" class="hint-link">Disparadas</a>
+    </div>
   </div>
 
+  <%
+    const channelLabel = { email: '✉️ Email', telegram: '✈️ Telegram', both: '✉️+✈️ Ambos' };
+    const typeLabel    = { price: 'Precio máx.', percent: 'Bajada %', alltime_low: 'Mínimo histórico', stock: 'Vuelta en stock' };
+
+    function thresholdText(a) {
+      if (a.alertType === 'price')   return '≤ ' + parseFloat(a.thresholdPrice).toFixed(2) + ' €';
+      if (a.alertType === 'percent') {
+        const ref = a.referencePrice ? ' (desde ' + parseFloat(a.referencePrice).toFixed(2) + ' €)' : ' (pendiente)';
+        return '−' + parseFloat(a.percentageDrop).toFixed(0) + '%' + ref;
+      }
+      if (a.alertType === 'alltime_low') return 'Cualquier mínimo';
+      if (a.alertType === 'stock')       return 'Disponibilidad';
+      return '—';
+    }
+  %>
+
+  <!-- Filters -->
+  <div class="card" style="margin-bottom:16px">
+    <form method="GET" action="/admin/alerts" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+      <div style="flex:1;min-width:200px">
+        <label class="hint" style="display:block;font-size:12px;margin-bottom:2px">Buscar producto (nombre / ASIN)</label>
+        <input type="text" name="q" value="<%= filters.q %>" placeholder="Ej: B07VP5X239 o WD My Passport" class="input">
+      </div>
+
+      <div>
+        <label class="hint" style="display:block;font-size:12px;margin-bottom:2px">Usuario</label>
+        <select name="user" class="form-input" style="width:auto;min-width:180px">
+          <option value="">Todos</option>
+          <% userOptions.forEach(function(email) { %>
+            <option value="<%= email %>" <%= filters.user === email ? 'selected' : '' %>><%= email %></option>
+          <% }); %>
+        </select>
+      </div>
+
+      <div>
+        <label class="hint" style="display:block;font-size:12px;margin-bottom:2px">Tipo</label>
+        <select name="type" class="form-input" style="width:auto">
+          <option value="">Todos</option>
+          <option value="price"       <%= filters.type === 'price'       ? 'selected' : '' %>>Precio máximo</option>
+          <option value="percent"     <%= filters.type === 'percent'     ? 'selected' : '' %>>% bajada</option>
+          <option value="alltime_low" <%= filters.type === 'alltime_low' ? 'selected' : '' %>>Mínimo histórico</option>
+          <option value="stock"       <%= filters.type === 'stock'       ? 'selected' : '' %>>Vuelta en stock</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="hint" style="display:block;font-size:12px;margin-bottom:2px">Canal</label>
+        <select name="channel" class="form-input" style="width:auto">
+          <option value="">Todos</option>
+          <option value="email"    <%= filters.channel === 'email'    ? 'selected' : '' %>>Email</option>
+          <option value="telegram" <%= filters.channel === 'telegram' ? 'selected' : '' %>>Telegram</option>
+          <option value="both"     <%= filters.channel === 'both'     ? 'selected' : '' %>>Ambos</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="hint" style="display:block;font-size:12px;margin-bottom:2px">Estado</label>
+        <select name="status" class="form-input" style="width:auto">
+          <option value="">Todos</option>
+          <option value="active"   <%= filters.status === 'active'   ? 'selected' : '' %>>Armada</option>
+          <option value="notified" <%= filters.status === 'notified' ? 'selected' : '' %>>Notificada</option>
+          <option value="inactive" <%= filters.status === 'inactive' ? 'selected' : '' %>>Pausada</option>
+          <option value="default"  <%= filters.status === 'default'  ? 'selected' : '' %>>Auto (1%)</option>
+          <option value="custom"   <%= filters.status === 'custom'   ? 'selected' : '' %>>Personalizada</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="hint" style="display:block;font-size:12px;margin-bottom:2px">Orden</label>
+        <select name="sort" class="form-input" style="width:auto">
+          <option value="recent"  <%= filters.sort === 'recent'  ? 'selected' : '' %>>Recientes</option>
+          <option value="oldest"  <%= filters.sort === 'oldest'  ? 'selected' : '' %>>Antiguas</option>
+          <option value="user"    <%= filters.sort === 'user'    ? 'selected' : '' %>>Usuario</option>
+          <option value="product" <%= filters.sort === 'product' ? 'selected' : '' %>>Producto</option>
+        </select>
+      </div>
+
+      <button type="submit" class="btn btn-primary btn-sm">Filtrar</button>
+      <a href="/admin/alerts" class="btn btn-ghost btn-sm">Reset</a>
+    </form>
+  </div>
+
+  <!-- Summary chips -->
+  <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+    <% typeStats.forEach(function(t) { %>
+      <span class="hint" style="background:#f1f5f9;border-radius:6px;padding:4px 8px;font-size:12px"><%= typeLabel[t.t] ?? t.t %>: <strong><%= t.n %></strong></span>
+    <% }); %>
+    <span style="flex:1"></span>
+    <% channelStats.forEach(function(c) { %>
+      <span class="hint" style="background:#f1f5f9;border-radius:6px;padding:4px 8px;font-size:12px"><%= channelLabel[c.c] ?? c.c %>: <strong><%= c.n %></strong></span>
+    <% }); %>
+  </div>
+
+  <!-- Table -->
   <div class="card">
-    <% if (events.length === 0) { %>
-      <p class="hint" style="margin-top:12px">No hay alertas disparadas todavía.</p>
+    <% if (alerts.length === 0) { %>
+      <p class="hint" style="margin-top:12px">No hay alertas que coincidan con los filtros.</p>
     <% } else { %>
       <div class="table-wrap">
         <table class="price-table">
           <thead>
             <tr>
-              <th>Fecha</th>
+              <th>Creada</th>
+              <th>Usuario</th>
               <th>Producto</th>
               <th>Tipo</th>
-              <th>Precio</th>
               <th>Umbral</th>
-              <th>Usuario</th>
+              <th>Precio actual</th>
+              <th>Canal · destino</th>
+              <th>Estado</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
-            <% events.forEach(function(ev) { %>
-              <tr>
-                <td style="white-space:nowrap; font-size:12px; color:var(--gray-500)">
-                  <%= new Date(ev.triggeredAt).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' }) %>
-                </td>
+            <% alerts.forEach(function(a) {
+              const created = new Date(a.createdAt).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' });
+              let stateBadge;
+              if (!a.isActive)        stateBadge = { txt: 'Pausada',    style: 'background:#e5e7eb;color:#4b5563' };
+              else if (a.notifiedAt)  stateBadge = { txt: 'Notificada', style: 'background:#fef3c7;color:#854d0e' };
+              else                    stateBadge = { txt: 'Armada',     style: 'background:#dcfce7;color:#166534' };
+              const target = a.notificationChannel === 'telegram' ? (a.telegramChatId ?? '—') :
+                             a.notificationChannel === 'both'     ? (a.notificationEmail + ' · ' + (a.telegramChatId ?? '—')) :
+                                                                    a.notificationEmail;
+            %>
+              <tr id="alert-row-<%= a.id %>">
+                <td style="white-space:nowrap;font-size:12px;color:var(--gray-500)"><%= created %></td>
+                <td style="font-size:12px"><%= a.userEmail %></td>
                 <td>
-                  <a href="/products/<%= ev.productId %>" style="font-size:13px; font-weight:500">
-                    <%= ev.productName ?? ev.productAsin %>
+                  <a href="/p/<%= a.productAsin %>" target="_blank" style="font-size:13px;font-weight:500">
+                    <%= a.productName ? (a.productName.length > 60 ? a.productName.slice(0,60) + '…' : a.productName) : a.productAsin %>
                   </a>
-                  <span class="product-asin" style="display:block"><%= ev.productAsin %></span>
+                  <span class="product-asin" style="display:block"><%= a.productAsin %></span>
+                </td>
+                <td><span class="alert-badge badge-active" style="font-size:11px"><%= typeLabel[a.alertType] ?? a.alertType %></span></td>
+                <td style="font-size:12px"><%= thresholdText(a) %></td>
+                <td class="price-cell"><%= a.currentPrice != null ? parseFloat(a.currentPrice).toFixed(2) + ' €' : '—' %></td>
+                <td style="font-size:12px">
+                  <%= channelLabel[a.notificationChannel] ?? a.notificationChannel %><br>
+                  <span style="color:var(--gray-500);font-size:11px"><%= target %></span>
                 </td>
                 <td>
-                  <span class="alert-badge badge-active" style="font-size:11px"><%= ev.alertType %></span>
+                  <span class="alert-badge" style="font-size:11px;<%= stateBadge.style %>"><%= stateBadge.txt %></span>
+                  <% if (a.isDefault) { %>
+                    <span class="alert-badge" style="font-size:10px;background:#eef;color:#447;margin-left:4px">auto</span>
+                  <% } %>
                 </td>
-                <td class="price-cell"><%= parseFloat(ev.priceAtTime).toFixed(2) %> €</td>
-                <td style="font-size:12px; color:var(--gray-500)"><%= ev.thresholdLabel ?? '—' %></td>
-                <td style="font-size:12px; color:var(--gray-500)"><%= ev.userEmail %></td>
+                <td style="white-space:nowrap">
+                  <button class="btn btn-sm btn-ghost"
+                    hx-post="/admin/alerts/<%= a.id %>/toggle-active"
+                    title="<%= a.isActive ? 'Pausar' : 'Reactivar' %>"
+                    style="font-size:11px"><%= a.isActive ? '⏸' : '▶' %></button>
+                  <button class="btn btn-sm btn-ghost"
+                    hx-delete="/admin/alerts/<%= a.id %>"
+                    hx-confirm="¿Borrar esta alerta?"
+                    hx-target="#alert-row-<%= a.id %>"
+                    hx-swap="outerHTML"
+                    style="font-size:11px;color:#dc2626">×</button>
+                </td>
               </tr>
             <% }); %>
           </tbody>
@@ -80,7 +208,7 @@
   </div>
 
   <div style="margin-top:12px">
-    <a href="/" class="hint-link">← Volver al dashboard</a>
+    <a href="/admin" class="hint-link">← Volver al hub admin</a>
   </div>
 
 </main>

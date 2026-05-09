@@ -57,7 +57,7 @@
       <div style="margin-top:16px;display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap">
         <div style="flex:1;min-width:200px">
           <p style="font-weight:600;font-size:15px;margin:0 0 6px">
-            <a href="/products/<%= nextDeal.id %>" class="hint-link"><%= nextDeal.name ?? nextDeal.asin %></a>
+            <a href="/p/<%= nextDeal.asin %>" class="hint-link"><%= nextDeal.name ?? nextDeal.asin %></a>
           </p>
           <p style="margin:0 0 4px;font-size:14px;color:var(--gray-500)">ASIN: <code><%= nextDeal.asin %></code></p>
           <p style="margin:0;font-size:22px;font-weight:700;color:#e63946"><%= parseFloat(nextDeal.currentPrice).toFixed(2) %> €
@@ -122,7 +122,7 @@
               </td>
               <td style="font-size:13px">
                 <% if (row.product_id) { %>
-                  <a href="/products/<%= row.product_id %>" class="hint-link">
+                  <a href="/p/<%= row.asin %>" class="hint-link">
                     <%= row.name ? (row.name.length > 50 ? row.name.slice(0,50) + '…' : row.name) : row.asin %>
                   </a>
                 <% } else { %>

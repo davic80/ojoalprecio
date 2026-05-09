@@ -24,7 +24,7 @@
     <% if (typeof user !== 'undefined' && user) { %>
       <a href="/" class="nav-link">Mi panel</a>
       <% if (typeof isAdmin !== 'undefined' && isAdmin) { %>
-        <a href="/products/<%= product.id %>" class="btn btn-outline btn-sm">Gestionar</a>
+        <a href="/admin" class="nav-link">Admin</a>
       <% } %>
     <% } else { %>
       <a href="/auth/login?next=<%= encodeURIComponent('/p/' + product.asin) %>" class="btn btn-outline btn-sm">Entrar</a>
@@ -35,6 +35,23 @@
 <main class="container">
 
   <div class="back-link"><a href="/ofertas">← Ver todas las ofertas</a></div>
+
+  <% if (typeof isAdmin !== 'undefined' && isAdmin) { %>
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 12px;margin-bottom:16px;font-size:13px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <strong style="color:#475569">🔧 Admin</strong>
+      <form hx-post="/products/<%= product.id %>/refresh" hx-swap="none" style="display:inline;margin:0">
+        <button type="submit" class="btn btn-sm btn-ghost" title="Re-scrapear ahora">↺ Refresh</button>
+      </form>
+      <form hx-post="/products/<%= product.id %>/toggle-public" hx-swap="none" style="display:inline;margin:0">
+        <button type="submit" class="btn btn-sm <%= product.isFeatured ? 'btn-outline btn-active-green' : 'btn-ghost' %>"
+          title="Aparece en /ofertas">
+          <%= product.isFeatured ? '✨ Destacado' : '📣 Destacar en /ofertas' %>
+        </button>
+      </form>
+      <span style="flex:1"></span>
+      <a href="/products/<%= product.id %>" class="hint" style="font-size:12px;color:#64748b">vista interna ↗</a>
+    </div>
+  <% } %>
 
   <!-- Product header -->
   <div class="product-header">
