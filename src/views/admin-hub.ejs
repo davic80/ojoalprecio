@@ -6,6 +6,7 @@
   <title>Panel Admin — OjoAlPrecio</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
   <link rel="stylesheet" href="/css/style.css">
+  <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js" defer></script>
 </head>
 <body>
 
@@ -15,6 +16,8 @@
     <span class="brand-name">OjoAlPrecio</span>
   </a>
   <div class="navbar-actions">
+    <a href="/" class="nav-link">Productos</a>
+    <a href="/admin" class="nav-link nav-link-active">Admin</a>
     <span id="scrape-widget" style="position:relative;margin-right:4px"></span>
     <a href="/account" class="user-email user-email-link"><%= user.email %></a>
     <form action="/auth/logout" method="POST" style="display:inline">
@@ -25,136 +28,234 @@
 
 <main class="container">
 
-  <div class="page-header">
-    <h1>Panel de administración</h1>
-  </div>
-
-  <!-- Stats rápidas -->
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:28px">
-    <div class="card" style="padding:16px;text-align:center">
-      <div style="font-size:26px;font-weight:700;color:var(--gray-900)"><%= stats.total %></div>
-      <div class="hint" style="margin-top:4px">Productos activos</div>
-    </div>
-    <div class="card" style="padding:16px;text-align:center">
-      <div style="font-size:26px;font-weight:700;color:var(--primary)"><%= stats.onSale %></div>
-      <div class="hint" style="margin-top:4px">En oferta</div>
-    </div>
-    <div class="card" style="padding:16px;text-align:center">
-      <div style="font-size:26px;font-weight:700;color:<%= stats.failed > 0 ? 'var(--red,#dc2626)' : 'var(--gray-400)' %>"><%= stats.failed %></div>
-      <div class="hint" style="margin-top:4px">Fallidos</div>
-    </div>
-    <div class="card" style="padding:16px;text-align:center">
-      <div style="font-size:26px;font-weight:700;color:<%= stats.withError > 0 ? 'var(--orange,#ea580c)' : 'var(--gray-400)' %>"><%= stats.withError %></div>
-      <div class="hint" style="margin-top:4px">Con error</div>
-    </div>
-    <div class="card" style="padding:16px;text-align:center">
-      <div style="font-size:26px;font-weight:700;color:var(--gray-700)"><%= stats.users %></div>
-      <div class="hint" style="margin-top:4px">Usuarios</div>
-    </div>
-    <div class="card" style="padding:16px;text-align:center">
-      <div style="font-size:26px;font-weight:700;color:var(--gray-700)"><%= stats.lists %></div>
-      <div class="hint" style="margin-top:4px">Listas</div>
+  <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+    <div><h1 style="margin:0">Panel de admin</h1><p class="subtitle" style="margin:0">Todo en un sitio.</p></div>
+    <div style="display:flex;gap:8px">
+      <form action="/admin/scrape/trigger" method="POST" style="display:inline">
+        <button type="submit" class="btn btn-sm btn-outline" <%= scraperStatus.isRunning ? 'disabled' : '' %>>↺ Forzar ciclo</button>
+      </form>
+      <a href="/admin/import-url" class="btn btn-sm btn-outline">+ Importar URL</a>
     </div>
   </div>
 
-  <!-- Scraper status -->
+  <!-- Scraper status (only visible while running) -->
   <% if (scraperStatus.isRunning) { %>
-  <div class="card" style="padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;gap:12px">
-    <span style="width:10px;height:10px;border-radius:50%;background:var(--primary);display:inline-block;animation:pulse 1.2s infinite"></span>
-    <span style="font-size:14px">
+  <div class="card" style="padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;gap:12px;background:#fef3c7;border-color:#fde68a">
+    <span style="width:10px;height:10px;border-radius:50%;background:#dc2626;display:inline-block;animation:pulse 1.2s infinite"></span>
+    <span style="font-size:14px;flex:1">
       Scraper activo — <%= scraperStatus.done %>/<%= scraperStatus.total %> productos
       <% if (scraperStatus.current) { %><span class="hint">· <%= scraperStatus.current.name.slice(0,60) %></span><% } %>
     </span>
   </div>
   <% } %>
 
-  <!-- Secciones -->
-  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px">
+  <!-- Métricas -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:24px">
+    <div class="card" style="padding:12px;text-align:center"><div style="font-size:22px;font-weight:700"><%= stats.total %></div><div class="hint">Productos</div></div>
+    <div class="card" style="padding:12px;text-align:center"><div style="font-size:22px;font-weight:700;color:#16a34a"><%= stats.onSale %></div><div class="hint">En oferta</div></div>
+    <div class="card" style="padding:12px;text-align:center"><div style="font-size:22px;font-weight:700;color:#16a34a"><%= stats.featured %></div><div class="hint">Destacados /ofertas</div></div>
+    <div class="card" style="padding:12px;text-align:center"><div style="font-size:22px;font-weight:700;color:<%= stats.failed > 0 ? '#dc2626' : 'var(--gray-400)' %>"><%= stats.failed %></div><div class="hint">Fallidos</div></div>
+    <div class="card" style="padding:12px;text-align:center"><div style="font-size:22px;font-weight:700;color:<%= stats.withError > 0 ? '#ea580c' : 'var(--gray-400)' %>"><%= stats.withError %></div><div class="hint">Con error</div></div>
+    <div class="card" style="padding:12px;text-align:center"><div style="font-size:22px;font-weight:700"><%= stats.users %></div><div class="hint">Usuarios</div></div>
+    <div class="card" style="padding:12px;text-align:center"><div style="font-size:22px;font-weight:700"><%= stats.alertsTotal %></div><div class="hint">Alertas</div></div>
+    <div class="card" style="padding:12px;text-align:center"><div style="font-size:22px;font-weight:700;color:#dc2626"><%= stats.eventsToday %></div><div class="hint">Disparadas hoy</div></div>
+    <div class="card" style="padding:12px;text-align:center"><div style="font-size:22px;font-weight:700"><%= stats.viewsToday %></div><div class="hint">Visitas hoy</div></div>
+  </div>
 
-    <a href="/admin/deals" class="card admin-hub-card">
-      <div class="admin-hub-icon">🏷️</div>
-      <div class="admin-hub-title">Chollos</div>
-      <div class="hint">Productos en oferta ordenados por descuento</div>
-    </a>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:16px;margin-bottom:16px">
 
-    <a href="/" class="card admin-hub-card">
-      <div class="admin-hub-icon">📦</div>
-      <div class="admin-hub-title">Mis productos</div>
-      <div class="hint">Dashboard de todos los productos rastreados</div>
-    </a>
+    <!-- Problemas -->
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <h2 style="margin:0;font-size:16px">⚠️ Productos con problemas</h2>
+        <a href="/?status=failed" class="hint-link" style="font-size:12px">Ver todo →</a>
+      </div>
+      <% if (!problematic.length) { %>
+        <p class="hint" style="margin:0">Todo en verde. 🟢</p>
+      <% } else { %>
+        <table class="price-table" style="font-size:13px">
+          <tbody>
+            <% problematic.forEach(function(p) { %>
+              <tr>
+                <td><a href="/p/<%= p.asin %>" class="hint-link"><%= (p.name ?? p.asin).slice(0,55) %><%= (p.name ?? p.asin).length > 55 ? '…' : '' %></a></td>
+                <td style="text-align:right;white-space:nowrap;font-size:12px">
+                  <% if (p.is_failed) { %><span class="alert-badge" style="background:#fee2e2;color:#b91c1c">fallado</span><% } %>
+                  <span style="color:var(--gray-500)"><%= p.consecutive_failures %>/<%= p.total_failures %></span>
+                </td>
+              </tr>
+              <% if (p.last_error) { %>
+                <tr><td colspan="2" style="padding-top:0;font-size:11px;color:#b91c1c"><%= String(p.last_error).slice(0,120) %></td></tr>
+              <% } %>
+            <% }); %>
+          </tbody>
+        </table>
+      <% } %>
+    </div>
 
-    <a href="/admin/lists" class="card admin-hub-card">
-      <div class="admin-hub-icon">📋</div>
-      <div class="admin-hub-title">Listas</div>
-      <div class="hint">Listas de recomendación públicas</div>
-    </a>
+    <!-- Mejores chollos -->
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <h2 style="margin:0;font-size:16px">🏷️ Mejores chollos</h2>
+        <a href="/admin/deals" class="hint-link" style="font-size:12px">Ver todo →</a>
+      </div>
+      <% if (!topDeals.length) { %>
+        <p class="hint" style="margin:0">Sin chollos ahora mismo.</p>
+      <% } else { %>
+        <table class="price-table" style="font-size:13px">
+          <tbody>
+            <% topDeals.forEach(function(d) { %>
+              <tr>
+                <td><a href="/p/<%= d.asin %>" class="hint-link"><%= (d.name ?? d.asin).slice(0,45) %><%= (d.name ?? d.asin).length > 45 ? '…' : '' %></a></td>
+                <td style="text-align:right;white-space:nowrap">
+                  <span style="color:#16a34a;font-weight:600;font-size:13px">−<%= parseFloat(d.dealScore).toFixed(0) %>%</span>
+                  <% if (!d.isFeatured) { %><span class="hint" title="No destacado en /ofertas" style="color:#9ca3af;margin-left:4px">·</span><% } %>
+                </td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      <% } %>
+    </div>
 
-    <a href="/admin/categories" class="card admin-hub-card">
-      <div class="admin-hub-icon">🗂️</div>
-      <div class="admin-hub-title">Categorías</div>
-      <div class="hint">Gestionar categorías de productos</div>
-    </a>
+    <!-- Alertas configuradas recientes -->
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <h2 style="margin:0;font-size:16px">🔔 Últimas alertas configuradas</h2>
+        <a href="/admin/alerts" class="hint-link" style="font-size:12px">Ver todo →</a>
+      </div>
+      <% if (!recentAlerts.length) { %>
+        <p class="hint" style="margin:0">Sin alertas personalizadas todavía.</p>
+      <% } else { %>
+        <table class="price-table" style="font-size:13px">
+          <tbody>
+            <% recentAlerts.forEach(function(a) {
+              const label = a.alertType === 'percent' ? '−' + parseFloat(a.percentageDrop).toFixed(0) + '%'
+                          : a.alertType === 'price'   ? '≤ ' + parseFloat(a.thresholdPrice).toFixed(2) + ' €'
+                          : a.alertType === 'alltime_low' ? 'Mín. histórico'
+                          : 'Stock';
+            %>
+              <tr>
+                <td style="font-size:12px;color:var(--gray-500);white-space:nowrap"><%= a.userEmail.split('@')[0] %></td>
+                <td><a href="/p/<%= a.productAsin %>" class="hint-link"><%= (a.productName ?? a.productAsin).slice(0,40) %><%= (a.productName ?? a.productAsin).length > 40 ? '…' : '' %></a></td>
+                <td style="text-align:right;font-size:12px;white-space:nowrap"><%= label %></td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      <% } %>
+    </div>
 
-    <a href="/admin/social" class="card admin-hub-card">
-      <div class="admin-hub-icon">📢</div>
-      <div class="admin-hub-title">Social</div>
-      <div class="hint">Publicaciones en Telegram y redes</div>
-    </a>
+    <!-- Alertas disparadas -->
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <h2 style="margin:0;font-size:16px">📨 Últimas alertas disparadas</h2>
+        <a href="/admin/alerts/events" class="hint-link" style="font-size:12px">Ver todo →</a>
+      </div>
+      <% if (!recentEvents.length) { %>
+        <p class="hint" style="margin:0">Sin disparos recientes.</p>
+      <% } else { %>
+        <table class="price-table" style="font-size:13px">
+          <tbody>
+            <% recentEvents.forEach(function(ev) { %>
+              <tr>
+                <td style="font-size:12px;color:var(--gray-500);white-space:nowrap"><%= new Date(ev.triggeredAt).toLocaleString('es-ES', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }) %></td>
+                <td><a href="/p/<%= ev.productAsin %>" class="hint-link"><%= (ev.productName ?? ev.productAsin).slice(0,38) %><%= (ev.productName ?? ev.productAsin).length > 38 ? '…' : '' %></a></td>
+                <td style="text-align:right;font-size:12px;font-weight:600;white-space:nowrap"><%= parseFloat(ev.priceAtTime).toFixed(2) %> €</td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      <% } %>
+    </div>
 
-    <a href="/admin/stats" class="card admin-hub-card">
-      <div class="admin-hub-icon">📊</div>
-      <div class="admin-hub-title">Estadísticas</div>
-      <div class="hint">Visitas, fuentes de tráfico y alertas</div>
-    </a>
+    <!-- Usuarios recientes -->
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <h2 style="margin:0;font-size:16px">👥 Usuarios recientes</h2>
+        <a href="/admin/users" class="hint-link" style="font-size:12px">Ver todo →</a>
+      </div>
+      <% if (!recentUsers.length) { %>
+        <p class="hint" style="margin:0">Sin usuarios.</p>
+      <% } else { %>
+        <table class="price-table" style="font-size:13px">
+          <tbody>
+            <% recentUsers.forEach(function(u) { %>
+              <tr>
+                <td><a href="/admin/users?q=<%= encodeURIComponent(u.email) %>" class="hint-link"><%= u.email %></a><% if (!u.emailVerified) { %><span class="hint" style="color:#ea580c;margin-left:6px">no verif</span><% } %></td>
+                <td style="text-align:right;font-size:12px;color:var(--gray-500);white-space:nowrap"><%= u.alertCount %> alertas</td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      <% } %>
+    </div>
 
-    <a href="/admin/users" class="card admin-hub-card">
-      <div class="admin-hub-icon">👥</div>
-      <div class="admin-hub-title">Usuarios</div>
-      <div class="hint">Gestionar cuentas de usuario</div>
-    </a>
+    <!-- Próxima publicación social -->
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <h2 style="margin:0;font-size:16px">📢 Próximo post Telegram</h2>
+        <a href="/admin/social" class="hint-link" style="font-size:12px">Ver todo →</a>
+      </div>
+      <% if (!nextDeal) { %>
+        <p class="hint" style="margin:0">No hay chollos publicables ahora.</p>
+      <% } else { %>
+        <p style="margin:0 0 6px;font-weight:500"><a href="/p/<%= nextDeal.asin %>" class="hint-link"><%= (nextDeal.name ?? nextDeal.asin).slice(0,60) %><%= (nextDeal.name ?? nextDeal.asin).length > 60 ? '…' : '' %></a></p>
+        <p style="margin:0;font-size:14px"><strong style="color:#dc2626"><%= parseFloat(nextDeal.currentPrice).toFixed(2) %> €</strong> <span style="color:#16a34a;font-weight:600;font-size:12px">−<%= parseFloat(nextDeal.pctOffMedian).toFixed(1) %>%</span></p>
+        <form action="/admin/social/post-now" method="POST" style="margin-top:8px">
+          <button type="submit" class="btn btn-primary btn-sm" onclick="return confirm('¿Publicar ahora en Telegram?')">Publicar ahora</button>
+        </form>
+      <% } %>
+    </div>
 
-    <a href="/admin/import-url" class="card admin-hub-card">
-      <div class="admin-hub-icon">🔗</div>
-      <div class="admin-hub-title">Importar URL</div>
-      <div class="hint">Añadir productos desde URL de Amazon</div>
-    </a>
+  </div>
 
-    <a href="/admin/settings" class="card admin-hub-card">
-      <div class="admin-hub-icon">⚙️</div>
-      <div class="admin-hub-title">Ajustes</div>
-      <div class="hint">Workers, timeouts, importación automática</div>
-    </a>
+  <!-- Settings inline -->
+  <div class="card" style="margin-bottom:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <h2 style="margin:0;font-size:16px">⚙️ Ajustes runtime</h2>
+      <a href="/admin/settings" class="hint-link" style="font-size:12px">Ver todo →</a>
+    </div>
+    <form action="/admin/settings" method="POST" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;align-items:flex-end">
+      <% settings.filter(function(s){ return s.key !== 'category_import_enabled'; }).forEach(function(s) { %>
+        <div>
+          <label style="display:block;font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:3px"><%= s.label || s.key %></label>
+          <input type="text" name="<%= s.key %>" value="<%= s.value %>" class="input input-sm" style="font-size:13px;width:100%">
+          <% if (s.hint) { %><p class="hint" style="font-size:11px;margin:2px 0 0"><%= s.hint %></p><% } %>
+        </div>
+      <% }); %>
+      <% const importToggle = settings.find(function(s){ return s.key === 'category_import_enabled'; }); %>
+      <% if (importToggle) { %>
+        <div style="grid-column: 1 / -1;display:flex;align-items:center;gap:8px;padding-top:6px;border-top:1px dashed var(--border,#e2e8f0)">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+            <input type="checkbox" name="<%= importToggle.key %>" value="true" <%= importToggle.value === 'true' ? 'checked' : '' %>>
+            <strong><%= importToggle.label || importToggle.key %></strong>
+            <span class="hint" style="font-size:12px"><%= importToggle.hint %></span>
+          </label>
+        </div>
+      <% } %>
+      <div style="grid-column: 1 / -1">
+        <button type="submit" class="btn btn-primary btn-sm">Guardar ajustes</button>
+      </div>
+    </form>
+  </div>
 
-    <a href="/admin/alerts" class="card admin-hub-card">
-      <div class="admin-hub-icon">🔔</div>
-      <div class="admin-hub-title">Alertas</div>
-      <div class="hint">Alertas de precio configuradas</div>
-    </a>
-
+  <!-- Atajos a subpáginas (compacto) -->
+  <div class="card" style="display:flex;gap:8px;flex-wrap:wrap;padding:12px 16px">
+    <a href="/admin/categories" class="btn btn-sm btn-ghost">🗂️ Categorías</a>
+    <a href="/admin/lists" class="btn btn-sm btn-ghost">📋 Listas</a>
+    <a href="/admin/stats" class="btn btn-sm btn-ghost">📊 Estadísticas</a>
+    <a href="/admin/import-url" class="btn btn-sm btn-ghost">🔗 Importar URL</a>
+    <a href="/admin/social" class="btn btn-sm btn-ghost">📢 Social</a>
+    <a href="/ofertas" class="btn btn-sm btn-ghost">🌐 Ver /ofertas</a>
   </div>
 
 </main>
 
 <footer class="footer">
-  <p>OjoAlPrecio v<%= process.env['APP_VERSION'] ?? 'dev' %> Admin &nbsp;·&nbsp; <a href="/ofertas">Ver ofertas públicas</a></p>
+  <p>OjoAlPrecio v<%= process.env['APP_VERSION'] ?? 'dev' %> Admin</p>
 </footer>
 
 <style>
-.admin-hub-card {
-  display: block;
-  padding: 20px;
-  text-decoration: none;
-  color: inherit;
-  transition: box-shadow 0.15s, transform 0.15s;
-  cursor: pointer;
-}
-.admin-hub-card:hover {
-  box-shadow: 0 4px 16px rgba(0,0,0,.10);
-  transform: translateY(-2px);
-  text-decoration: none;
-}
-.admin-hub-icon { font-size: 28px; margin-bottom: 8px; }
-.admin-hub-title { font-size: 15px; font-weight: 600; color: var(--gray-900); margin-bottom: 4px; }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 </style>
 <script src="/js/scrape-widget.js"></script>

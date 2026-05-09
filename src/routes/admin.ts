@@ -27,31 +27,115 @@ function toSlug(name: string): string {
 
 // ── GET /admin — Hub page ─────────────────────────────────────────────────────
 router.get('/admin', requireAuth, requireAdmin, async (req: Request, res: Response) => {
-  const statsRow = await db.execute(sql`
-    SELECT
-      COUNT(*)                                              AS total,
-      COUNT(*) FILTER (WHERE is_on_sale = TRUE)            AS on_sale,
-      COUNT(*) FILTER (WHERE is_failed = TRUE)             AS failed,
-      COUNT(*) FILTER (WHERE is_available = FALSE)         AS unavailable,
-      COUNT(*) FILTER (WHERE last_error IS NOT NULL)       AS with_error,
-      (SELECT COUNT(*) FROM users)                         AS users_total,
-      (SELECT COUNT(*) FROM recommendation_lists)          AS lists_total
-    FROM products
-    WHERE is_active = TRUE
-  `);
-  const s = statsRow.rows[0] as any ?? {};
+  // Single command-center page — every section is fetched in parallel and rendered inline.
+  // Sub-pages remain accessible via "ver todo" links inside each section for full filtered views.
+  const [
+    statsRow,
+    alertsStatsRow,
+    problematicRows,
+    topDealsRows,
+    recentAlertsRows,
+    recentEventsRows,
+    recentUsersRows,
+    settings,
+    nextDeal,
+  ] = await Promise.all([
+    db.execute(sql`
+      SELECT
+        COUNT(*)                                              AS total,
+        COUNT(*) FILTER (WHERE is_on_sale = TRUE)            AS on_sale,
+        COUNT(*) FILTER (WHERE is_public  = TRUE)            AS featured,
+        COUNT(*) FILTER (WHERE is_failed  = TRUE)            AS failed,
+        COUNT(*) FILTER (WHERE is_available = FALSE)         AS unavailable,
+        COUNT(*) FILTER (WHERE last_error IS NOT NULL)       AS with_error,
+        (SELECT COUNT(*) FROM users WHERE email != 'system@ojoalprecio.local') AS users_total,
+        (SELECT COUNT(*) FROM page_views WHERE day = TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD')) AS views_today
+      FROM products WHERE is_active = TRUE
+    `),
+    db.execute(sql`
+      SELECT
+        (SELECT COUNT(*) FROM alerts)                                              AS total,
+        (SELECT COUNT(*) FROM alerts WHERE is_active = TRUE AND notified_at IS NULL) AS armed,
+        (SELECT COUNT(*) FROM alerts WHERE notified_at IS NOT NULL)                AS notified,
+        (SELECT COUNT(*) FROM alert_events WHERE triggered_at >= CURRENT_DATE)     AS today
+    `),
+    db.execute(sql`
+      SELECT id, asin, name, last_error, is_failed, consecutive_failures, total_failures
+      FROM products
+      WHERE is_active = TRUE AND (is_failed = TRUE OR last_error IS NOT NULL)
+      ORDER BY is_failed DESC, consecutive_failures DESC
+      LIMIT 8
+    `),
+    db.execute(sql`
+      SELECT p.id, p.asin, p.name, p.image_url AS "imageUrl", p.deal_score::float AS "dealScore",
+             p.sale_tier AS "saleTier", p.was_price::float AS "wasPrice", p.is_public AS "isFeatured",
+             (SELECT ph.price::float FROM price_history ph WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1) AS "currentPrice"
+      FROM products p
+      WHERE p.is_active = TRUE AND p.is_on_sale = TRUE AND p.is_available = TRUE
+      ORDER BY p.deal_score DESC NULLS LAST
+      LIMIT 6
+    `),
+    db.execute(sql`
+      SELECT a.id, a.alert_type AS "alertType", a.threshold_price::float AS "thresholdPrice",
+             a.percentage_drop::float AS "percentageDrop", a.is_default AS "isDefault",
+             a.notification_channel AS "notificationChannel", a.created_at AS "createdAt",
+             p.asin AS "productAsin", p.name AS "productName",
+             u.email AS "userEmail"
+      FROM alerts a
+      JOIN products p ON p.id = a.product_id
+      JOIN users u ON u.id = a.user_id
+      WHERE a.is_default = FALSE
+      ORDER BY a.created_at DESC LIMIT 5
+    `),
+    db.execute(sql`
+      SELECT ae.id, ae.alert_type AS "alertType", ae.price_at_time::float AS "priceAtTime",
+             ae.threshold_label AS "thresholdLabel", ae.triggered_at AS "triggeredAt",
+             p.asin AS "productAsin", p.name AS "productName",
+             u.email AS "userEmail"
+      FROM alert_events ae
+      JOIN products p ON p.id = ae.product_id
+      JOIN users   u ON u.id = ae.user_id
+      ORDER BY ae.triggered_at DESC LIMIT 5
+    `),
+    db.execute(sql`
+      SELECT id, email, email_verified AS "emailVerified", telegram_chat_id AS "telegramChatId", created_at AS "createdAt",
+             (SELECT COUNT(*) FROM alerts WHERE alerts.user_id = users.id) AS "alertCount"
+      FROM users
+      WHERE email != 'system@ojoalprecio.local'
+      ORDER BY created_at DESC LIMIT 6
+    `),
+    getAllSettings(),
+    getBestUnpostedDeal().catch(() => null),
+  ]);
+
+  const s  = statsRow.rows[0] as any ?? {};
+  const sa = alertsStatsRow.rows[0] as any ?? {};
   const scraperStatus = getScraperStatus();
+
   res.render('admin-hub', {
     user: { email: req.session.userEmail },
+    isAdmin: true,
     stats: {
       total:       parseInt(s.total, 10),
       onSale:      parseInt(s.on_sale, 10),
+      featured:    parseInt(s.featured, 10),
       failed:      parseInt(s.failed, 10),
       unavailable: parseInt(s.unavailable, 10),
       withError:   parseInt(s.with_error, 10),
       users:       parseInt(s.users_total, 10),
-      lists:       parseInt(s.lists_total, 10),
+      viewsToday:  parseInt(s.views_today, 10),
+      alertsTotal:    parseInt(sa.total, 10),
+      alertsArmed:    parseInt(sa.armed, 10),
+      alertsNotified: parseInt(sa.notified, 10),
+      eventsToday:    parseInt(sa.today, 10),
     },
+    problematic:   problematicRows.rows,
+    topDeals:      topDealsRows.rows,
+    recentAlerts:  recentAlertsRows.rows,
+    recentEvents:  recentEventsRows.rows,
+    recentUsers:   recentUsersRows.rows,
+    settings,
+    nextDeal,
     scraperStatus,
   });
 });
