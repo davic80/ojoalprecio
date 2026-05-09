@@ -2,7 +2,7 @@ import cron from 'node-cron';
 import { db } from '../db/client';
 import { products, priceHistory, alerts, alertEvents, users } from '../db/schema';
 import { eq, and, desc, min, isNull, sql } from 'drizzle-orm';
-import { scrapeProduct, affiliateUrl, ProductUnavailableError, CaptchaDetectedError, isCaptchaBlocked, captchaRemainingMs } from '../scraper/amazon';
+import { scrapeProduct, affiliateUrl, ProductUnavailableError, CaptchaDetectedError, isCaptchaBlocked, captchaRemainingMs, type ScrapeResult } from '../scraper/amazon';
 import { sendPriceAlert, sendBackInStockAlert } from '../mailer';
 import { sendTelegramAlert, sendTelegramBackInStock } from '../mailer/telegram';
 import { getSetting } from '../db/settings';
@@ -119,9 +119,9 @@ async function checkAllProducts(): Promise<void> {
   }
 }
 
-interface SaleInfo { isOnSale: boolean; saleTier: string | null; dealScore: number | null; }
+export interface SaleInfo { isOnSale: boolean; saleTier: string | null; dealScore: number | null; }
 
-function calcSaleTier(currentPrice: number, reference: number): SaleInfo {
+export function calcSaleTier(currentPrice: number, reference: number): SaleInfo {
   const pctOff = (reference - currentPrice) / reference * 100;
   if (pctOff >= 67) return { isOnSale: true, saleTier: '67oferta',      dealScore: pctOff };
   if (pctOff >= 50) return { isOnSale: true, saleTier: 'broooooferton', dealScore: pctOff };
@@ -129,6 +129,75 @@ function calcSaleTier(currentPrice: number, reference: number): SaleInfo {
   if (pctOff >= 15) return { isOnSale: true, saleTier: 'super-oferta',  dealScore: pctOff };
   if (pctOff >= 7)  return { isOnSale: true, saleTier: 'oferta',        dealScore: pctOff };
   return { isOnSale: false, saleTier: null, dealScore: null };
+}
+
+/**
+ * Compute sale info and persist a scrape result atomically.
+ *
+ * Used by both the scheduler's `checkProduct` and the admin manual-refresh
+ * endpoint so they share the exact same behaviour: was_price, sale tier,
+ * deal score, name/image, error flags — everything is consistent regardless
+ * of who triggered the scrape.
+ *
+ * `stats` is optional. The scheduler already pre-fetches all-time stats for
+ * other reasons and passes them in to avoid a duplicate query; the manual
+ * refresh path passes nothing and we fetch them here.
+ *
+ * Returns the computed SaleInfo so the caller can react (e.g. process alerts).
+ */
+export async function persistScrapeResult(
+  productId: number,
+  result: ScrapeResult,
+  opts: { allTimeMax?: number | null; scrapeCount?: number; daysSpan?: number; label?: string } = {},
+): Promise<SaleInfo> {
+  let { allTimeMax, scrapeCount, daysSpan } = opts;
+  if (allTimeMax === undefined || scrapeCount === undefined || daysSpan === undefined) {
+    const statsRes = await db.execute(sql`
+      SELECT MAX(price)::float AS all_time_max,
+             COUNT(*)::int AS scrape_count,
+             EXTRACT(DAY FROM (NOW() - MIN(scraped_at)))::int AS days_span
+      FROM price_history WHERE product_id = ${productId}
+    `);
+    const r = statsRes.rows[0] as any;
+    allTimeMax  = (r?.all_time_max  ?? null) as number | null;
+    scrapeCount = (r?.scrape_count  ?? 0)    as number;
+    daysSpan    = (r?.days_span     ?? 0)    as number;
+  }
+
+  const wasPriceRef   = (result.wasPrice && result.wasPrice > result.price) ? result.wasPrice : null;
+  const historicalRef = (scrapeCount! >= 5 && daysSpan! >= 2 && allTimeMax !== null && result.price < allTimeMax) ? allTimeMax : null;
+  const saleReference = Math.max(wasPriceRef ?? 0, historicalRef ?? 0) || null;
+  const saleInfo: SaleInfo = saleReference
+    ? calcSaleTier(result.price, saleReference)
+    : { isOnSale: false, saleTier: null, dealScore: null };
+
+  if (saleInfo.isOnSale && opts.label) {
+    const refSrc = (wasPriceRef && wasPriceRef >= (historicalRef ?? 0)) ? 'was_price' : 'all_time_max';
+    console.log(`[scheduler] ${opts.label} → ${saleInfo.saleTier} (${saleInfo.dealScore!.toFixed(1)}% off, ref ${saleReference?.toFixed(2)} [${refSrc}])`);
+  }
+
+  // Atomic insert + update so a SIGTERM/SIGKILL between the writes can't leave
+  // a price_history row without its matching wasPrice / sale-flag update.
+  await db.transaction(async (tx) => {
+    await tx.insert(priceHistory).values({ productId, price: String(result.price), currency: result.currency });
+    await tx.update(products).set({
+      name: result.name,
+      imageUrl: result.imageUrl,
+      extraImages: result.extraImages.length ? JSON.stringify(result.extraImages) : null,
+      lastError: null,
+      isAvailable: true,
+      consecutiveFailures: 0,
+      consecutiveAnomalies: 0,
+      isFailed: false,
+      isOnSale: saleInfo.isOnSale,
+      saleTier: saleInfo.saleTier,
+      dealScore: saleInfo.dealScore != null ? String(saleInfo.dealScore.toFixed(1)) : null,
+      ...(result.wasPrice != null ? { wasPrice: String(result.wasPrice.toFixed(2)) } : {}),
+    }).where(eq(products.id, productId));
+  });
+
+  if (opts.label) console.log(`[scheduler] ${opts.label} → ${result.price} ${result.currency}`);
+  return saleInfo;
 }
 
 async function checkProduct(productId: number, url: string, label: string, timeoutSeconds = 30): Promise<void> {
@@ -187,43 +256,7 @@ async function checkProduct(productId: number, url: string, label: string, timeo
       }
     }
 
-    // Sale detection: use was_price (Amazon RRP) as reference when available;
-    // fall back to all-time historical max with minimum data gate.
-    const wasPriceRef = (result.wasPrice && result.wasPrice > result.price) ? result.wasPrice : null;
-    const historicalRef = (scrapeCount >= 5 && daysSpan >= 2 && allTimeMax !== null && result.price < allTimeMax) ? allTimeMax : null;
-    const saleReference = Math.max(wasPriceRef ?? 0, historicalRef ?? 0) || null;
-    const saleInfo: SaleInfo = saleReference
-      ? calcSaleTier(result.price, saleReference)
-      : { isOnSale: false, saleTier: null, dealScore: null };
-    if (saleInfo.isOnSale) {
-      const refSrc = (wasPriceRef && wasPriceRef >= (historicalRef ?? 0)) ? 'was_price' : 'all_time_max';
-      console.log(`[scheduler] ${label} → ${saleInfo.saleTier} (${saleInfo.dealScore!.toFixed(1)}% off, ref ${saleReference?.toFixed(2)} [${refSrc}])`);
-    }
-
-    // Atomic write — insert price + update product metadata in one transaction.
-    // Without this, a SIGTERM/SIGKILL between the two writes (e.g. Watchtower
-    // mid-deploy) leaves a price_history row without the matching wasPrice /
-    // sale flags update, producing rows like B0GK9RFVKX (price 299, wasPrice
-    // NULL) that look like the scraper failed when it actually didn't.
-    await db.transaction(async (tx) => {
-      await tx.insert(priceHistory).values({ productId, price: String(result.price), currency: result.currency });
-      await tx.update(products).set({
-        name: result.name,
-        imageUrl: result.imageUrl,
-        extraImages: result.extraImages.length ? JSON.stringify(result.extraImages) : null,
-        lastError: null,
-        isAvailable: true,
-        consecutiveFailures: 0,
-        consecutiveAnomalies: 0,
-        isFailed: false,
-        isOnSale: saleInfo.isOnSale,
-        saleTier: saleInfo.saleTier,
-        dealScore: saleInfo.dealScore != null ? String(saleInfo.dealScore.toFixed(1)) : null,
-        ...(result.wasPrice != null ? { wasPrice: String(result.wasPrice.toFixed(2)) } : {}),
-      }).where(eq(products.id, productId));
-    });
-
-    console.log(`[scheduler] ${label} → ${result.price} ${result.currency}`);
+    const saleInfo = await persistScrapeResult(productId, result, { allTimeMax, scrapeCount, daysSpan, label });
 
     // Product just came back in stock — notify owner
     if (wasUnavailable) {

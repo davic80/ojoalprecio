@@ -4,6 +4,7 @@ import { db } from '../db/client';
 import { products, priceHistory, alerts, categories, users, userProducts } from '../db/schema';
 import { eq, and, desc, sql, asc, inArray } from 'drizzle-orm';
 import { extractAsin, normaliseAmazonUrl, scrapeProduct, scrapeWishlist, affiliateUrl, ProductUnavailableError } from '../scraper/amazon';
+import { persistScrapeResult } from '../scheduler';
 import { requireAuth } from '../middleware/auth';
 import { isAdmin, requireAdmin } from '../middleware/admin';
 
@@ -363,15 +364,11 @@ router.post('/products/:id/refresh', requireAuth, requireAdmin, async (req: Requ
 
   try {
     const result = await scrapeProduct(product.url);
-    await db
-      .update(products)
-      .set({ name: result.name, imageUrl: result.imageUrl, extraImages: result.extraImages.length ? JSON.stringify(result.extraImages) : null, lastError: null, isAvailable: true, consecutiveFailures: 0, isFailed: false })
-      .where(eq(products.id, productId));
-    await db.insert(priceHistory).values({
-      productId,
-      price: String(result.price),
-      currency: result.currency,
-    });
+    // Single source of truth — same persistence logic as the scheduler so admin
+    // refresh writes was_price / sale_tier / deal_score / is_on_sale, not just
+    // the basics. Without this the admin refresh would leave was_price NULL
+    // and product would appear "out of sale" after a manual refresh.
+    await persistScrapeResult(productId, result);
 
     if (req.headers['hx-request']) {
       return res.redirect(`/products/${productId}`);
