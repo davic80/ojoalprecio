@@ -145,6 +145,44 @@ export function calcSaleTier(currentPrice: number, reference: number): SaleInfo 
  *
  * Returns the computed SaleInfo so the caller can react (e.g. process alerts).
  */
+/**
+ * Auto-curate /ofertas. Decide whether the product should appear in the
+ * featured deals panel based on the freshly-computed sale tier + history
+ * confidence. Only runs when the product is in `feature_lock = 'auto'`;
+ * 'pin' / 'mute' are admin overrides that the scheduler must not touch.
+ *
+ * Entry  (currently NOT featured): is_on_sale AND deal_score ≥ minScore
+ *        AND is_available AND scrape_count ≥ 5 AND days_span ≥ 2.
+ * Exit   (currently featured)    : NOT on_sale OR deal_score < minScore-5
+ *        OR NOT available OR featured > 14 days ago (deal fatigue).
+ *
+ * Hysteresis: 5-point gap between entry and exit thresholds avoids flip-flop
+ * when a product oscillates around the boundary.
+ */
+function evaluateAutoFeature(
+  current: { isPublic: boolean; isAvailable: boolean; featuredAt: Date | null },
+  saleInfo: SaleInfo,
+  scrapeCount: number,
+  daysSpan: number,
+  minScore: number,
+): { isPublic: boolean; featuredAt: Date | null } {
+  const exitScore = Math.max(5, minScore - 5);
+  const score     = saleInfo.dealScore ?? 0;
+  const fatigueMs = 14 * 24 * 60 * 60 * 1000;
+
+  if (current.isPublic) {
+    const aged = current.featuredAt && (Date.now() - current.featuredAt.getTime()) > fatigueMs;
+    if (!current.isAvailable || !saleInfo.isOnSale || score < exitScore || aged) {
+      return { isPublic: false, featuredAt: null };
+    }
+    return { isPublic: true, featuredAt: current.featuredAt ?? new Date() };
+  }
+  if (current.isAvailable && saleInfo.isOnSale && score >= minScore && scrapeCount >= 5 && daysSpan >= 2) {
+    return { isPublic: true, featuredAt: new Date() };
+  }
+  return { isPublic: false, featuredAt: null };
+}
+
 export async function persistScrapeResult(
   productId: number,
   result: ScrapeResult,
@@ -164,6 +202,15 @@ export async function persistScrapeResult(
     daysSpan    = (r?.days_span     ?? 0)    as number;
   }
 
+  // Read current feature state so we can decide whether to toggle is_public
+  // in the same transaction as the rest of the scrape persistence.
+  const [stateRow] = await db.select({
+    featureLock: products.featureLock,
+    isPublic:    products.isPublic,
+    isAvailable: products.isAvailable,
+    featuredAt:  products.featuredAt,
+  }).from(products).where(eq(products.id, productId)).limit(1);
+
   const wasPriceRef   = (result.wasPrice && result.wasPrice > result.price) ? result.wasPrice : null;
   const historicalRef = (scrapeCount! >= 5 && daysSpan! >= 2 && allTimeMax !== null && result.price < allTimeMax) ? allTimeMax : null;
   const saleReference = Math.max(wasPriceRef ?? 0, historicalRef ?? 0) || null;
@@ -174,6 +221,25 @@ export async function persistScrapeResult(
   if (saleInfo.isOnSale && opts.label) {
     const refSrc = (wasPriceRef && wasPriceRef >= (historicalRef ?? 0)) ? 'was_price' : 'all_time_max';
     console.log(`[scheduler] ${opts.label} → ${saleInfo.saleTier} (${saleInfo.dealScore!.toFixed(1)}% off, ref ${saleReference?.toFixed(2)} [${refSrc}])`);
+  }
+
+  // Auto-curation of /ofertas. Only when feature_lock = 'auto'. 'pin' and 'mute'
+  // are admin overrides preserved as-is. Alerts are NOT affected by this — the
+  // alerts table joins on product_id only, never on is_public.
+  let nextIsPublic   = stateRow?.isPublic   ?? false;
+  let nextFeaturedAt = stateRow?.featuredAt ?? null;
+  if (stateRow && stateRow.featureLock === 'auto') {
+    const minScoreRaw = await getSetting('featured_min_deal_score', 20);
+    const minScore    = Math.max(5, Math.min(95, Number(minScoreRaw)));
+    const decision = evaluateAutoFeature(
+      { isPublic: stateRow.isPublic, isAvailable: true, featuredAt: stateRow.featuredAt as Date | null },
+      saleInfo, scrapeCount!, daysSpan!, minScore,
+    );
+    if (decision.isPublic !== stateRow.isPublic && opts.label) {
+      console.log(`[scheduler] ${opts.label} → auto-feature ${decision.isPublic ? 'IN' : 'OUT'} (score=${(saleInfo.dealScore ?? 0).toFixed(1)}, threshold=${minScore})`);
+    }
+    nextIsPublic   = decision.isPublic;
+    nextFeaturedAt = decision.featuredAt;
   }
 
   // Atomic insert + update so a SIGTERM/SIGKILL between the writes can't leave
@@ -193,6 +259,8 @@ export async function persistScrapeResult(
       saleTier: saleInfo.saleTier,
       dealScore: saleInfo.dealScore != null ? String(saleInfo.dealScore.toFixed(1)) : null,
       ...(result.wasPrice != null ? { wasPrice: String(result.wasPrice.toFixed(2)) } : {}),
+      isPublic:   nextIsPublic,
+      featuredAt: nextFeaturedAt,
     }).where(eq(products.id, productId));
   });
 
@@ -268,10 +336,19 @@ async function checkProduct(productId: number, url: string, label: string, timeo
   } catch (err) {
     if (err instanceof ProductUnavailableError) {
       console.log(`[scheduler] ${label} → No disponible`);
-      await db.update(products).set({
-        isAvailable: false, lastError: null,
-        isOnSale: false, saleTier: null, dealScore: null,
-      }).where(eq(products.id, productId));
+      // Same transaction: mark unavailable + auto-unfeature if it was in /ofertas
+      // via auto-curation. Pin/mute admin overrides are preserved as-is.
+      await db.execute(sql`
+        UPDATE products SET
+          is_available = FALSE,
+          last_error   = NULL,
+          is_on_sale   = FALSE,
+          sale_tier    = NULL,
+          deal_score   = NULL,
+          is_public    = CASE WHEN feature_lock = 'auto' THEN FALSE ELSE is_public END,
+          featured_at  = CASE WHEN feature_lock = 'auto' THEN NULL  ELSE featured_at END
+        WHERE id = ${productId}
+      `);
       // Reset stock alerts so they fire again when the product comes back
       await db.update(alerts).set({ notifiedAt: null })
         .where(and(eq(alerts.productId, productId), eq(alerts.alertType, 'stock')));

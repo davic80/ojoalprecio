@@ -138,10 +138,19 @@
           hx-on::after-request="location.reload()">
           <%= product.isFailed ? '↺ Reintentar' : '↺ Forzar scrape' %>
         </button>
+        <%
+          const lock = product.featureLock || 'auto';
+          const lockLabel = lock === 'pin'  ? '📌 Pin · forzado dentro'
+                          : lock === 'mute' ? '🔇 Mute · forzado fuera'
+                          :                   (product.isPublic ? '✨ Auto · destacado' : '🔄 Auto · fuera');
+          const lockColor = lock === 'pin'  ? 'background:#16a34a;color:#fff;border-color:#16a34a'
+                          : lock === 'mute' ? 'background:#6b7280;color:#fff;border-color:#6b7280'
+                          : (product.isPublic ? 'background:#dcfce7;color:#166534;border-color:#86efac' : '');
+        %>
         <form hx-post="/products/<%= product.id %>/toggle-public" hx-swap="none" style="display:inline;margin:0">
-          <button type="submit" class="btn btn-sm <%= product.isPublic ? 'btn-outline btn-active-green' : 'btn-ghost' %>"
-            title="Aparece en /ofertas y feeds destacados">
-            <%= product.isPublic ? '✨ Destacado en /ofertas' : '📣 Destacar en /ofertas' %>
+          <button type="submit" class="btn btn-sm" style="<%= lockColor %>"
+            title="Estado en /ofertas. Click cicla auto → pin → mute → auto. Auto = el sistema decide según deal_score; pin/mute = admin lo fuerza.">
+            <%= lockLabel %>
           </button>
         </form>
         <button class="btn btn-danger btn-sm"

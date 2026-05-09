@@ -53,7 +53,11 @@
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:24px">
     <div class="card" style="padding:12px;text-align:center"><div style="font-size:22px;font-weight:700"><%= stats.total %></div><div class="hint">Productos</div></div>
     <div class="card" style="padding:12px;text-align:center"><div style="font-size:22px;font-weight:700;color:#16a34a"><%= stats.onSale %></div><div class="hint">En oferta</div></div>
-    <div class="card" style="padding:12px;text-align:center"><div style="font-size:22px;font-weight:700;color:#16a34a"><%= stats.featured %></div><div class="hint">Destacados /ofertas</div></div>
+    <div class="card" style="padding:12px;text-align:center" title="auto: <%= stats.featuredAuto %> · pin: <%= stats.featuredPin %> · mute: <%= stats.featuredMute %>">
+      <div style="font-size:22px;font-weight:700;color:#16a34a"><%= stats.featured %></div>
+      <div class="hint">Destacados /ofertas</div>
+      <div class="hint" style="font-size:10px;margin-top:2px">A:<%= stats.featuredAuto %> · P:<%= stats.featuredPin %> · M:<%= stats.featuredMute %></div>
+    </div>
     <div class="card" style="padding:12px;text-align:center"><div style="font-size:22px;font-weight:700;color:<%= stats.failed > 0 ? '#dc2626' : 'var(--gray-400)' %>"><%= stats.failed %></div><div class="hint">Fallidos</div></div>
     <div class="card" style="padding:12px;text-align:center"><div style="font-size:22px;font-weight:700;color:<%= stats.withError > 0 ? '#ea580c' : 'var(--gray-400)' %>"><%= stats.withError %></div><div class="hint">Con error</div></div>
     <div class="card" style="padding:12px;text-align:center"><div style="font-size:22px;font-weight:700"><%= stats.users %></div><div class="hint">Usuarios</div></div>

@@ -217,6 +217,8 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
     totalFailures:        product.total_failures,
     isFailed:             product.is_failed,
     lastError:            product.last_error,
+    featureLock:          product.feature_lock,
+    featuredAt:           product.featured_at,
     createdAt:            product.created_at,
     amazonUrl:            affiliateUrl(product.url),
   };

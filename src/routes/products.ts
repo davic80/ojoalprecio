@@ -347,25 +347,34 @@ router.post('/products/:id/refresh', requireAuth, requireAdmin, async (req: Requ
   }
 });
 
-// ── POST /products/:id/toggle-public — Toggle "destacado en /ofertas" (admin only) ──
-// is_public is now a featured-in-ofertas tag, not an access control.
+// ── POST /products/:id/toggle-public — Cycle feature_lock: auto → pin → mute → auto ─
+// 'auto'  : scheduler decides on each scrape based on deal_score / availability
+// 'pin'   : admin force-keeps it featured (is_public=TRUE), scheduler won't touch
+// 'mute'  : admin force-excludes it (is_public=FALSE), scheduler won't touch
+// Endpoint name kept as toggle-public for UI / HTMX compatibility.
 router.post('/products/:id/toggle-public', requireAuth, requireAdmin, async (req: Request, res: Response) => {
   const productId = parseInt(String(req.params.id), 10);
 
   const [product] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
   if (!product) return res.status(404).json({ error: 'Producto no encontrado.' });
 
-  const [updated] = await db
-    .update(products)
-    .set({ isPublic: !product.isPublic })
-    .where(eq(products.id, productId))
-    .returning();
+  const next = product.featureLock === 'auto' ? 'pin'
+            : product.featureLock === 'pin'  ? 'mute'
+            :                                  'auto';
+
+  // pin → is_public=TRUE always; mute → is_public=FALSE always; auto leaves
+  // is_public as it currently is (next scrape will reevaluate).
+  const updateSet: Record<string, unknown> = { featureLock: next };
+  if (next === 'pin')  { updateSet.isPublic = true;  updateSet.featuredAt = new Date(); }
+  if (next === 'mute') { updateSet.isPublic = false; updateSet.featuredAt = null; }
+
+  const [updated] = await db.update(products).set(updateSet).where(eq(products.id, productId)).returning();
 
   if (req.headers['hx-request']) {
     res.setHeader('HX-Redirect', `/p/${product.asin}`);
     return res.status(200).send('');
   }
-  res.json({ isPublic: updated.isPublic });
+  res.json({ featureLock: updated.featureLock, isPublic: updated.isPublic });
 });
 
 // ── POST /products/:id/set-category (admin only — global catalog metadata) ──

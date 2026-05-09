@@ -63,6 +63,10 @@ export const products = pgTable('products', {
   totalFailures: integer('total_failures').default(0).notNull(),
   isFailed: boolean('is_failed').default(false).notNull(),
   lastError: text('last_error'),
+  // Auto-curation of /ofertas. 'auto' = scheduler decides on each scrape;
+  // 'pin' = admin force-keeps it featured; 'mute' = admin force-keeps it out.
+  featureLock: varchar('feature_lock', { length: 10 }).default('auto').notNull(),
+  featuredAt:  timestamp('featured_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 

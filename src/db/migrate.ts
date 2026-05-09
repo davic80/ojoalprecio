@@ -413,6 +413,23 @@ const MIGRATIONS = [
   // "Nuevo y de segunda mano desde X €" prices). After 3 consecutive anomalies the
   // guard accepts the new price (in case the real price genuinely shifted).
   `ALTER TABLE products ADD COLUMN IF NOT EXISTS consecutive_anomalies INTEGER DEFAULT 0 NOT NULL;`,
+  // Migration 34: auto-curation of /ofertas. feature_lock controls whether the
+  // scheduler can toggle is_public on its own ('auto') or whether admin has
+  // pinned it in ('pin') or out ('mute'). featured_at marks when a product
+  // last entered /ofertas via auto-curation, used for fatigue (max 14 days).
+  // Conservative backfill: any product that's currently is_public=TRUE gets
+  // feature_lock='pin' so manual curation isn't lost.
+  `
+  ALTER TABLE products ADD COLUMN IF NOT EXISTS feature_lock VARCHAR(10) DEFAULT 'auto' NOT NULL;
+  ALTER TABLE products ADD COLUMN IF NOT EXISTS featured_at  TIMESTAMP;
+  UPDATE products SET feature_lock = 'pin', featured_at = NOW() WHERE is_public = TRUE;
+
+  INSERT INTO app_settings (key, value, value_type, label, hint) VALUES
+    ('featured_min_deal_score', '20', 'integer',
+     'Umbral % para auto-destacar en /ofertas',
+     'deal_score mínimo (en %) para que un producto entre automáticamente en /ofertas. Sale al bajar 5 puntos por debajo (histéresis). Default 20.')
+  ON CONFLICT (key) DO NOTHING;
+  `,
 ];
 
 export async function migrate(): Promise<void> {
