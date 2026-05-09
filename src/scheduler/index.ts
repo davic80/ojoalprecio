@@ -187,8 +187,6 @@ async function checkProduct(productId: number, url: string, label: string, timeo
       }
     }
 
-    await db.insert(priceHistory).values({ productId, price: String(result.price), currency: result.currency });
-
     // Sale detection: use was_price (Amazon RRP) as reference when available;
     // fall back to all-time historical max with minimum data gate.
     const wasPriceRef = (result.wasPrice && result.wasPrice > result.price) ? result.wasPrice : null;
@@ -202,20 +200,28 @@ async function checkProduct(productId: number, url: string, label: string, timeo
       console.log(`[scheduler] ${label} → ${saleInfo.saleTier} (${saleInfo.dealScore!.toFixed(1)}% off, ref ${saleReference?.toFixed(2)} [${refSrc}])`);
     }
 
-    await db.update(products).set({
-      name: result.name,
-      imageUrl: result.imageUrl,
-      extraImages: result.extraImages.length ? JSON.stringify(result.extraImages) : null,
-      lastError: null,
-      isAvailable: true,
-      consecutiveFailures: 0,
-      consecutiveAnomalies: 0,
-      isFailed: false,
-      isOnSale: saleInfo.isOnSale,
-      saleTier: saleInfo.saleTier,
-      dealScore: saleInfo.dealScore != null ? String(saleInfo.dealScore.toFixed(1)) : null,
-      ...(result.wasPrice != null ? { wasPrice: String(result.wasPrice.toFixed(2)) } : {}),
-    }).where(eq(products.id, productId));
+    // Atomic write — insert price + update product metadata in one transaction.
+    // Without this, a SIGTERM/SIGKILL between the two writes (e.g. Watchtower
+    // mid-deploy) leaves a price_history row without the matching wasPrice /
+    // sale flags update, producing rows like B0GK9RFVKX (price 299, wasPrice
+    // NULL) that look like the scraper failed when it actually didn't.
+    await db.transaction(async (tx) => {
+      await tx.insert(priceHistory).values({ productId, price: String(result.price), currency: result.currency });
+      await tx.update(products).set({
+        name: result.name,
+        imageUrl: result.imageUrl,
+        extraImages: result.extraImages.length ? JSON.stringify(result.extraImages) : null,
+        lastError: null,
+        isAvailable: true,
+        consecutiveFailures: 0,
+        consecutiveAnomalies: 0,
+        isFailed: false,
+        isOnSale: saleInfo.isOnSale,
+        saleTier: saleInfo.saleTier,
+        dealScore: saleInfo.dealScore != null ? String(saleInfo.dealScore.toFixed(1)) : null,
+        ...(result.wasPrice != null ? { wasPrice: String(result.wasPrice.toFixed(2)) } : {}),
+      }).where(eq(products.id, productId));
+    });
 
     console.log(`[scheduler] ${label} → ${result.price} ${result.currency}`);
 
