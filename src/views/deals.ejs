@@ -16,11 +16,11 @@
     <span class="brand-name">OjoAlPrecio</span>
   </a>
   <div class="navbar-actions">
-    <% if (typeof isAdmin !== 'undefined' && isAdmin) { %>
-      <a href="/admin" class="nav-link">Admin</a>
-    <% } %>
     <% if (typeof user !== 'undefined' && user) { %>
       <a href="/" class="nav-link">Mi dashboard</a>
+      <% if (typeof isAdmin !== 'undefined' && isAdmin) { %>
+        <a href="/admin" class="nav-link">Admin</a>
+      <% } %>
       <a href="/account" class="user-email user-email-link"><%= user.email %></a>
       <form action="/auth/logout" method="POST" style="display:inline">
         <button type="submit" class="btn btn-ghost btn-sm">Salir</button>

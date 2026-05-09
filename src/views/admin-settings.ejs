@@ -99,7 +99,7 @@
               style="display:flex;align-items:center;gap:8px"
             >
               <input
-                type="number"
+                type="<%= s.valueType === 'integer' ? 'number' : 'text' %>"
                 name="value"
                 value="<%= s.value %>"
                 class="input"
