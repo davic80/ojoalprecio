@@ -326,6 +326,27 @@ router.post('/admin/alerts/:id/toggle-active', requireAuth, requireAdmin, async 
   res.json({ success: true });
 });
 
+// ── POST /admin/categories/auto-categorize-uncategorized — Backfill on demand ─
+// Walks every active product with category_id IS NULL AND name IS NOT NULL,
+// runs the auto-cat dictionary against the name, and assigns the matching
+// category. Anything that doesn't match stays uncategorized for manual review.
+router.post('/admin/categories/auto-categorize-uncategorized', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const { autoCategorizeId, invalidateCategoryCache } = await import('../scraper/categorize');
+  invalidateCategoryCache();
+  const rows = await db.execute(sql`SELECT id, name FROM products WHERE category_id IS NULL AND is_active = TRUE AND name IS NOT NULL`);
+  let assigned = 0;
+  for (const row of rows.rows as any[]) {
+    const cid = await autoCategorizeId(row.name as string);
+    if (cid !== null) {
+      await db.update(products).set({ categoryId: cid }).where(eq(products.id, row.id));
+      assigned++;
+    }
+  }
+  console.log(`[admin] auto-categorize backfill: ${assigned}/${rows.rows.length} assigned`);
+  if (req.headers['hx-request']) { res.setHeader('HX-Refresh', 'true'); return res.status(200).send(''); }
+  res.json({ assigned, total: rows.rows.length });
+});
+
 // ── GET /admin/anomalies — Review queue ───────────────────────────────────────
 router.get('/admin/anomalies', requireAuth, requireAdmin, async (req: Request, res: Response) => {
   const status = ['pending', 'approved', 'denied', 'all'].includes(String(req.query.status ?? '')) ? String(req.query.status) : 'pending';

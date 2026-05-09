@@ -3,6 +3,7 @@ import { db } from '../db/client';
 import { products, priceHistory, alerts, alertEvents, users, scrapeAnomalies, userProducts } from '../db/schema';
 import { eq, and, desc, min, isNull, sql, inArray } from 'drizzle-orm';
 import { scrapeProduct, affiliateUrl, ProductUnavailableError, CaptchaDetectedError, isCaptchaBlocked, captchaRemainingMs, type ScrapeResult } from '../scraper/amazon';
+import { autoCategorizeId } from '../scraper/categorize';
 import { sendPriceAlert, sendBackInStockAlert } from '../mailer';
 import { sendTelegramAlert, sendTelegramBackInStock } from '../mailer/telegram';
 import { getSetting } from '../db/settings';
@@ -202,14 +203,30 @@ export async function persistScrapeResult(
     daysSpan    = (r?.days_span     ?? 0)    as number;
   }
 
-  // Read current feature state so we can decide whether to toggle is_public
-  // in the same transaction as the rest of the scrape persistence.
+  // Read current feature + category state so we can decide whether to toggle
+  // is_public AND set category_id in the same transaction as the scrape.
   const [stateRow] = await db.select({
     featureLock: products.featureLock,
     isPublic:    products.isPublic,
     isAvailable: products.isAvailable,
     featuredAt:  products.featuredAt,
+    categoryId:  products.categoryId,
   }).from(products).where(eq(products.id, productId)).limit(1);
+
+  // Auto-categorise: only when the product has no category yet (admin-set or
+  // category-import-set values are never overwritten). Best-effort — a name
+  // that doesn't match any rule keeps category_id NULL and shows up on the
+  // admin uncategorized list.
+  let nextCategoryId = stateRow?.categoryId ?? null;
+  if (nextCategoryId === null && result.name) {
+    try {
+      const guess = await autoCategorizeId(result.name);
+      if (guess !== null) {
+        nextCategoryId = guess;
+        if (opts.label) console.log(`[scheduler] ${opts.label} → auto-categorize → category #${guess}`);
+      }
+    } catch (err) { console.error('[scheduler] auto-categorize failed:', err); }
+  }
 
   const wasPriceRef   = (result.wasPrice && result.wasPrice > result.price) ? result.wasPrice : null;
   const historicalRef = (scrapeCount! >= 5 && daysSpan! >= 2 && allTimeMax !== null && result.price < allTimeMax) ? allTimeMax : null;
@@ -263,6 +280,7 @@ export async function persistScrapeResult(
       ...(result.wasPrice != null ? { wasPrice: String(result.wasPrice.toFixed(2)) } : {}),
       isPublic:   nextIsPublic,
       featuredAt: nextFeaturedAt,
+      categoryId: nextCategoryId,
     }).where(eq(products.id, productId));
   });
 

@@ -465,6 +465,48 @@ const MIGRATIONS = [
   ALTER TABLE products ADD COLUMN IF NOT EXISTS variants_json           TEXT;
   ALTER TABLE products ADD COLUMN IF NOT EXISTS consecutive_unavailable INTEGER DEFAULT 0 NOT NULL;
   `,
+  // Migration 37: category cleanup. Five categories are folded into others or
+  // dropped because they were brand-buckets / duplicates / empty:
+  //   Coche (26)            → merged into Automoción (21)
+  //   Cuidado Personal (5)  → merged into Salud y Belleza (16)
+  //   Apple (1)             → split by product type (Watch/AirTag → Electrónica,
+  //                            AirPods → Audio, iPad/Magic* → Informática,
+  //                            anything else → Electrónica)
+  //   Bricolaje (15)        → empty, source disabled
+  //   Moda (17)             → empty, source disabled
+  // amazon_category_sources rows are deactivated (not deleted) so re-enabling
+  // them later is one-click. Lookups by slug are used to keep the migration
+  // robust if any of these IDs got remapped on prior fresh installs.
+  `
+  -- 1. Distribute Apple before any merges
+  UPDATE products SET category_id = (SELECT id FROM categories WHERE slug = 'audio')
+    WHERE category_id = (SELECT id FROM categories WHERE slug = 'apple')
+      AND name ILIKE '%airpods%';
+
+  UPDATE products SET category_id = (SELECT id FROM categories WHERE slug = 'informatica')
+    WHERE category_id = (SELECT id FROM categories WHERE slug = 'apple')
+      AND (name ILIKE '%ipad%' OR name ILIKE '%magic trackpad%' OR name ILIKE '%magic mouse%' OR name ILIKE '%macbook%');
+
+  UPDATE products SET category_id = (SELECT id FROM categories WHERE slug = 'electronica')
+    WHERE category_id = (SELECT id FROM categories WHERE slug = 'apple');
+
+  -- 2. Merge Coche → Automoción
+  UPDATE products SET category_id = (SELECT id FROM categories WHERE slug = 'automocion')
+    WHERE category_id = (SELECT id FROM categories WHERE slug = 'coche');
+
+  -- 3. Merge Cuidado Personal → Salud y Belleza
+  UPDATE products SET category_id = (SELECT id FROM categories WHERE slug = 'salud-y-belleza')
+    WHERE category_id = (SELECT id FROM categories WHERE slug = 'cuidado-personal');
+
+  -- 4. Disable amazon_category_sources for the categories we're about to drop
+  UPDATE amazon_category_sources SET is_active = FALSE
+    WHERE category_id IN (
+      SELECT id FROM categories WHERE slug IN ('apple','coche','cuidado-personal','bricolaje','moda')
+    );
+
+  -- 5. Delete the obsolete categories (FK on amazon_category_sources is SET NULL)
+  DELETE FROM categories WHERE slug IN ('apple','coche','cuidado-personal','bricolaje','moda');
+  `,
 ];
 
 export async function migrate(): Promise<void> {
