@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Anomalías — Admin OjoAlPrecio</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js" defer></script>
+</head>
+<body>
+
+<nav class="navbar">
+  <a href="/" class="navbar-brand">
+    <span class="brand-icon">👁</span>
+    <span class="brand-name">OjoAlPrecio</span>
+  </a>
+  <div class="navbar-actions">
+    <a href="/admin" class="nav-link">Admin</a>
+    <a href="/admin/categories" class="nav-link">Categorías</a>
+    <a href="/admin/deals" class="nav-link">Chollos</a>
+    <a href="/admin/social" class="nav-link">Social</a>
+    <a href="/admin/stats" class="nav-link">Stats</a>
+    <a href="/admin/users" class="nav-link">Usuarios</a>
+    <a href="/admin/alerts" class="nav-link">Alertas</a>
+    <a href="/admin/anomalies" class="nav-link nav-link-active">Anomalías</a>
+    <a href="/admin/settings" class="nav-link">Ajustes</a>
+    <span id="scrape-widget" style="position:relative;margin-right:4px"></span>
+    <a href="/account" class="user-email user-email-link"><%= user.email %></a>
+    <form action="/auth/logout" method="POST" style="display:inline">
+      <button type="submit" class="btn btn-ghost btn-sm">Salir</button>
+    </form>
+  </div>
+</nav>
+
+<main class="container">
+
+  <div class="page-header">
+    <h1>Anomalías para revisar</h1>
+    <p class="subtitle">Capturas que el guard rechazó. Apruébalas si eran legítimas, deniégalas si son ruido.</p>
+  </div>
+
+  <!-- Resumen counts -->
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+    <a href="?status=pending" class="card" style="padding:8px 14px;text-decoration:none;color:inherit;<%= filters.status === 'pending' ? 'box-shadow:inset 0 0 0 2px var(--primary,#e63946)' : '' %>">
+      <strong style="font-size:18px;color:#dc2626"><%= counts.pending ?? 0 %></strong> pendientes
+    </a>
+    <a href="?status=approved" class="card" style="padding:8px 14px;text-decoration:none;color:inherit;<%= filters.status === 'approved' ? 'box-shadow:inset 0 0 0 2px var(--primary,#e63946)' : '' %>">
+      <strong style="font-size:18px;color:#16a34a"><%= counts.approved ?? 0 %></strong> aprobadas
+    </a>
+    <a href="?status=denied" class="card" style="padding:8px 14px;text-decoration:none;color:inherit;<%= filters.status === 'denied' ? 'box-shadow:inset 0 0 0 2px var(--primary,#e63946)' : '' %>">
+      <strong style="font-size:18px;color:var(--gray-500)"><%= counts.denied ?? 0 %></strong> denegadas
+    </a>
+    <a href="?status=all" class="card" style="padding:8px 14px;text-decoration:none;color:inherit;<%= filters.status === 'all' ? 'box-shadow:inset 0 0 0 2px var(--primary,#e63946)' : '' %>">
+      Todas
+    </a>
+    <span style="flex:1"></span>
+    <span class="hint" style="font-size:12px;align-self:center">por tipo pendiente · low: <%= counts.pending_low ?? 0 %> · high: <%= counts.pending_high ?? 0 %> · used: <%= counts.pending_used ?? 0 %> · unq: <%= counts.pending_unq ?? 0 %></span>
+  </div>
+
+  <!-- Filters -->
+  <form method="GET" class="card" style="margin-bottom:16px;display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+    <input type="hidden" name="status" value="<%= filters.status %>">
+    <div>
+      <label class="hint" style="display:block;font-size:12px;margin-bottom:2px">Tipo</label>
+      <select name="type" class="form-input" style="width:auto" onchange="this.form.submit()">
+        <option value="all" <%= filters.type === 'all' ? 'selected' : '' %>>Todos</option>
+        <option value="low"  <%= filters.type === 'low'  ? 'selected' : '' %>>Low (precio &lt;&lt; mediana)</option>
+        <option value="high" <%= filters.type === 'high' ? 'selected' : '' %>>High (precio &gt;&gt; mediana)</option>
+        <option value="used" <%= filters.type === 'used' ? 'selected' : '' %>>Used buybox</option>
+        <option value="unqualified" <%= filters.type === 'unqualified' ? 'selected' : '' %>>Unqualified buybox</option>
+      </select>
+    </div>
+    <div style="flex:1;min-width:200px">
+      <label class="hint" style="display:block;font-size:12px;margin-bottom:2px">ASIN</label>
+      <input type="text" name="product" value="<%= filters.product %>" placeholder="B0XXXXXXX" class="input">
+    </div>
+    <button type="submit" class="btn btn-primary btn-sm">Filtrar</button>
+    <a href="/admin/anomalies" class="btn btn-ghost btn-sm">Reset</a>
+  </form>
+
+  <% if (anomalies.length === 0) { %>
+    <div class="card"><p class="hint" style="margin:0">No hay anomalías que coincidan con los filtros.</p></div>
+  <% } else { %>
+    <div class="card" style="padding:0">
+      <table class="price-table" style="margin:0">
+        <thead>
+          <tr>
+            <th style="width:80px">Tipo</th>
+            <th>Producto</th>
+            <th style="text-align:right">Sospechoso</th>
+            <th style="text-align:right">Mediana / Actual</th>
+            <th style="text-align:right">Δ</th>
+            <th>Detectada</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% anomalies.forEach(function(a) {
+            const typeLabel = { low:'⬇️ low', high:'⬆️ high', used:'🔄 used', unqualified:'🚫 unq' }[a.anomalyType] || a.anomalyType;
+            const typeColor = { low:'#ea580c', high:'#dc2626', used:'#7c3aed', unqualified:'#6b7280' }[a.anomalyType] || '#000';
+            const susp = a.suspectPrice != null ? parseFloat(a.suspectPrice) : null;
+            const med  = a.medianPrice  != null ? parseFloat(a.medianPrice)  : null;
+            const cur  = a.currentPrice != null ? parseFloat(a.currentPrice) : null;
+            const ref  = med ?? cur;
+            const delta = (susp != null && ref != null && ref > 0) ? Math.round(((susp / ref) - 1) * 100) : null;
+            const stateBadge = a.status === 'pending'  ? { txt: 'Pendiente',  bg: '#fef3c7', fg: '#854d0e' }
+                            : a.status === 'approved' ? { txt: 'Aprobada',   bg: '#dcfce7', fg: '#166534' }
+                            :                            { txt: 'Denegada',   bg: '#e5e7eb', fg: '#4b5563' };
+          %>
+            <tr id="anom-<%= a.id %>">
+              <td>
+                <span style="background:<%= typeColor %>20;color:<%= typeColor %>;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:600;white-space:nowrap"><%= typeLabel %></span>
+                <% if (a.productBypass) { %><span class="hint" style="font-size:10px;color:#16a34a;display:block;margin-top:2px">bypass on</span><% } %>
+              </td>
+              <td>
+                <a href="/p/<%= a.productAsin %>" target="_blank" class="hint-link" style="font-weight:500;font-size:13px">
+                  <%= a.productName ? (a.productName.length > 60 ? a.productName.slice(0,60) + '…' : a.productName) : a.productAsin %>
+                </a>
+                <span class="product-asin" style="display:block"><%= a.productAsin %></span>
+                <% if (a.pageSnippet) { %>
+                  <details style="margin-top:4px"><summary class="hint" style="cursor:pointer;font-size:11px">Snippet página</summary>
+                    <pre style="font-size:10px;color:var(--gray-500);white-space:pre-wrap;margin:4px 0;background:#f8fafc;padding:6px;border-radius:4px;max-width:400px"><%= a.pageSnippet %></pre>
+                  </details>
+                <% } %>
+                <% if (a.scraperMessage) { %>
+                  <p class="hint" style="font-size:11px;margin:2px 0;color:#b91c1c"><%= a.scraperMessage.slice(0, 160) %></p>
+                <% } %>
+              </td>
+              <td style="text-align:right;white-space:nowrap;font-weight:600">
+                <%= susp != null ? susp.toFixed(2) + ' €' : '—' %>
+              </td>
+              <td style="text-align:right;white-space:nowrap;font-size:12px">
+                <% if (med  != null) { %><div>med: <%= med.toFixed(2) %> €</div><% } %>
+                <% if (cur  != null) { %><div>actual: <%= cur.toFixed(2) %> €</div><% } %>
+              </td>
+              <td style="text-align:right;white-space:nowrap;font-size:12px">
+                <% if (delta != null) { %>
+                  <span style="color:<%= delta < 0 ? '#16a34a' : '#dc2626' %>;font-weight:600"><%= delta > 0 ? '+' : '' %><%= delta %>%</span>
+                <% } else { %>—<% } %>
+              </td>
+              <td style="white-space:nowrap;font-size:12px;color:var(--gray-500)">
+                <%= new Date(a.detectedAt).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) %>
+                <span class="alert-badge" style="display:block;margin-top:3px;background:<%= stateBadge.bg %>;color:<%= stateBadge.fg %>;font-size:10px"><%= stateBadge.txt %></span>
+                <p class="hint" style="font-size:10px;margin:2px 0 0">prod: <%= parseInt(a.approvedCount,10) %>✓ <%= parseInt(a.deniedCount,10) %>✗</p>
+              </td>
+              <td style="white-space:nowrap">
+                <% if (a.status === 'pending') { %>
+                  <button class="btn btn-sm" style="background:#16a34a;color:#fff;border-color:#16a34a;font-size:11px"
+                    hx-post="/admin/anomalies/<%= a.id %>/approve"
+                    hx-confirm="Aprobar y guardar el precio en histórico?"
+                    title="Acepta el precio sospechoso como real">✅ Aprobar</button>
+                  <button class="btn btn-sm btn-outline" style="font-size:11px"
+                    hx-post="/admin/anomalies/<%= a.id %>/deny"
+                    title="Confirma que era basura">❌ Denegar</button>
+                  <% if (!a.productBypass && (a.anomalyType === 'low' || a.anomalyType === 'high')) { %>
+                  <button class="btn btn-sm btn-ghost" style="font-size:11px"
+                    hx-post="/admin/anomalies/<%= a.id %>/bypass-product"
+                    hx-confirm="Activar bypass para este producto. Sus futuras anomalías se aceptarán sin pasar por la cola. ¿Seguro?"
+                    title="Aprobar siempre las anomalías de este producto">🔓 Bypass</button>
+                  <% } %>
+                  <% if (a.anomalyType === 'used' || a.anomalyType === 'unqualified') { %>
+                  <button class="btn btn-sm btn-ghost" style="font-size:11px;color:#dc2626"
+                    hx-post="/admin/anomalies/<%= a.id %>/mark-unavailable"
+                    hx-confirm="Confirmar que el producto está sin stock real. Sale de /ofertas. ¿Seguro?"
+                    title="Forzar sin stock + sale de /ofertas">🚫 Sin stock</button>
+                  <% } %>
+                  <button class="btn btn-sm btn-ghost" style="font-size:11px;color:var(--gray-500)"
+                    hx-delete="/admin/anomalies/<%= a.id %>"
+                    hx-target="#anom-<%= a.id %>" hx-swap="outerHTML"
+                    hx-confirm="Borrar la anomalía sin decidir?">🗑</button>
+                <% } else { %>
+                  <span class="hint" style="font-size:11px">—</span>
+                <% } %>
+              </td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+
+  <div style="margin-top:12px">
+    <a href="/admin" class="hint-link">← Volver al panel</a>
+  </div>
+
+</main>
+
+<footer class="footer">
+  <p>OjoAlPrecio v<%= process.env['APP_VERSION'] ?? 'dev' %> Admin</p>
+</footer>
+
+<script src="/js/scrape-widget.js"></script>
+</body>
+</html>

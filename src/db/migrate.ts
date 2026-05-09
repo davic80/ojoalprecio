@@ -430,6 +430,30 @@ const MIGRATIONS = [
      'deal_score mínimo (en %) para que un producto entre automáticamente en /ofertas. Sale al bajar 5 puntos por debajo (histéresis). Default 20.')
   ON CONFLICT (key) DO NOTHING;
   `,
+  // Migration 35: anomaly review queue. Instead of silently discarding the
+  // anomalies the scheduler/scraper detect (low/high outliers, used buybox,
+  // unqualified buybox), enqueue them for admin to approve / deny. Admin can
+  // also flag a product as "bypass_anomaly_guard" so its future anomalies are
+  // auto-accepted without queueing (for products with naturally wide swings).
+  `
+  CREATE TABLE IF NOT EXISTS scrape_anomalies (
+    id              SERIAL PRIMARY KEY,
+    product_id      INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    detected_at     TIMESTAMP DEFAULT NOW() NOT NULL,
+    anomaly_type    VARCHAR(20) NOT NULL,
+    suspect_price   NUMERIC(10,2),
+    median_price    NUMERIC(10,2),
+    scraper_message TEXT,
+    page_snippet    TEXT,
+    status          VARCHAR(20) DEFAULT 'pending' NOT NULL,
+    reviewed_by     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    reviewed_at     TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_scrape_anomalies_pending ON scrape_anomalies(detected_at DESC) WHERE status = 'pending';
+  CREATE INDEX IF NOT EXISTS idx_scrape_anomalies_product ON scrape_anomalies(product_id, detected_at DESC);
+
+  ALTER TABLE products ADD COLUMN IF NOT EXISTS bypass_anomaly_guard BOOLEAN DEFAULT FALSE NOT NULL;
+  `,
 ];
 
 export async function migrate(): Promise<void> {

@@ -63,6 +63,7 @@
     <div class="card" style="padding:12px;text-align:center"><div style="font-size:22px;font-weight:700"><%= stats.users %></div><div class="hint">Usuarios</div></div>
     <div class="card" style="padding:12px;text-align:center"><div style="font-size:22px;font-weight:700"><%= stats.alertsTotal %></div><div class="hint">Alertas</div></div>
     <div class="card" style="padding:12px;text-align:center"><div style="font-size:22px;font-weight:700;color:#dc2626"><%= stats.eventsToday %></div><div class="hint">Disparadas hoy</div></div>
+    <a href="/admin/anomalies" class="card" style="padding:12px;text-align:center;text-decoration:none;color:inherit;<%= stats.anomaliesPending > 0 ? 'box-shadow:0 0 0 2px #dc2626' : '' %>"><div style="font-size:22px;font-weight:700;color:<%= stats.anomaliesPending > 0 ? '#dc2626' : 'var(--gray-400)' %>"><%= stats.anomaliesPending %></div><div class="hint">🔍 Anomalías por revisar</div></a>
     <div class="card" style="padding:12px;text-align:center"><div style="font-size:22px;font-weight:700"><%= stats.viewsToday %></div><div class="hint">Visitas hoy</div></div>
   </div>
 

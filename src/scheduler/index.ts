@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 import { db } from '../db/client';
-import { products, priceHistory, alerts, alertEvents, users } from '../db/schema';
+import { products, priceHistory, alerts, alertEvents, users, scrapeAnomalies } from '../db/schema';
 import { eq, and, desc, min, isNull, sql } from 'drizzle-orm';
 import { scrapeProduct, affiliateUrl, ProductUnavailableError, CaptchaDetectedError, isCaptchaBlocked, captchaRemainingMs, type ScrapeResult } from '../scraper/amazon';
 import { sendPriceAlert, sendBackInStockAlert } from '../mailer';
@@ -268,12 +268,42 @@ export async function persistScrapeResult(
   return saleInfo;
 }
 
+/**
+ * Append an anomaly to the review queue. Best-effort — failures are logged
+ * but don't block the scrape flow. The queue lets admin recover legit
+ * captures the guard misclassified, plus toggle bypass_anomaly_guard for
+ * products with naturally wide swings.
+ */
+async function enqueueAnomaly(input: {
+  productId: number;
+  type: 'low' | 'high' | 'used' | 'unqualified';
+  suspectPrice: number | null;
+  medianPrice: number | null;
+  message: string;
+  snippet?: string;
+}): Promise<void> {
+  try {
+    await db.insert(scrapeAnomalies).values({
+      productId:      input.productId,
+      anomalyType:    input.type,
+      suspectPrice:   input.suspectPrice != null ? String(input.suspectPrice.toFixed(2)) : null,
+      medianPrice:    input.medianPrice  != null ? String(input.medianPrice.toFixed(2))  : null,
+      scraperMessage: input.message,
+      pageSnippet:    input.snippet ?? null,
+      status:         'pending',
+    });
+  } catch (err) {
+    console.error('[scheduler] enqueueAnomaly failed:', err);
+  }
+}
+
 async function checkProduct(productId: number, url: string, label: string, timeoutSeconds = 30): Promise<void> {
   // Load current state to detect availability transitions and track failures
   const [current] = await db.select({
     isAvailable: products.isAvailable,
     consecutiveFailures: products.consecutiveFailures,
     consecutiveAnomalies: products.consecutiveAnomalies,
+    bypassAnomalyGuard: products.bypassAnomalyGuard,
   }).from(products).where(eq(products.id, productId)).limit(1);
   const wasUnavailable = current ? !current.isAvailable : false;
 
@@ -309,7 +339,8 @@ async function checkProduct(productId: number, url: string, label: string, timeo
     `);
     const recent = (recentRows.rows as any[]).map(r => r.p as number);
     const anomalyCount = current?.consecutiveAnomalies ?? 0;
-    if (recent.length >= 3 && anomalyCount < 3) {
+    const bypassed = current?.bypassAnomalyGuard ?? false;
+    if (recent.length >= 3 && anomalyCount < 3 && !bypassed) {
       const sorted = recent.slice().sort((a, b) => a - b);
       const median = sorted[Math.floor(sorted.length / 2)];
       const lowSuspect  = result.price < median * 0.4 && !(result.wasPrice != null && result.wasPrice >= result.price * 4);
@@ -318,11 +349,19 @@ async function checkProduct(productId: number, url: string, label: string, timeo
         const newCount = anomalyCount + 1;
         const dir = lowSuspect ? '<<' : '>>';
         const cause = lowSuspect ? 'probable accesorio o "Nuevo y de segunda mano"' : 'probable tercero/importación con precio inflado';
+        const msg = `Precio anómalo descartado (${newCount}/3): ${result.price.toFixed(2)} € ${dir} mediana ${median.toFixed(2)} € — ${cause}`;
         console.warn(`[scheduler] ${label} → ANOMALÍA (${newCount}/3): ${result.price.toFixed(2)} € ${dir} mediana ${median.toFixed(2)} € — descartado`);
         await db.update(products).set({
           consecutiveAnomalies: newCount,
-          lastError: `Precio anómalo descartado (${newCount}/3): ${result.price.toFixed(2)} € ${dir} mediana ${median.toFixed(2)} € — ${cause}`,
+          lastError: msg,
         }).where(eq(products.id, productId));
+        await enqueueAnomaly({
+          productId,
+          type: lowSuspect ? 'low' : 'high',
+          suspectPrice: result.price,
+          medianPrice: median,
+          message: msg,
+        });
         return;
       }
     }
@@ -338,7 +377,7 @@ async function checkProduct(productId: number, url: string, label: string, timeo
     await processAlerts(productId, result.price, result.currency, label, result.imageUrl, url);
   } catch (err) {
     if (err instanceof ProductUnavailableError) {
-      console.log(`[scheduler] ${label} → No disponible`);
+      console.log(`[scheduler] ${label} → No disponible${err.reason ? ` (${err.reason})` : ''}`);
       // Same transaction: mark unavailable + auto-unfeature if it was in /ofertas
       // via auto-curation. Pin/mute admin overrides are preserved as-is.
       await db.execute(sql`
@@ -355,6 +394,19 @@ async function checkProduct(productId: number, url: string, label: string, timeo
       // Reset stock alerts so they fire again when the product comes back
       await db.update(alerts).set({ notifiedAt: null })
         .where(and(eq(alerts.productId, productId), eq(alerts.alertType, 'stock')));
+      // Queue for admin review when the unavailability has a structured reason
+      // (used buybox, unqualified buybox). Admin can confirm or recover the
+      // capture if our detection misclassified.
+      if (err.reason) {
+        await enqueueAnomaly({
+          productId,
+          type: err.reason,
+          suspectPrice: null,
+          medianPrice: null,
+          message: err.message,
+          snippet: err.snippet,
+        });
+      }
     } else if (err instanceof CaptchaDetectedError) {
       // Pausa global por bloqueo Amazon — no penalizar el producto, abortar ciclo
       console.log(`[scheduler] ${label} → ${err.message}`);

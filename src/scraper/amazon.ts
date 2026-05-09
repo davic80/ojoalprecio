@@ -1,9 +1,15 @@
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 
 export class ProductUnavailableError extends Error {
-  constructor(message: string) {
+  // Optional structured reason so the scheduler can route this into the
+  // anomaly review queue (used / unqualified buybox cases).
+  reason?: 'used' | 'unqualified';
+  snippet?: string;
+  constructor(message: string, reason?: 'used' | 'unqualified', snippet?: string) {
     super(message);
     this.name = 'ProductUnavailableError';
+    this.reason = reason;
+    this.snippet = snippet;
   }
 }
 
@@ -431,7 +437,7 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
         // In either case, our price selectors might still match something
         // misleading, so we throw ProductUnavailableError here and let the
         // existing no-stock flow record the product as unavailable.
-        const offerState: 'used' | 'unqualified' | null = await page.evaluate(() => {
+        const offerState = await page.evaluate(() => {
           const containers = [
             '#corePriceDisplay_desktop_feature_div',
             '#corePrice_feature_div',
@@ -444,18 +450,20 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
             if (!el) continue;
             const text = (el.textContent ?? '').toLowerCase();
             if (/de 2[ªa]? ?mano|segunda mano|reacondicionado|renewed|certified refurbished|warehouse/.test(text)) {
-              return 'used';
+              return { state: 'used', snippet: (el.textContent ?? '').slice(0, 250).replace(/\s+/g, ' ').trim() };
             }
           }
           const unq = document.querySelector('#unqualifiedBuyBox_feature_div');
-          if (unq && (unq.textContent?.trim().length ?? 0) > 30) return 'unqualified';
+          if (unq && (unq.textContent?.trim().length ?? 0) > 30) {
+            return { state: 'unqualified', snippet: (unq.textContent ?? '').slice(0, 250).replace(/\s+/g, ' ').trim() };
+          }
           return null;
         }).catch(() => null);
-        if (offerState === 'used') {
-          throw new ProductUnavailableError('Solo segunda mano / reacondicionado disponible');
+        if (offerState?.state === 'used') {
+          throw new ProductUnavailableError('Solo segunda mano / reacondicionado disponible', 'used', offerState.snippet);
         }
-        if (offerState === 'unqualified') {
-          throw new ProductUnavailableError('Sin oferta de Amazon — solo terceros vendedores');
+        if (offerState?.state === 'unqualified') {
+          throw new ProductUnavailableError('Sin oferta de Amazon — solo terceros vendedores', 'unqualified', offerState.snippet);
         }
 
         // Phase 2: price + wasPrice + image all in parallel

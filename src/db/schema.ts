@@ -67,8 +67,33 @@ export const products = pgTable('products', {
   // 'pin' = admin force-keeps it featured; 'mute' = admin force-keeps it out.
   featureLock: varchar('feature_lock', { length: 10 }).default('auto').notNull(),
   featuredAt:  timestamp('featured_at'),
+  // Per-product opt-out of the anomaly guard. Admin can flip this on for
+  // products with naturally wide swings (e.g. clearance items, low-volume
+  // listings) so future anomalies aren't queued for review.
+  bypassAnomalyGuard: boolean('bypass_anomaly_guard').default(false).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
+
+// ── Scrape Anomalies (review queue) ───────────────────────────────────────────
+
+export const scrapeAnomalies = pgTable('scrape_anomalies', {
+  id:             serial('id').primaryKey(),
+  productId:      integer('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
+  detectedAt:     timestamp('detected_at').defaultNow().notNull(),
+  // 'low' | 'high' | 'used' | 'unqualified'
+  anomalyType:    varchar('anomaly_type', { length: 20 }).notNull(),
+  suspectPrice:   numeric('suspect_price',  { precision: 10, scale: 2 }),
+  medianPrice:    numeric('median_price',   { precision: 10, scale: 2 }),
+  scraperMessage: text('scraper_message'),
+  pageSnippet:    text('page_snippet'),
+  // 'pending' | 'approved' | 'denied'
+  status:         varchar('status', { length: 20 }).default('pending').notNull(),
+  reviewedBy:     integer('reviewed_by').references(() => users.id, { onDelete: 'set null' }),
+  reviewedAt:     timestamp('reviewed_at'),
+});
+
+export type ScrapeAnomaly    = typeof scrapeAnomalies.$inferSelect;
+export type NewScrapeAnomaly = typeof scrapeAnomalies.$inferInsert;
 
 // ── User ↔ Product follows (many-to-many) ────────────────────────────────────
 // Composite PK (user_id, product_id). The legacy products.user_id is preserved

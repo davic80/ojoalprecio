@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import os from 'os';
 import { db } from '../db/client';
-import { categories, products, users, recommendationLists, recommendationItems } from '../db/schema';
+import { categories, products, users, recommendationLists, recommendationItems, scrapeAnomalies, priceHistory } from '../db/schema';
 import { eq, sql, asc, desc } from 'drizzle-orm';
 import { requireAuth } from '../middleware/auth';
 import { requireAdmin } from '../middleware/admin';
@@ -60,7 +60,8 @@ router.get('/admin', requireAuth, requireAdmin, async (req: Request, res: Respon
         (SELECT COUNT(*) FROM alerts)                                              AS total,
         (SELECT COUNT(*) FROM alerts WHERE is_active = TRUE AND notified_at IS NULL) AS armed,
         (SELECT COUNT(*) FROM alerts WHERE notified_at IS NOT NULL)                AS notified,
-        (SELECT COUNT(*) FROM alert_events WHERE triggered_at >= CURRENT_DATE)     AS today
+        (SELECT COUNT(*) FROM alert_events WHERE triggered_at >= CURRENT_DATE)     AS today,
+        (SELECT COUNT(*) FROM scrape_anomalies WHERE status = 'pending')           AS anomalies_pending
     `),
     db.execute(sql`
       SELECT id, asin, name, last_error, is_failed, consecutive_failures, total_failures
@@ -134,6 +135,7 @@ router.get('/admin', requireAuth, requireAdmin, async (req: Request, res: Respon
       alertsArmed:    parseInt(sa.armed, 10),
       alertsNotified: parseInt(sa.notified, 10),
       eventsToday:    parseInt(sa.today, 10),
+      anomaliesPending: parseInt(sa.anomalies_pending, 10),
     },
     problematic:   problematicRows.rows,
     topDeals:      topDealsRows.rows,
@@ -321,6 +323,162 @@ router.post('/admin/alerts/:id/toggle-active', requireAuth, requireAdmin, async 
     res.setHeader('HX-Refresh', 'true');
     return res.status(200).send('');
   }
+  res.json({ success: true });
+});
+
+// ── GET /admin/anomalies — Review queue ───────────────────────────────────────
+router.get('/admin/anomalies', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const status = ['pending', 'approved', 'denied', 'all'].includes(String(req.query.status ?? '')) ? String(req.query.status) : 'pending';
+  const type   = ['low', 'high', 'used', 'unqualified', 'all'].includes(String(req.query.type ?? '')) ? String(req.query.type) : 'all';
+  const productAsin = String(req.query.product ?? '').trim().toUpperCase();
+
+  const where: any[] = [];
+  if (status !== 'all') where.push(sql`a.status = ${status}`);
+  if (type   !== 'all') where.push(sql`a.anomaly_type = ${type}`);
+  if (productAsin)      where.push(sql`p.asin = ${productAsin}`);
+  const whereSql = where.length ? sql.join([sql`WHERE`, sql.join(where, sql` AND `)], sql` `) : sql``;
+
+  // Auto-prune anomalies older than 30 days that aren't pending. Cheap lazy GC.
+  await db.execute(sql`DELETE FROM scrape_anomalies WHERE status != 'pending' AND detected_at < NOW() - INTERVAL '30 days'`);
+
+  const [rows, counts] = await Promise.all([
+    db.execute(sql`
+      SELECT a.id, a.anomaly_type AS "anomalyType", a.detected_at AS "detectedAt",
+             a.suspect_price::float AS "suspectPrice",
+             a.median_price::float  AS "medianPrice",
+             a.scraper_message      AS "scraperMessage",
+             a.page_snippet         AS "pageSnippet",
+             a.status,
+             p.id    AS "productId",
+             p.asin  AS "productAsin",
+             p.name  AS "productName",
+             p.bypass_anomaly_guard AS "productBypass",
+             (SELECT ph.price::float FROM price_history ph WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1) AS "currentPrice",
+             (SELECT COUNT(*) FROM scrape_anomalies WHERE product_id = p.id AND status = 'approved') AS "approvedCount",
+             (SELECT COUNT(*) FROM scrape_anomalies WHERE product_id = p.id AND status = 'denied')   AS "deniedCount"
+      FROM scrape_anomalies a
+      JOIN products p ON p.id = a.product_id
+      ${whereSql}
+      ORDER BY a.detected_at DESC
+      LIMIT 200
+    `),
+    db.execute(sql`
+      SELECT
+        COUNT(*) FILTER (WHERE status = 'pending')  AS pending,
+        COUNT(*) FILTER (WHERE status = 'approved') AS approved,
+        COUNT(*) FILTER (WHERE status = 'denied')   AS denied,
+        COUNT(*) FILTER (WHERE anomaly_type = 'low'         AND status = 'pending') AS pending_low,
+        COUNT(*) FILTER (WHERE anomaly_type = 'high'        AND status = 'pending') AS pending_high,
+        COUNT(*) FILTER (WHERE anomaly_type = 'used'        AND status = 'pending') AS pending_used,
+        COUNT(*) FILTER (WHERE anomaly_type = 'unqualified' AND status = 'pending') AS pending_unq
+      FROM scrape_anomalies
+    `),
+  ]);
+
+  res.render('admin-anomalies', {
+    anomalies: rows.rows,
+    counts: counts.rows[0] ?? {},
+    filters: { status, type, product: productAsin },
+    user: { email: req.session.userEmail },
+    isAdmin: true,
+  });
+});
+
+// ── POST /admin/anomalies/:id/approve — Accept the suspect capture ─────────────
+router.post('/admin/anomalies/:id/approve', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params.id), 10);
+  const userId = req.session.userId!;
+  const [a] = await db.select().from(scrapeAnomalies).where(eq(scrapeAnomalies.id, id)).limit(1);
+  if (!a || a.status !== 'pending') return res.status(404).json({ error: 'Anomalía no encontrada o ya revisada.' });
+
+  // For low/high we have a suspect_price → insert it as a price record at
+  // detected_at and recompute sale flags. For used/unqualified there's no
+  // price; approving is just acknowledging "yes this is unavailable" — no
+  // data change beyond marking the anomaly reviewed.
+  if ((a.anomalyType === 'low' || a.anomalyType === 'high') && a.suspectPrice) {
+    await db.insert(priceHistory).values({
+      productId: a.productId,
+      price:     String(a.suspectPrice),
+      currency:  'EUR',
+      scrapedAt: a.detectedAt,
+    });
+    // Re-run sale + featured re-evaluation against the new latest price by
+    // updating the row's deal flags from a quick recompute. Cheap inline.
+    await db.execute(sql`
+      WITH stats AS (
+        SELECT MAX(price)::float AS amax,
+               (SELECT price::float FROM price_history WHERE product_id = ${a.productId} ORDER BY scraped_at DESC LIMIT 1) AS cur
+        FROM price_history WHERE product_id = ${a.productId}
+      )
+      UPDATE products SET
+        is_on_sale = (SELECT cur < amax * 0.93 FROM stats),
+        deal_score = (SELECT ROUND(((amax - cur) / amax * 100)::numeric, 1) FROM stats WHERE amax > 0)
+      WHERE id = ${a.productId}
+    `);
+  }
+  await db.update(scrapeAnomalies)
+    .set({ status: 'approved', reviewedBy: userId, reviewedAt: new Date() })
+    .where(eq(scrapeAnomalies.id, id));
+
+  if (req.headers['hx-request']) { res.setHeader('HX-Refresh', 'true'); return res.status(200).send(''); }
+  res.json({ success: true });
+});
+
+// ── POST /admin/anomalies/:id/deny — Mark the anomaly as confirmed bad ────────
+router.post('/admin/anomalies/:id/deny', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params.id), 10);
+  const userId = req.session.userId!;
+  await db.update(scrapeAnomalies)
+    .set({ status: 'denied', reviewedBy: userId, reviewedAt: new Date() })
+    .where(eq(scrapeAnomalies.id, id));
+  if (req.headers['hx-request']) { res.setHeader('HX-Refresh', 'true'); return res.status(200).send(''); }
+  res.json({ success: true });
+});
+
+// ── POST /admin/anomalies/:id/bypass-product — Always accept this product's anomalies
+router.post('/admin/anomalies/:id/bypass-product', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params.id), 10);
+  const userId = req.session.userId!;
+  const [a] = await db.select().from(scrapeAnomalies).where(eq(scrapeAnomalies.id, id)).limit(1);
+  if (!a) return res.status(404).json({ error: 'Anomalía no encontrada.' });
+
+  await db.update(products).set({ bypassAnomalyGuard: true }).where(eq(products.id, a.productId));
+  await db.update(scrapeAnomalies)
+    .set({ status: 'approved', reviewedBy: userId, reviewedAt: new Date() })
+    .where(eq(scrapeAnomalies.id, id));
+  if (req.headers['hx-request']) { res.setHeader('HX-Refresh', 'true'); return res.status(200).send(''); }
+  res.json({ success: true });
+});
+
+// ── POST /admin/anomalies/:id/mark-unavailable — Confirm product is unbuyable ─
+router.post('/admin/anomalies/:id/mark-unavailable', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params.id), 10);
+  const userId = req.session.userId!;
+  const [a] = await db.select().from(scrapeAnomalies).where(eq(scrapeAnomalies.id, id)).limit(1);
+  if (!a) return res.status(404).json({ error: 'Anomalía no encontrada.' });
+
+  await db.execute(sql`
+    UPDATE products SET
+      is_available = FALSE,
+      is_on_sale   = FALSE,
+      sale_tier    = NULL,
+      deal_score   = NULL,
+      is_public    = CASE WHEN feature_lock = 'auto' THEN FALSE ELSE is_public END,
+      featured_at  = CASE WHEN feature_lock = 'auto' THEN NULL  ELSE featured_at END
+    WHERE id = ${a.productId}
+  `);
+  await db.update(scrapeAnomalies)
+    .set({ status: 'denied', reviewedBy: userId, reviewedAt: new Date() })
+    .where(eq(scrapeAnomalies.id, id));
+  if (req.headers['hx-request']) { res.setHeader('HX-Refresh', 'true'); return res.status(200).send(''); }
+  res.json({ success: true });
+});
+
+// ── DELETE /admin/anomalies/:id — Discard outright ────────────────────────────
+router.delete('/admin/anomalies/:id', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params.id), 10);
+  await db.delete(scrapeAnomalies).where(eq(scrapeAnomalies.id, id));
+  if (req.headers['hx-request']) return res.send('');
   res.json({ success: true });
 });
 
