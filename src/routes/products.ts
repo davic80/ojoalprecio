@@ -10,6 +10,27 @@ import { isAdmin, requireAdmin } from '../middleware/admin';
 
 const router = Router();
 
+// Background helper: scrape a freshly-added product and persist via the same
+// path the scheduler uses (atomic txn, sale tier, was_price, auto-curation).
+// Optionally anchors the auto-created default alert's reference price.
+function persistScrapeFromManualAdd(url: string, productId: number, defaultAlertId: number | null): void {
+  scrapeProduct(url).then(async (result) => {
+    await persistScrapeResult(productId, result);
+    if (defaultAlertId !== null) {
+      await db.update(alerts)
+        .set({ referencePrice: String(result.price.toFixed(2)) })
+        .where(eq(alerts.id, defaultAlertId));
+    }
+  }).catch(async (err) => {
+    if (err instanceof ProductUnavailableError) {
+      await db.update(products).set({ isAvailable: false, lastError: null }).where(eq(products.id, productId));
+    } else {
+      const msg = err instanceof Error ? err.message : String(err);
+      await db.update(products).set({ lastError: msg }).where(eq(products.id, productId));
+    }
+  });
+}
+
 // ── GET / — Dashboard (redirect guests to /ofertas) ──────────────────────────
 router.get('/', (req: Request, res: Response, next) => {
   if (!req.session.userId) return res.redirect('/ofertas');
@@ -217,36 +238,13 @@ router.post(
       defaultAlertId = defaultAlert.id;
     }
 
-    // Trigger an immediate scrape only if the product is brand new
+    // Trigger an immediate scrape only if the product is brand new.
+    // persistScrapeResult is shared with the scheduler — same atomic
+    // transaction, same auto-curation evaluation, same wasPrice/sale
+    // detection. Anchors the default alert's reference price on success.
     if (isNewProduct) {
-      scrapeProduct(canonicalUrl)
-        .then(async (result) => {
-          await db
-            .update(products)
-            .set({ name: result.name, imageUrl: result.imageUrl, extraImages: result.extraImages.length ? JSON.stringify(result.extraImages) : null, lastError: null })
-            .where(eq(products.id, product!.id));
-
-          await db.insert(priceHistory).values({
-            productId: product!.id,
-            price: String(result.price),
-            currency: result.currency,
-          });
-
-          // Anchor the auto-alert reference price on first scrape
-          if (defaultAlertId !== null) {
-            await db.update(alerts)
-              .set({ referencePrice: String(result.price.toFixed(2)) })
-              .where(eq(alerts.id, defaultAlertId));
-          }
-        })
-        .catch(async (err) => {
-          if (err instanceof ProductUnavailableError) {
-            await db.update(products).set({ isAvailable: false, lastError: null }).where(eq(products.id, product!.id));
-          } else {
-            const msg = err instanceof Error ? err.message : String(err);
-            await db.update(products).set({ lastError: msg }).where(eq(products.id, product!.id));
-          }
-        });
+      const newProductId = product.id;
+      persistScrapeFromManualAdd(canonicalUrl, newProductId, defaultAlertId);
     }
 
     // Optional next= redirect (e.g. coming from /p/:asin "follow" button)
@@ -491,17 +489,7 @@ router.post('/products/import-wishlist', requireAuth, async (req: Request, res: 
     }
 
     if (isNewProduct) {
-      const productId = product.id;
-      scrapeProduct(canonicalUrl).then(async result => {
-        await db.update(products).set({ name: result.name, imageUrl: result.imageUrl, extraImages: result.extraImages.length ? JSON.stringify(result.extraImages) : null, lastError: null }).where(eq(products.id, productId));
-        await db.insert(priceHistory).values({ productId, price: String(result.price), currency: result.currency });
-        if (wishlistDefaultAlertId !== null) {
-          await db.update(alerts).set({ referencePrice: String(result.price.toFixed(2)) }).where(eq(alerts.id, wishlistDefaultAlertId));
-        }
-      }).catch(async err => {
-        const msg = err instanceof Error ? err.message : String(err);
-        await db.update(products).set({ lastError: msg }).where(eq(products.id, productId));
-      });
+      persistScrapeFromManualAdd(canonicalUrl, product.id, wishlistDefaultAlertId);
     }
   }
 
