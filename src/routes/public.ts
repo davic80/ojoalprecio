@@ -219,9 +219,24 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
     lastError:            product.last_error,
     featureLock:          product.feature_lock,
     featuredAt:           product.featured_at,
+    variantsJson:         product.variants_json,
     createdAt:            product.created_at,
     amazonUrl:            affiliateUrl(product.url),
   };
+
+  // For each variant ASIN we know about, look it up in our catalog so the
+  // template can render an internal link if available, or just the label.
+  let variantsView: Array<{ asin: string; label: string; selectable: boolean; inCatalog: boolean }> = [];
+  try {
+    const parsed: Array<{ asin: string; label: string; selectable: boolean }> =
+      productView.variantsJson ? JSON.parse(String(productView.variantsJson)) : [];
+    if (parsed.length) {
+      const asins = parsed.map(v => v.asin);
+      const known = await db.execute(sql`SELECT asin FROM products WHERE asin = ANY(${asins})`);
+      const inDb = new Set((known.rows as any[]).map(r => r.asin as string));
+      variantsView = parsed.map(v => ({ ...v, inCatalog: inDb.has(v.asin) }));
+    }
+  } catch { /* malformed JSON — ignore */ }
 
   res.render('public-product', {
     product: productView,
@@ -237,6 +252,7 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
     allCategories,
     productOwner,
     viewCount,
+    variants: variantsView,
   });
 });
 

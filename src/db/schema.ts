@@ -71,6 +71,13 @@ export const products = pgTable('products', {
   // products with naturally wide swings (e.g. clearance items, low-volume
   // listings) so future anomalies aren't queued for review.
   bypassAnomalyGuard: boolean('bypass_anomaly_guard').default(false).notNull(),
+  // Twister sibling ASINs harvested on each successful scrape (JSON array of
+  // { asin, label, selectable }). Used to render "Otras variantes" on the
+  // product page and to auto-ingest new variant ASINs into the catalog.
+  variantsJson: text('variants_json'),
+  // Counter of consecutive ProductUnavailableError scrapes. Reset to 0 on
+  // any successful capture. ≥3 + no alerts + no non-system follower ⇒ purged.
+  consecutiveUnavailable: integer('consecutive_unavailable').default(0).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 

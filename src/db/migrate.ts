@@ -454,6 +454,17 @@ const MIGRATIONS = [
 
   ALTER TABLE products ADD COLUMN IF NOT EXISTS bypass_anomaly_guard BOOLEAN DEFAULT FALSE NOT NULL;
   `,
+  // Migration 36: variant auto-ingest + stale-unavailable purge.
+  //   variants_json           — list of twister sibling ASINs+labels harvested
+  //                             from each successful scrape; used to render
+  //                             "Otras variantes" and to ingest new ASINs.
+  //   consecutive_unavailable — counter of back-to-back ProductUnavailableError
+  //                             scrapes. ≥3 + no alerts + no non-system follower
+  //                             ⇒ product is auto-deleted. Reset on success.
+  `
+  ALTER TABLE products ADD COLUMN IF NOT EXISTS variants_json           TEXT;
+  ALTER TABLE products ADD COLUMN IF NOT EXISTS consecutive_unavailable INTEGER DEFAULT 0 NOT NULL;
+  `,
 ];
 
 export async function migrate(): Promise<void> {

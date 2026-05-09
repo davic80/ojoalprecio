@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 import { db } from '../db/client';
-import { products, priceHistory, alerts, alertEvents, users, scrapeAnomalies } from '../db/schema';
+import { products, priceHistory, alerts, alertEvents, users, scrapeAnomalies, userProducts } from '../db/schema';
 import { eq, and, desc, min, isNull, sql } from 'drizzle-orm';
 import { scrapeProduct, affiliateUrl, ProductUnavailableError, CaptchaDetectedError, isCaptchaBlocked, captchaRemainingMs, type ScrapeResult } from '../scraper/amazon';
 import { sendPriceAlert, sendBackInStockAlert } from '../mailer';
@@ -250,6 +250,8 @@ export async function persistScrapeResult(
       name: result.name,
       imageUrl: result.imageUrl,
       extraImages: result.extraImages.length ? JSON.stringify(result.extraImages) : null,
+      variantsJson: result.variants && result.variants.length ? JSON.stringify(result.variants) : null,
+      consecutiveUnavailable: 0,
       lastError: null,
       isAvailable: true,
       consecutiveFailures: 0,
@@ -265,7 +267,96 @@ export async function persistScrapeResult(
   });
 
   if (opts.label) console.log(`[scheduler] ${opts.label} → ${result.price} ${result.currency}`);
+
+  // Variant auto-ingest. For each twister sibling we don't already have a
+  // product row for, insert one owned by the system user with the same
+  // category as the parent. The next scheduler cycle picks them up like any
+  // other product. Cheap: only runs when scraping the parent and only INSERTs
+  // missing ASINs; existing variants are left untouched.
+  if (result.variants && result.variants.length) {
+    try {
+      await ingestNewVariants(productId, result.variants.map(v => v.asin));
+    } catch (err) {
+      console.error(`[scheduler] variant ingest failed for ${result.asin}:`, err);
+    }
+  }
+
   return saleInfo;
+}
+
+let _systemUserIdCache: number | null = null;
+async function getSystemUserId(): Promise<number | null> {
+  if (_systemUserIdCache !== null) return _systemUserIdCache;
+  const r = await db.select({ id: users.id }).from(users).where(eq(users.email, 'system@ojoalprecio.local')).limit(1);
+  _systemUserIdCache = r[0]?.id ?? null;
+  return _systemUserIdCache;
+}
+
+async function ingestNewVariants(parentProductId: number, variantAsins: string[]): Promise<void> {
+  if (!variantAsins.length) return;
+  const systemUserId = await getSystemUserId();
+  if (systemUserId === null) return;
+
+  // Filter out ASINs that already exist anywhere in the catalog
+  const existingRows = await db.execute(sql`SELECT asin FROM products WHERE asin = ANY(${variantAsins})`);
+  const existing = new Set((existingRows.rows as any[]).map(r => r.asin as string));
+  const newAsins = variantAsins.filter(a => !existing.has(a));
+  if (!newAsins.length) return;
+
+  // Inherit category from parent for nicer grouping
+  const [parent] = await db.select({ categoryId: products.categoryId }).from(products).where(eq(products.id, parentProductId)).limit(1);
+  const categoryId = parent?.categoryId ?? null;
+
+  for (const asin of newAsins) {
+    try {
+      const [inserted] = await db.insert(products).values({
+        userId: systemUserId,
+        asin,
+        url: `https://www.amazon.es/dp/${asin}`,
+        categoryId,
+        isPublic: false,
+      }).returning({ id: products.id });
+      // System owns the discovery; this is what protects the variant from being
+      // visible in any real user's dashboard while still letting auto-purge run
+      // (the purge check excludes system-only follows).
+      await db.insert(userProducts).values({ userId: systemUserId, productId: inserted.id }).onConflictDoNothing();
+      console.log(`[scheduler] variant ingest: + ${asin}`);
+    } catch (err) {
+      console.error(`[scheduler] variant ingest failed for ${asin}:`, err);
+    }
+  }
+}
+
+/**
+ * Auto-purge logic for products stuck unavailable. Caller must have just
+ * incremented `consecutive_unavailable`. Returns true if the product was
+ * deleted (so the caller knows not to try further updates on the now-gone row).
+ *
+ * Delete only when:
+ *   • consecutive_unavailable >= 3
+ *   • no alerts at all (any user)
+ *   • no non-system followers (system-owned variant rows are eligible to go)
+ */
+async function maybePurgeStaleUnavailable(productId: number, label: string): Promise<boolean> {
+  const systemUserId = await getSystemUserId();
+  const checkRows = await db.execute(sql`
+    SELECT
+      (SELECT consecutive_unavailable FROM products WHERE id = ${productId}) AS cu,
+      (SELECT COUNT(*) FROM alerts WHERE product_id = ${productId})        AS alerts_n,
+      (SELECT COUNT(*) FROM user_products WHERE product_id = ${productId}
+        AND ${systemUserId !== null ? sql`user_id != ${systemUserId}` : sql`TRUE`}) AS real_followers_n
+  `);
+  const r = checkRows.rows[0] as any;
+  const cu      = parseInt(r?.cu ?? '0', 10);
+  const alertsN = parseInt(r?.alerts_n ?? '0', 10);
+  const realN   = parseInt(r?.real_followers_n ?? '0', 10);
+
+  if (cu >= 3 && alertsN === 0 && realN === 0) {
+    await db.delete(products).where(eq(products.id, productId));
+    console.log(`[scheduler] ${label} → AUTO-PURGE (${cu} unavailable, no alerts, no real followers)`);
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -378,8 +469,9 @@ async function checkProduct(productId: number, url: string, label: string, timeo
   } catch (err) {
     if (err instanceof ProductUnavailableError) {
       console.log(`[scheduler] ${label} → No disponible${err.reason ? ` (${err.reason})` : ''}`);
-      // Same transaction: mark unavailable + auto-unfeature if it was in /ofertas
-      // via auto-curation. Pin/mute admin overrides are preserved as-is.
+      // Same transaction: mark unavailable + bump consecutive_unavailable counter
+      // + auto-unfeature if it was in /ofertas via auto-curation. Pin/mute admin
+      // overrides are preserved as-is.
       await db.execute(sql`
         UPDATE products SET
           is_available = FALSE,
@@ -387,6 +479,7 @@ async function checkProduct(productId: number, url: string, label: string, timeo
           is_on_sale   = FALSE,
           sale_tier    = NULL,
           deal_score   = NULL,
+          consecutive_unavailable = consecutive_unavailable + 1,
           is_public    = CASE WHEN feature_lock = 'auto' THEN FALSE ELSE is_public END,
           featured_at  = CASE WHEN feature_lock = 'auto' THEN NULL  ELSE featured_at END
         WHERE id = ${productId}
@@ -407,6 +500,10 @@ async function checkProduct(productId: number, url: string, label: string, timeo
           snippet: err.snippet,
         });
       }
+      // Auto-purge if this product has been unavailable enough times in a row,
+      // nobody has alerts on it, and no real user follows it. Variants
+      // discovered by the system that nobody adopted get cleaned up here.
+      await maybePurgeStaleUnavailable(productId, label);
     } else if (err instanceof CaptchaDetectedError) {
       // Pausa global por bloqueo Amazon — no penalizar el producto, abortar ciclo
       console.log(`[scheduler] ${label} → ${err.message}`);

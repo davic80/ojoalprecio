@@ -20,6 +20,12 @@ export class CaptchaDetectedError extends Error {
   }
 }
 
+export interface VariantRef {
+  asin: string;
+  label: string;
+  selectable: boolean;  // swatch isn't disabled (NOT a stock guarantee)
+}
+
 export interface ScrapeResult {
   asin: string;
   name: string;
@@ -29,6 +35,7 @@ export interface ScrapeResult {
   extraImages: string[];
   url: string;
   wasPrice: number | null;
+  variants: VariantRef[];
 }
 
 // ── Gestión Global de Captcha ────────────────────────────────────────────────
@@ -516,16 +523,37 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
         if (wasPrice) console.log(`[scraper] ${asin} → PVP ${wasPrice.toFixed(2)} € (${wasPriceSrc})`);
         else if (wasPriceRaw && wasPriceRaw > price * 4) console.log(`[scraper] ${asin} → PVP descartado (${wasPriceRaw.toFixed(2)} € = ${(wasPriceRaw/price).toFixed(1)}x — probable falso positivo)`);
 
-        const extraImages: string[] = await page.evaluate((mainSrc: string | null): string[] => {
-          const normalize = (s: string) => s.replace(/\._[^.]+_\./, '.').split('/I/')[1] ?? '';
-          const mainKey = normalize(mainSrc ?? '');
-          return Array.from(document.querySelectorAll('#altImages .imageThumbnail img, #altImages li img'))
-            .map((el: any) => String(el.src).replace(/\._[^.]+_\./, '._SL500_.'))
-            .filter((src: string) => src.startsWith('https://') && !src.includes('transparent-pixel') && normalize(src) !== mainKey)
-            .slice(0, 2);
-        }, imageUrl);
+        const [extraImages, variants] = await Promise.all([
+          page.evaluate((mainSrc: string | null): string[] => {
+            const normalize = (s: string) => s.replace(/\._[^.]+_\./, '.').split('/I/')[1] ?? '';
+            const mainKey = normalize(mainSrc ?? '');
+            return Array.from(document.querySelectorAll('#altImages .imageThumbnail img, #altImages li img'))
+              .map((el: any) => String(el.src).replace(/\._[^.]+_\./, '._SL500_.'))
+              .filter((src: string) => src.startsWith('https://') && !src.includes('transparent-pixel') && normalize(src) !== mainKey)
+              .slice(0, 2);
+          }, imageUrl),
+          // Twister variants (color/style/size). Free piggy-back on the page
+          // we already loaded — extracts each sibling ASIN, label and whether
+          // its swatch is enabled. Selectable does NOT mean "in stock"; only
+          // a per-variant scrape can confirm that.
+          page.evaluate((selfAsin: string): VariantRef[] => {
+            const seen = new Map<string, VariantRef>();
+            document.querySelectorAll('li[data-defaultasin], li[data-asin]').forEach((li) => {
+              const asin = li.getAttribute('data-defaultasin') || li.getAttribute('data-asin') || '';
+              if (!/^[A-Z0-9]{10}$/.test(asin) || asin === selfAsin) return;
+              if (seen.has(asin)) return;
+              const altLabel = li.querySelector('img')?.getAttribute('alt')?.trim()
+                || li.textContent?.trim().slice(0, 40)
+                || '';
+              const selectable = !li.classList.contains('swatch-disabled')
+                && !li.classList.contains('a-button-disabled');
+              seen.set(asin, { asin, label: altLabel, selectable });
+            });
+            return [...seen.values()];
+          }, asin).catch(() => [] as VariantRef[]),
+        ]);
 
-        return { asin, name, price, currency: 'EUR', imageUrl, extraImages, url: canonicalUrl, wasPrice };
+        return { asin, name, price, currency: 'EUR', imageUrl, extraImages, url: canonicalUrl, wasPrice, variants };
       })(),
       hardTimeout,
     ]);

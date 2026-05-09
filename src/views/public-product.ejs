@@ -125,6 +125,32 @@
     <% } %>
   </div>
 
+  <!-- Otras variantes (twister) -->
+  <% if (typeof variants !== 'undefined' && variants && variants.length) { %>
+    <div class="card" style="margin-top:20px">
+      <h2 style="margin-top:0;font-size:16px">Otras variantes <span class="hint" style="font-size:12px;font-weight:400">(<%= variants.length %>)</span></h2>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        <% variants.forEach(function(v) { %>
+          <% if (v.inCatalog) { %>
+            <a href="/p/<%= v.asin %>" class="btn btn-sm btn-outline" style="<%= v.selectable ? '' : 'opacity:.5' %>" title="ASIN: <%= v.asin %><%= v.selectable ? '' : ' · variante deshabilitada' %>">
+              <%= v.label || v.asin %>
+            </a>
+          <% } else if (isLogged) { %>
+            <form method="POST" action="/products" style="display:inline">
+              <input type="hidden" name="url" value="https://www.amazon.es/dp/<%= v.asin %>">
+              <input type="hidden" name="next" value="/p/<%= v.asin %>">
+              <button type="submit" class="btn btn-sm btn-ghost" style="<%= v.selectable ? '' : 'opacity:.5' %>" title="ASIN: <%= v.asin %> — añadir al catálogo">
+                + <%= v.label || v.asin %>
+              </button>
+            </form>
+          <% } else { %>
+            <span class="btn btn-sm btn-ghost" style="opacity:.6;cursor:default" title="ASIN: <%= v.asin %>"><%= v.label || v.asin %></span>
+          <% } %>
+        <% }); %>
+      </div>
+    </div>
+  <% } %>
+
   <!-- Admin panel (inline, only for admin) -->
   <% if (adminMode) { %>
   <div class="card" style="border-left:3px solid var(--primary,#e63946);margin-top:20px">
