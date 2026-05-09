@@ -1,7 +1,7 @@
 import cron from 'node-cron';
 import { db } from '../db/client';
 import { products, priceHistory, alerts, alertEvents, users, scrapeAnomalies, userProducts } from '../db/schema';
-import { eq, and, desc, min, isNull, sql } from 'drizzle-orm';
+import { eq, and, desc, min, isNull, sql, inArray } from 'drizzle-orm';
 import { scrapeProduct, affiliateUrl, ProductUnavailableError, CaptchaDetectedError, isCaptchaBlocked, captchaRemainingMs, type ScrapeResult } from '../scraper/amazon';
 import { sendPriceAlert, sendBackInStockAlert } from '../mailer';
 import { sendTelegramAlert, sendTelegramBackInStock } from '../mailer/telegram';
@@ -297,9 +297,15 @@ async function ingestNewVariants(parentProductId: number, variantAsins: string[]
   const systemUserId = await getSystemUserId();
   if (systemUserId === null) return;
 
-  // Filter out ASINs that already exist anywhere in the catalog
-  const existingRows = await db.execute(sql`SELECT asin FROM products WHERE asin = ANY(${variantAsins})`);
-  const existing = new Set((existingRows.rows as any[]).map(r => r.asin as string));
+  // Filter out ASINs that already exist anywhere in the catalog. Use the
+  // drizzle `inArray` helper instead of `ANY(${...})` because the raw sql
+  // template serializes a JS array as a string literal, which Postgres then
+  // refuses with "malformed array literal".
+  const existingRows = await db
+    .selectDistinct({ asin: products.asin })
+    .from(products)
+    .where(inArray(products.asin, variantAsins));
+  const existing = new Set(existingRows.map(r => r.asin));
   const newAsins = variantAsins.filter(a => !existing.has(a));
   if (!newAsins.length) return;
 

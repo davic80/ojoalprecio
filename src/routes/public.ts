@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { db } from '../db/client';
 import { products, priceHistory, alerts, userProducts, categories, users } from '../db/schema';
-import { eq, desc, sql, and, asc } from 'drizzle-orm';
+import { eq, desc, sql, and, asc, inArray } from 'drizzle-orm';
 import { affiliateUrl } from '../scraper/amazon';
 import { isAdmin } from '../middleware/admin';
 
@@ -232,8 +232,8 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
       productView.variantsJson ? JSON.parse(String(productView.variantsJson)) : [];
     if (parsed.length) {
       const asins = parsed.map(v => v.asin);
-      const known = await db.execute(sql`SELECT asin FROM products WHERE asin = ANY(${asins})`);
-      const inDb = new Set((known.rows as any[]).map(r => r.asin as string));
+      const known = await db.selectDistinct({ asin: products.asin }).from(products).where(inArray(products.asin, asins));
+      const inDb = new Set(known.map(r => r.asin));
       variantsView = parsed.map(v => ({ ...v, inCatalog: inDb.has(v.asin) }));
     }
   } catch { /* malformed JSON — ignore */ }
