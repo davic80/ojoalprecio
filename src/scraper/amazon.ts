@@ -77,6 +77,11 @@ export function affiliateUrl(url: string): string {
     const u = new URL(url);
     u.searchParams.delete('tag');
     u.searchParams.set('tag', AFFILIATE_TAG);
+    // Force Spanish on amazon.es. Without this, Amazon honours the visitor's
+    // browser Accept-Language / saved cookie and may serve the .es page in
+    // English to users coming from non-Spanish locales (e.g. expats, English
+    // browsers, or visitors who previously toggled language on amazon.com).
+    u.searchParams.set('language', 'es_ES');
     return u.toString();
   } catch {
     return url;
