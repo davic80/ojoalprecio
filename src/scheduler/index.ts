@@ -295,13 +295,13 @@ async function checkProduct(productId: number, url: string, label: string, timeo
     console.log(`[scheduler] Scraping: ${label}`);
     const result = await scrapeProduct(url, timeoutSeconds);
 
-    // ── Anomaly guard ────────────────────────────────────────────────────────
-    // Reject prices that drop >60% below the recent median when we have enough
-    // history to be confident. Catches selectors picking up "Nuevo y de segunda
-    // mano desde X €", accessory prices, or sponsored cards.
-    // Bypass the guard if wasPrice corroborates the deal (real RRP / 4 ≥ price).
-    // After 3 consecutive anomalies we accept anyway: the price may have genuinely
-    // shifted (e.g. Amazon clearance), and we don't want to wedge the product.
+    // ── Anomaly guard (symmetric: rejects extreme highs and extreme lows) ────
+    // LOW  (price < median × 0.4): selector caught a "desde X €" / accessory price.
+    // HIGH (price > median × 2.5): third-party seller temporarily holding the buybox
+    //      at an inflated price (caso B01N7RLGIJ Mario Kart 285/335 €).
+    // Bypass for legit movements: was_price corroborates a real flash deal (RRP ≥
+    // 4× price) or a pre-existing high range (max ≥ 0.8 × new price). Auto-accept
+    // after 3 consecutive anomalies so a genuine price shift can recover.
     const recentRows = await db.execute(sql`
       SELECT price::float AS p FROM price_history
       WHERE product_id = ${productId}
@@ -312,13 +312,16 @@ async function checkProduct(productId: number, url: string, label: string, timeo
     if (recent.length >= 3 && anomalyCount < 3) {
       const sorted = recent.slice().sort((a, b) => a - b);
       const median = sorted[Math.floor(sorted.length / 2)];
-      const wasPriceCorroborates = result.wasPrice != null && result.wasPrice >= result.price * 4;
-      if (result.price < median * 0.4 && !wasPriceCorroborates) {
+      const lowSuspect  = result.price < median * 0.4 && !(result.wasPrice != null && result.wasPrice >= result.price * 4);
+      const highSuspect = result.price > median * 2.5 && (allTimeMax === null || result.price > allTimeMax * 1.5);
+      if (lowSuspect || highSuspect) {
         const newCount = anomalyCount + 1;
-        console.warn(`[scheduler] ${label} → ANOMALÍA (${newCount}/3): ${result.price.toFixed(2)} € << mediana ${median.toFixed(2)} € — descartado`);
+        const dir = lowSuspect ? '<<' : '>>';
+        const cause = lowSuspect ? 'probable accesorio o "Nuevo y de segunda mano"' : 'probable tercero/importación con precio inflado';
+        console.warn(`[scheduler] ${label} → ANOMALÍA (${newCount}/3): ${result.price.toFixed(2)} € ${dir} mediana ${median.toFixed(2)} € — descartado`);
         await db.update(products).set({
           consecutiveAnomalies: newCount,
-          lastError: `Precio anómalo descartado (${newCount}/3): ${result.price.toFixed(2)} € << mediana ${median.toFixed(2)} € — probable accesorio o "Nuevo y de segunda mano"`,
+          lastError: `Precio anómalo descartado (${newCount}/3): ${result.price.toFixed(2)} € ${dir} mediana ${median.toFixed(2)} € — ${cause}`,
         }).where(eq(products.id, productId));
         return;
       }
