@@ -390,6 +390,24 @@ const MIGRATIONS = [
      'Handle del canal donde se publican ofertas automáticamente (ej: ojoalprecio). Vacío = desactivado.')
   ON CONFLICT (key) DO NOTHING;
   `,
+  // Migration 32: user_products — many-to-many follow relation between users and products.
+  // Products are now a shared global catalog; users "follow" them. Removing a follow leaves
+  // the product (and its history) intact and the scheduler keeps scraping it. Only admin
+  // can hard-delete a product. Backfills follows from the legacy products.user_id "creator".
+  `
+  CREATE TABLE IF NOT EXISTS user_products (
+    user_id    INTEGER NOT NULL REFERENCES users(id)    ON DELETE CASCADE,
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    added_at   TIMESTAMP DEFAULT NOW() NOT NULL,
+    PRIMARY KEY (user_id, product_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_user_products_user_id    ON user_products(user_id);
+  CREATE INDEX IF NOT EXISTS idx_user_products_product_id ON user_products(product_id);
+
+  INSERT INTO user_products (user_id, product_id, added_at)
+  SELECT user_id, id, created_at FROM products
+  ON CONFLICT DO NOTHING;
+  `,
 ];
 
 export async function migrate(): Promise<void> {

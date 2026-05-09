@@ -48,16 +48,17 @@
         Ver en Amazon.es ↗
       </a>
       <div class="public-toggle-wrap">
-        <form hx-post="/products/<%= product.id %>/toggle-public" style="display:inline">
-          <button type="submit" class="btn btn-sm <%= product.isPublic ? 'btn-outline btn-active-green' : 'btn-ghost' %>">
-            <%= product.isPublic ? '🌐 Página pública activa' : '🔒 Hacer público' %>
-          </button>
-        </form>
-        <% if (product.isPublic) { %>
-          <a href="/p/<%= product.asin %>" target="_blank" class="hint-link">Ver página pública ↗</a>
-        <% } %>
-        <% if (typeof isAdmin !== 'undefined' && isAdmin && viewCount > 0) { %>
-          <span class="hint" style="color:var(--gray-400)">· <%= viewCount %> vista<%= viewCount === 1 ? '' : 's' %> en página pública</span>
+        <a href="/p/<%= product.asin %>" target="_blank" class="hint-link">Ver página pública ↗</a>
+        <% if (typeof isAdmin !== 'undefined' && isAdmin) { %>
+          <form hx-post="/products/<%= product.id %>/toggle-public" style="display:inline;margin-left:8px">
+            <button type="submit" class="btn btn-sm <%= product.isPublic ? 'btn-outline btn-active-green' : 'btn-ghost' %>"
+              title="Aparece en /ofertas y en feeds destacados. La URL /p/:asin es siempre accesible.">
+              <%= product.isPublic ? '✨ Destacado en /ofertas' : '📣 Destacar en /ofertas' %>
+            </button>
+          </form>
+          <% if (viewCount > 0) { %>
+            <span class="hint" style="color:var(--gray-400)">· <%= viewCount %> vista<%= viewCount === 1 ? '' : 's' %> en página pública</span>
+          <% } %>
         <% } %>
       </div>
 

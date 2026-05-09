@@ -45,9 +45,9 @@
       <% }); %>
     </select>
     <select name="pub" class="form-input" style="width:auto;min-width:130px;font-size:13px" onchange="this.form.submit()">
-      <option value="">Público/Privado</option>
-      <option value="1" <%= filters.pub === '1' ? 'selected' : '' %>>Solo públicos</option>
-      <option value="0" <%= filters.pub === '0' ? 'selected' : '' %>>Solo privados</option>
+      <option value="">Todos</option>
+      <option value="1" <%= filters.pub === '1' ? 'selected' : '' %>>Solo destacados</option>
+      <option value="0" <%= filters.pub === '0' ? 'selected' : '' %>>Solo no destacados</option>
     </select>
     <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
       <input type="checkbox" name="atmin" value="1" <%= filters.atmin ? 'checked' : '' %> onchange="this.form.submit()">
@@ -139,8 +139,9 @@
               class="btn btn-sm public-toggle"
               data-id="<%= d.id %>"
               data-public="<%= d.isPublic ? '1' : '0' %>"
+              title="Destacado en /ofertas"
               style="font-size:12px;<%= d.isPublic ? 'background:#16a34a;color:#fff;border-color:#16a34a' : '' %>"
-            ><%= d.isPublic ? 'Público' : 'Privado' %></button>
+            ><%= d.isPublic ? 'Destacado' : 'No destacado' %></button>
           </td>
           <td style="white-space:nowrap">
             <a href="<%= d.url %>?tag=canidrone-21" target="_blank" rel="noopener" class="btn btn-sm btn-ghost" style="font-size:12px">Amazon ↗</a>
@@ -220,7 +221,7 @@ document.querySelectorAll('.public-toggle').forEach(function(btn) {
       const res = await fetch('/products/' + id + '/toggle-public', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
       const data = await res.json();
       btn.dataset.public = data.isPublic ? '1' : '0';
-      btn.textContent = data.isPublic ? 'Público' : 'Privado';
+      btn.textContent = data.isPublic ? 'Destacado' : 'No destacado';
       btn.style.background = data.isPublic ? '#16a34a' : '';
       btn.style.color = data.isPublic ? '#fff' : '';
       btn.style.borderColor = data.isPublic ? '#16a34a' : '';

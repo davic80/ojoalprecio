@@ -1,4 +1,4 @@
-import { pgTable, serial, varchar, text, boolean, timestamp, numeric, integer, index } from 'drizzle-orm/pg-core';
+import { pgTable, serial, varchar, text, boolean, timestamp, numeric, integer, index, primaryKey } from 'drizzle-orm/pg-core';
 
 // ── Categories ───────────────────────────────────────────────────────────────
 
@@ -65,6 +65,19 @@ export const products = pgTable('products', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+// ── User ↔ Product follows (many-to-many) ────────────────────────────────────
+// Composite PK (user_id, product_id). The legacy products.user_id is preserved
+// as "creator/added_by" only — actual ownership for dashboard/alerts purposes
+// is determined by membership in this table.
+
+export const userProducts = pgTable('user_products', {
+  userId:    integer('user_id').notNull().references(() => users.id,    { onDelete: 'cascade' }),
+  productId: integer('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
+  addedAt:   timestamp('added_at').defaultNow().notNull(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.userId, t.productId] }),
+}));
+
 // ── Price History ─────────────────────────────────────────────────────────────
 
 export const priceHistory = pgTable('price_history', {
@@ -127,6 +140,9 @@ export type NewPasswordReset = typeof passwordResets.$inferInsert;
 
 export type Product = typeof products.$inferSelect;
 export type NewProduct = typeof products.$inferInsert;
+
+export type UserProduct = typeof userProducts.$inferSelect;
+export type NewUserProduct = typeof userProducts.$inferInsert;
 
 export type PriceHistory = typeof priceHistory.$inferSelect;
 export type NewPriceHistory = typeof priceHistory.$inferInsert;

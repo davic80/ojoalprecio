@@ -8,6 +8,7 @@
   <link rel="canonical" href="<%= siteUrl %>/p/<%= product.asin %>">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
   <link rel="stylesheet" href="/css/style.css">
+  <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 </head>
@@ -20,7 +21,14 @@
   </a>
   <div class="navbar-actions">
     <a href="/ofertas" class="nav-link">Ofertas</a>
-    <a href="/auth/login" class="btn btn-outline btn-sm">Entrar</a>
+    <% if (typeof user !== 'undefined' && user) { %>
+      <a href="/" class="nav-link">Mi panel</a>
+      <% if (typeof isAdmin !== 'undefined' && isAdmin) { %>
+        <a href="/products/<%= product.id %>" class="btn btn-outline btn-sm">Gestionar</a>
+      <% } %>
+    <% } else { %>
+      <a href="/auth/login?next=<%= encodeURIComponent('/p/' + product.asin) %>" class="btn btn-outline btn-sm">Entrar</a>
+    <% } %>
   </div>
 </nav>
 
@@ -74,8 +82,81 @@
     <a href="<%= product.amazonUrl %>" target="_blank" rel="noopener sponsored" class="btn btn-primary">
       Comprar en Amazon.es — <%= currentPrice ? currentPrice.toFixed(2) + ' €' : 'Ver precio' %>
     </a>
-    <a href="/auth/register" class="btn btn-outline">Crear alerta de precio gratis</a>
+    <%
+      const isLogged    = typeof user      !== 'undefined' && user;
+      const followsThis = typeof userFollows !== 'undefined' && userFollows;
+    %>
+    <% if (!isLogged) { %>
+      <a href="/auth/register?next=<%= encodeURIComponent('/p/' + product.asin) %>&intent=alert" class="btn btn-outline">Crear alerta de precio gratis</a>
+    <% } else if (!followsThis) { %>
+      <form method="POST" action="/products" style="display:inline">
+        <input type="hidden" name="url" value="<%= product.amazonUrl %>">
+        <input type="hidden" name="next" value="/p/<%= product.asin %>">
+        <button type="submit" class="btn btn-outline">+ Seguir y crear alerta 1%</button>
+      </form>
+    <% } %>
   </div>
+
+  <% if (isLogged && followsThis) { %>
+    <div class="card" style="margin-top:24px">
+      <h2 style="margin-top:0">Tus alertas para este producto</h2>
+      <% if (userAlerts && userAlerts.length) { %>
+        <ul style="list-style:none;padding:0;margin:0 0 12px">
+          <% userAlerts.forEach(function(a) {
+               const refP = a.referencePrice ? parseFloat(a.referencePrice) : null;
+               const label = a.alertType === 'percent'
+                 ? '−' + parseFloat(a.percentageDrop).toFixed(0) + '%' + (refP ? ' desde ' + refP.toFixed(2) + ' €' : ' (pendiente primer precio)')
+                 : a.alertType === 'price'
+                 ? '≤ ' + parseFloat(a.thresholdPrice).toFixed(2) + ' €'
+                 : a.alertType === 'alltime_low'
+                 ? 'Mínimo histórico'
+                 : 'Stock';
+          %>
+            <li style="padding:8px 0;border-bottom:1px solid var(--border,#eee);display:flex;justify-content:space-between;align-items:center;gap:12px">
+              <span>
+                <strong><%= label %></strong>
+                <% if (a.isDefault) { %><span class="badge" style="font-size:0.75em;background:#eef;color:#447;padding:2px 6px;border-radius:4px;margin-left:6px">auto</span><% } %>
+                <span style="color:#666;font-size:0.9em">· <%= a.notificationChannel %> → <%= a.notificationEmail %></span>
+              </span>
+              <button type="button"
+                class="btn btn-sm btn-outline"
+                hx-delete="/alerts/<%= a.id %>"
+                hx-confirm="¿Borrar esta alerta?"
+                hx-target="closest li"
+                hx-swap="outerHTML">Borrar</button>
+            </li>
+          <% }); %>
+        </ul>
+      <% } else { %>
+        <p class="hint">Aún no tienes alertas configuradas para este producto.</p>
+      <% } %>
+
+      <details style="margin-top:12px">
+        <summary style="cursor:pointer;font-weight:500">+ Configurar nueva alerta</summary>
+        <form method="POST" action="/products/<%= product.id %>/alerts" style="margin-top:12px;display:flex;flex-direction:column;gap:8px;max-width:480px">
+          <label>
+            Tipo
+            <select name="alertType" required>
+              <option value="percent">Bajada de %</option>
+              <option value="price">Precio máximo (€)</option>
+              <option value="alltime_low">Cualquier mínimo histórico</option>
+            </select>
+          </label>
+          <label>
+            % de bajada / precio umbral
+            <input type="number" step="0.01" name="percentageDrop" placeholder="Ej: 10" />
+            <input type="number" step="0.01" name="thresholdPrice" placeholder="Ej: 99.00" />
+          </label>
+          <label>
+            Email
+            <input type="email" name="notificationEmail" value="<%= user.email %>" required>
+          </label>
+          <input type="hidden" name="notificationChannel" value="email">
+          <button type="submit" class="btn btn-primary">Crear alerta</button>
+        </form>
+      </details>
+    </div>
+  <% } %>
 
   <% if (history.length > 0) { %>
     <div class="card chart-card">

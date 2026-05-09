@@ -260,7 +260,7 @@ function trendBadge(current, previous) {
         </div>
         <div class="product-info">
           <p class="product-name"><%= p.name ?? p.asin %></p>
-          <p class="product-asin">ASIN: <%= p.asin %><% if (p.isPublic) { %> · <span class="public-tag">público</span><% } %><% if (typeof isAdmin !== 'undefined' && isAdmin && !p.isOwnProduct) { %> · <span class="hint" style="color:var(--gray-400)">sistema</span><% } %></p>
+          <p class="product-asin">ASIN: <%= p.asin %><% if (p.isPublic) { %> · <span class="public-tag" title="Destacado en /ofertas">destacado</span><% } %><% if (typeof isAdmin !== 'undefined' && isAdmin && !p.isOwnProduct) { %> · <span class="hint" style="color:var(--gray-400)">sistema</span><% } %></p>
           <% if (p.categoryName) { %><a href="/c/<%= p.categorySlug %>" class="category-tag"><%= p.categoryName %></a><% } %>
           <% if (p.lastError) { %>
             <p class="product-error">⚠ <%= p.lastError %></p>
@@ -301,8 +301,9 @@ function trendBadge(current, previous) {
           <button
             class="btn btn-sm public-toggle"
             data-id="<%= p.id %>"
+            title="Destacado en /ofertas"
             style="<%= p.isPublic ? 'background:#16a34a;color:#fff;border-color:#16a34a' : 'opacity:.6' %>"
-          ><%= p.isPublic ? 'Público' : 'Privado' %></button>
+          ><%= p.isPublic ? 'Destacado' : 'No destacado' %></button>
           <% if (p.consecutiveFailures > 0 || p.totalFailures > 0) { %>
             <span style="display:flex;flex-direction:column;align-items:center;font-size:10px;line-height:1.3;color:<%= p.isFailed ? '#dc2626' : '#b45309' %>;white-space:nowrap">
               <span><%= p.consecutiveFailures %>/3</span>
@@ -484,7 +485,7 @@ document.addEventListener('click', function(e) {
   fetch('/products/' + id + '/toggle-public', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
     .then(function(r) { return r.json(); })
     .then(function(data) {
-      btn.textContent = data.isPublic ? 'Público' : 'Privado';
+      btn.textContent = data.isPublic ? 'Destacado' : 'No destacado';
       btn.style.background    = data.isPublic ? '#16a34a' : '';
       btn.style.color         = data.isPublic ? '#fff'    : '';
       btn.style.borderColor   = data.isPublic ? '#16a34a' : '';

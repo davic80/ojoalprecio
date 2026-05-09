@@ -6,5 +6,6 @@ declare module 'express-session' {
     userId: number;
     userEmail: string;
     emailVerified: boolean;
+    pendingNext?: string;
   }
 }

@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { body, validationResult } from 'express-validator';
 import { db } from '../db/client';
-import { products, priceHistory, alerts, categories, users } from '../db/schema';
+import { products, priceHistory, alerts, categories, users, userProducts } from '../db/schema';
 import { eq, and, desc, sql, asc, inArray } from 'drizzle-orm';
 import { extractAsin, normaliseAmazonUrl, scrapeProduct, scrapeWishlist, affiliateUrl, ProductUnavailableError } from '../scraper/amazon';
 import { requireAuth } from '../middleware/auth';
@@ -26,8 +26,11 @@ router.get('/', (req: Request, res: Response, next) => {
   const offset     = (page - 1) * perPage;
 
   const adminUser = isAdmin(req);
-  // Admin sees all products; regular users see only their own
-  const whereClauses = adminUser ? [] : [sql`p.user_id = ${userId}`];
+  // Admin sees all products; regular users see only those they follow (user_products join).
+  // The legacy products.user_id field is preserved as "creator" but no longer gates ownership.
+  const whereClauses = adminUser
+    ? []
+    : [sql`EXISTS (SELECT 1 FROM user_products up WHERE up.product_id = p.id AND up.user_id = ${userId})`];
   if (q)         whereClauses.push(sql`(p.name ILIKE ${'%' + q + '%'} OR p.asin ILIKE ${'%' + q + '%'})`);
   if (catFilter) whereClauses.push(catFilter === 'none' ? sql`p.category_id IS NULL` : sql`p.category_id = ${parseInt(catFilter, 10)}`);
   if (status === 'scraped')    whereClauses.push(sql`EXISTS     (SELECT 1 FROM price_history ph WHERE ph.product_id = p.id)`);
@@ -47,7 +50,7 @@ router.get('/', (req: Request, res: Response, next) => {
         p.category_id  AS "categoryId",
         (SELECT c.name FROM categories c WHERE c.id = p.category_id) AS "categoryName",
         (SELECT c.slug FROM categories c WHERE c.id = p.category_id) AS "categorySlug",
-        (p.user_id = ${userId}) AS "isOwnProduct",
+        EXISTS (SELECT 1 FROM user_products up WHERE up.product_id = p.id AND up.user_id = ${userId}) AS "isOwnProduct",
         p.is_active    AS "isActive",
         p.is_public    AS "isPublic",
         p.is_available AS "isAvailable",
@@ -85,8 +88,10 @@ router.get('/', (req: Request, res: Response, next) => {
   const totalPages = Math.ceil(totalCount / perPage);
   const prods = rows.rows as any[];
 
-  // stats computed over all visible products (all for admin, own for regular users)
-  const statsWhere = adminUser ? sql`TRUE` : sql`p.user_id = ${userId}`;
+  // stats computed over all visible products (all for admin, followed for regular users)
+  const statsWhere = adminUser
+    ? sql`TRUE`
+    : sql`EXISTS (SELECT 1 FROM user_products up WHERE up.product_id = p.id AND up.user_id = ${userId})`;
   const allRows = await db.execute(sql`
     SELECT p.is_available, p.last_error, p.is_on_sale, p.is_failed,
       (SELECT ph.price FROM price_history ph WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1) AS "currentPrice",
@@ -150,35 +155,59 @@ router.post(
       return res.status(400).json({ error: 'No se pudo extraer el ASIN. ¿Es una URL válida de Amazon.es?' });
     }
 
-    // Check duplicate for this user
-    const [existing] = await db
-      .select()
-      .from(products)
-      .where(and(eq(products.userId, userId), eq(products.asin, asin)))
-      .limit(1);
-
-    if (existing) {
-      return res.status(409).json({ error: 'Ya estás siguiendo este producto.' });
-    }
-
     const canonicalUrl = normaliseAmazonUrl(asin);
 
-    // Insert with minimal info — scheduler will fill name/image on first run
-    const [product] = await db
-      .insert(products)
-      .values({ userId, asin, url: canonicalUrl })
-      .returning();
+    // Find an existing product with this ASIN globally (any user). If one exists,
+    // we attach this user via user_products instead of duplicating the row.
+    // Pick the canonical row by most price history (resolves legacy duplicates).
+    const existingRows = await db.execute(sql`
+      SELECT id, asin FROM products
+      WHERE asin = ${asin}
+      ORDER BY (SELECT COUNT(*) FROM price_history ph WHERE ph.product_id = products.id) DESC
+      LIMIT 1
+    `);
+    let product = (existingRows.rows as any[])[0] as { id: number; asin: string } | undefined;
+    let isNewProduct = false;
+
+    if (product) {
+      // Already in catalog — check if THIS user already follows it
+      const [follow] = await db.select().from(userProducts)
+        .where(and(eq(userProducts.userId, userId), eq(userProducts.productId, product.id)))
+        .limit(1);
+      if (follow) {
+        if (req.headers['hx-request']) {
+          res.setHeader('HX-Redirect', '/');
+          return res.status(200).send('');
+        }
+        return res.status(409).json({ error: 'Ya estás siguiendo este producto.' });
+      }
+      // Attach the user
+      await db.insert(userProducts).values({ userId, productId: product.id });
+    } else {
+      // Brand-new product — insert with this user as creator + immediate user_products row
+      const [created] = await db
+        .insert(products)
+        .values({ userId, asin, url: canonicalUrl })
+        .returning();
+      product = created;
+      isNewProduct = true;
+      await db.insert(userProducts).values({ userId, productId: product.id });
+    }
 
     // Default 1% drop alert for regular users (not admin)
     const userEmail = req.session.userEmail!;
     let defaultAlertId: number | null = null;
     if (!isAdmin(req)) {
+      // If product already had price history, anchor the reference now; otherwise null until first scrape
+      const [latest] = await db.select({ price: priceHistory.price }).from(priceHistory)
+        .where(eq(priceHistory.productId, product.id))
+        .orderBy(desc(priceHistory.scrapedAt)).limit(1);
       const [defaultAlert] = await db.insert(alerts).values({
         productId: product.id,
         userId,
         alertType: 'percent',
         percentageDrop: '1.00',
-        referencePrice: null,
+        referencePrice: latest?.price ?? null,
         notificationEmail: userEmail,
         notificationChannel: 'email',
         isActive: true,
@@ -187,59 +216,76 @@ router.post(
       defaultAlertId = defaultAlert.id;
     }
 
-    // Trigger an immediate scrape in background (non-blocking)
-    scrapeProduct(canonicalUrl)
-      .then(async (result) => {
-        await db
-          .update(products)
-          .set({ name: result.name, imageUrl: result.imageUrl, extraImages: result.extraImages.length ? JSON.stringify(result.extraImages) : null, lastError: null })
-          .where(eq(products.id, product.id));
+    // Trigger an immediate scrape only if the product is brand new
+    if (isNewProduct) {
+      scrapeProduct(canonicalUrl)
+        .then(async (result) => {
+          await db
+            .update(products)
+            .set({ name: result.name, imageUrl: result.imageUrl, extraImages: result.extraImages.length ? JSON.stringify(result.extraImages) : null, lastError: null })
+            .where(eq(products.id, product!.id));
 
-        await db.insert(priceHistory).values({
-          productId: product.id,
-          price: String(result.price),
-          currency: result.currency,
+          await db.insert(priceHistory).values({
+            productId: product!.id,
+            price: String(result.price),
+            currency: result.currency,
+          });
+
+          // Anchor the auto-alert reference price on first scrape
+          if (defaultAlertId !== null) {
+            await db.update(alerts)
+              .set({ referencePrice: String(result.price.toFixed(2)) })
+              .where(eq(alerts.id, defaultAlertId));
+          }
+        })
+        .catch(async (err) => {
+          if (err instanceof ProductUnavailableError) {
+            await db.update(products).set({ isAvailable: false, lastError: null }).where(eq(products.id, product!.id));
+          } else {
+            const msg = err instanceof Error ? err.message : String(err);
+            await db.update(products).set({ lastError: msg }).where(eq(products.id, product!.id));
+          }
         });
+    }
 
-        // Set referencePrice on the default alert so it starts tracking from current price
-        if (defaultAlertId !== null) {
-          await db.update(alerts)
-            .set({ referencePrice: String(result.price.toFixed(2)) })
-            .where(eq(alerts.id, defaultAlertId));
-        }
-      })
-      .catch(async (err) => {
-        if (err instanceof ProductUnavailableError) {
-          await db.update(products).set({ isAvailable: false, lastError: null }).where(eq(products.id, product.id));
-        } else {
-          const msg = err instanceof Error ? err.message : String(err);
-          await db.update(products).set({ lastError: msg }).where(eq(products.id, product.id));
-        }
-      });
+    // Optional next= redirect (e.g. coming from /p/:asin "follow" button)
+    const nextUrl = String(req.body.next ?? '').trim();
+    const safeNext = nextUrl.startsWith('/') ? nextUrl : '/';
 
-    // Return HTML partial for HTMX or JSON for API
     if (req.headers['hx-request']) {
-      res.setHeader('HX-Redirect', '/');
+      res.setHeader('HX-Redirect', safeNext);
       return res.status(200).send('');
+    }
+    if (req.headers.accept?.includes('text/html')) {
+      return res.redirect(safeNext);
     }
     res.status(201).json({ success: true, productId: product.id });
   },
 );
 
 // ── DELETE /products/:id — Remove product ─────────────────────────────────────
+// Regular user: unfollow (delete user_products row + their alerts). Product itself
+// stays and the scheduler keeps scraping it for other followers / SEO.
+// Admin: hard delete (cascades alerts, history, user_products via FK).
 router.delete('/products/:id', requireAuth, async (req: Request, res: Response) => {
   const productId = parseInt(String(req.params.id), 10);
   const userId = req.session.userId!;
 
-  const [product] = await db
-    .select()
-    .from(products)
-    .where(isAdmin(req) ? eq(products.id, productId) : and(eq(products.id, productId), eq(products.userId, userId)))
-    .limit(1);
-
+  const [product] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
   if (!product) return res.status(404).json({ error: 'Producto no encontrado.' });
 
-  await db.delete(products).where(eq(products.id, productId));
+  if (isAdmin(req)) {
+    await db.delete(products).where(eq(products.id, productId));
+  } else {
+    // Confirm the user actually follows this product
+    const [follow] = await db.select().from(userProducts)
+      .where(and(eq(userProducts.userId, userId), eq(userProducts.productId, productId)))
+      .limit(1);
+    if (!follow) return res.status(404).json({ error: 'No estás siguiendo este producto.' });
+
+    await db.delete(alerts).where(and(eq(alerts.productId, productId), eq(alerts.userId, userId)));
+    await db.delete(userProducts).where(and(eq(userProducts.userId, userId), eq(userProducts.productId, productId)));
+  }
 
   if (req.headers['hx-request']) {
     const referer = String(req.headers.referer ?? '');
@@ -252,18 +298,23 @@ router.delete('/products/:id', requireAuth, async (req: Request, res: Response) 
   res.json({ success: true });
 });
 
-// ── GET /products/:id — Product detail ───────────────────────────────────────
+// ── GET /products/:id — Product detail (admin / followers) ───────────────────
 router.get('/products/:id', requireAuth, async (req: Request, res: Response) => {
   const productId = parseInt(String(req.params.id), 10);
   const userId = req.session.userId!;
 
-  const [product] = await db
-    .select()
-    .from(products)
-    .where(isAdmin(req) ? eq(products.id, productId) : and(eq(products.id, productId), eq(products.userId, userId)))
-    .limit(1);
-
+  const [product] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
   if (!product) return res.status(404).render('404', { user: { email: req.session.userEmail } });
+
+  if (!isAdmin(req)) {
+    const [follow] = await db.select().from(userProducts)
+      .where(and(eq(userProducts.userId, userId), eq(userProducts.productId, productId)))
+      .limit(1);
+    if (!follow) {
+      // Non-follower regular user: send them to the public page instead
+      return res.redirect(`/p/${product.asin}`);
+    }
+  }
 
   const history = await db
     .select()
@@ -341,17 +392,12 @@ router.post('/products/:id/refresh', requireAuth, requireAdmin, async (req: Requ
   }
 });
 
-// ── POST /products/:id/toggle-public — Toggle public visibility ───────────────
-router.post('/products/:id/toggle-public', requireAuth, async (req: Request, res: Response) => {
+// ── POST /products/:id/toggle-public — Toggle "destacado en /ofertas" (admin only) ──
+// is_public is now a featured-in-ofertas tag, not an access control.
+router.post('/products/:id/toggle-public', requireAuth, requireAdmin, async (req: Request, res: Response) => {
   const productId = parseInt(String(req.params.id), 10);
-  const userId = req.session.userId!;
 
-  const [product] = await db
-    .select()
-    .from(products)
-    .where(isAdmin(req) ? eq(products.id, productId) : and(eq(products.id, productId), eq(products.userId, userId)))
-    .limit(1);
-
+  const [product] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
   if (!product) return res.status(404).json({ error: 'Producto no encontrado.' });
 
   const [updated] = await db
@@ -367,17 +413,11 @@ router.post('/products/:id/toggle-public', requireAuth, async (req: Request, res
   res.json({ isPublic: updated.isPublic });
 });
 
-// ── POST /products/:id/set-category ──────────────────────────────────────────
-router.post('/products/:id/set-category', requireAuth, async (req: Request, res: Response) => {
+// ── POST /products/:id/set-category (admin only — global catalog metadata) ──
+router.post('/products/:id/set-category', requireAuth, requireAdmin, async (req: Request, res: Response) => {
   const productId = parseInt(String(req.params.id), 10);
-  const userId = req.session.userId!;
 
-  const [product] = await db
-    .select()
-    .from(products)
-    .where(isAdmin(req) ? eq(products.id, productId) : and(eq(products.id, productId), eq(products.userId, userId)))
-    .limit(1);
-
+  const [product] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
   if (!product) return res.status(404).json({ error: 'Producto no encontrado.' });
 
   const rawId = req.body.categoryId;
@@ -444,37 +484,61 @@ router.post('/products/import-wishlist', requireAuth, async (req: Request, res: 
     const asin = extractAsin(productUrl);
     if (!asin) { errors++; continue; }
 
-    const [existing] = await db.select().from(products)
-      .where(and(eq(products.userId, userId), eq(products.asin, asin))).limit(1);
-    if (existing) { skipped++; continue; }
-
     const canonicalUrl = normaliseAmazonUrl(asin);
-    const [product] = await db.insert(products).values({ userId, asin, url: canonicalUrl }).returning();
+
+    // Find canonical product globally; attach via user_products
+    const existingRows = await db.execute(sql`
+      SELECT id FROM products
+      WHERE asin = ${asin}
+      ORDER BY (SELECT COUNT(*) FROM price_history ph WHERE ph.product_id = products.id) DESC
+      LIMIT 1
+    `);
+    let product = (existingRows.rows as any[])[0] as { id: number } | undefined;
+    let isNewProduct = false;
+
+    if (product) {
+      const [follow] = await db.select().from(userProducts)
+        .where(and(eq(userProducts.userId, userId), eq(userProducts.productId, product.id))).limit(1);
+      if (follow) { skipped++; continue; }
+      await db.insert(userProducts).values({ userId, productId: product.id });
+    } else {
+      const [created] = await db.insert(products).values({ userId, asin, url: canonicalUrl }).returning();
+      product = created;
+      isNewProduct = true;
+      await db.insert(userProducts).values({ userId, productId: product.id });
+    }
     added++;
 
     // Default 1% alert for wishlist imports (non-admin)
     const wishlistUserEmail = req.session.userEmail!;
     let wishlistDefaultAlertId: number | null = null;
     if (!isAdmin(req)) {
+      const [latest] = await db.select({ price: priceHistory.price }).from(priceHistory)
+        .where(eq(priceHistory.productId, product.id))
+        .orderBy(desc(priceHistory.scrapedAt)).limit(1);
       const [da] = await db.insert(alerts).values({
         productId: product.id, userId,
-        alertType: 'percent', percentageDrop: '1.00', referencePrice: null,
+        alertType: 'percent', percentageDrop: '1.00',
+        referencePrice: latest?.price ?? null,
         notificationEmail: wishlistUserEmail, notificationChannel: 'email',
         isActive: true, isDefault: true,
       }).returning({ id: alerts.id });
       wishlistDefaultAlertId = da.id;
     }
 
-    scrapeProduct(canonicalUrl).then(async result => {
-      await db.update(products).set({ name: result.name, imageUrl: result.imageUrl, extraImages: result.extraImages.length ? JSON.stringify(result.extraImages) : null, lastError: null }).where(eq(products.id, product.id));
-      await db.insert(priceHistory).values({ productId: product.id, price: String(result.price), currency: result.currency });
-      if (wishlistDefaultAlertId !== null) {
-        await db.update(alerts).set({ referencePrice: String(result.price.toFixed(2)) }).where(eq(alerts.id, wishlistDefaultAlertId));
-      }
-    }).catch(async err => {
-      const msg = err instanceof Error ? err.message : String(err);
-      await db.update(products).set({ lastError: msg }).where(eq(products.id, product.id));
-    });
+    if (isNewProduct) {
+      const productId = product.id;
+      scrapeProduct(canonicalUrl).then(async result => {
+        await db.update(products).set({ name: result.name, imageUrl: result.imageUrl, extraImages: result.extraImages.length ? JSON.stringify(result.extraImages) : null, lastError: null }).where(eq(products.id, productId));
+        await db.insert(priceHistory).values({ productId, price: String(result.price), currency: result.currency });
+        if (wishlistDefaultAlertId !== null) {
+          await db.update(alerts).set({ referencePrice: String(result.price.toFixed(2)) }).where(eq(alerts.id, wishlistDefaultAlertId));
+        }
+      }).catch(async err => {
+        const msg = err instanceof Error ? err.message : String(err);
+        await db.update(products).set({ lastError: msg }).where(eq(products.id, productId));
+      });
+    }
   }
 
   res.send(`

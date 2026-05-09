@@ -9,10 +9,18 @@ import { sendVerificationEmail, sendPasswordResetEmail, sendWelcomeEmail } from 
 
 const router = Router();
 
+// Validate that a `next` URL is local (no scheme/host injection).
+function safeNext(raw: unknown): string | null {
+  const s = String(raw ?? '').trim();
+  if (!s.startsWith('/') || s.startsWith('//')) return null;
+  return s;
+}
+
 // ── GET /auth/login ───────────────────────────────────────────────────────────
 router.get('/login', (req: Request, res: Response) => {
-  if (req.session.userId && req.session.emailVerified) return res.redirect('/');
-  res.render('login', { error: null, email: '' });
+  const next = safeNext(req.query.next);
+  if (req.session.userId && req.session.emailVerified) return res.redirect(next ?? '/');
+  res.render('login', { error: null, email: '', next });
 });
 
 // ── POST /auth/login ──────────────────────────────────────────────────────────
@@ -22,40 +30,43 @@ router.post(
   body('password').notEmpty(),
   async (req: Request, res: Response) => {
     const errors = validationResult(req);
+    const next = safeNext(req.body.next ?? req.query.next);
     if (!errors.isEmpty()) {
-      return res.render('login', { error: 'Email o contraseña inválidos.', email: req.body.email ?? '' });
+      return res.render('login', { error: 'Email o contraseña inválidos.', email: req.body.email ?? '', next });
     }
 
     const { email, password } = req.body as { email: string; password: string };
 
     const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
     if (!user) {
-      return res.render('login', { error: 'Email o contraseña incorrectos.', email });
+      return res.render('login', { error: 'Email o contraseña incorrectos.', email, next });
     }
 
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) {
-      return res.render('login', { error: 'Email o contraseña incorrectos.', email });
+      return res.render('login', { error: 'Email o contraseña incorrectos.', email, next });
     }
 
     if (!user.emailVerified) {
       req.session.userId = user.id;
       req.session.userEmail = user.email;
       req.session.emailVerified = false;
+      req.session.pendingNext = next ?? undefined;
       return req.session.save(() => res.redirect('/auth/verify-pending'));
     }
 
     req.session.userId = user.id;
     req.session.userEmail = user.email;
     req.session.emailVerified = true;
-    req.session.save(() => res.redirect('/'));
+    req.session.save(() => res.redirect(next ?? '/'));
   },
 );
 
 // ── GET /auth/register ────────────────────────────────────────────────────────
 router.get('/register', (req: Request, res: Response) => {
-  if (req.session.userId && req.session.emailVerified) return res.redirect('/');
-  res.render('register', { error: null, email: '' });
+  const next = safeNext(req.query.next);
+  if (req.session.userId && req.session.emailVerified) return res.redirect(next ?? '/');
+  res.render('register', { error: null, email: '', next });
 });
 
 // ── POST /auth/register ───────────────────────────────────────────────────────
@@ -69,10 +80,12 @@ router.post(
   }),
   async (req: Request, res: Response) => {
     const errors = validationResult(req);
+    const next = safeNext(req.body.next ?? req.query.next);
     if (!errors.isEmpty()) {
       return res.render('register', {
         error: errors.array()[0].msg,
         email: req.body.email ?? '',
+        next,
       });
     }
 
@@ -80,7 +93,7 @@ router.post(
 
     const [existing] = await db.select().from(users).where(eq(users.email, email)).limit(1);
     if (existing) {
-      return res.render('register', { error: 'Este email ya está registrado.', email });
+      return res.render('register', { error: 'Este email ya está registrado.', email, next });
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
@@ -102,6 +115,7 @@ router.post(
     req.session.userId = user.id;
     req.session.userEmail = user.email;
     req.session.emailVerified = false;
+    req.session.pendingNext = next ?? undefined;
     req.session.save(() => res.redirect('/auth/verify-pending'));
   },
 );
@@ -109,7 +123,7 @@ router.post(
 // ── GET /auth/verify-pending ──────────────────────────────────────────────────
 router.get('/verify-pending', (req: Request, res: Response) => {
   if (!req.session.userId) return res.redirect('/auth/login');
-  if (req.session.emailVerified) return res.redirect('/');
+  if (req.session.emailVerified) return res.redirect(req.session.pendingNext ?? '/');
   res.render('verify-pending', { email: req.session.userEmail ?? '' });
 });
 
@@ -166,14 +180,21 @@ router.get('/verify', async (req: Request, res: Response) => {
   );
 
   // Update session if this user is logged in
+  let pendingNext: string | null = null;
   if (req.session.userId === row.userId) {
     req.session.emailVerified = true;
+    pendingNext = safeNext(req.session.pendingNext);
+    req.session.pendingNext = undefined;
+    if (pendingNext) {
+      return req.session.save(() => res.redirect(pendingNext!));
+    }
   }
 
   res.render('login', {
     error: null,
     email: '',
     success: '¡Email verificado! Ya puedes iniciar sesión.',
+    next: null,
   });
 });
 

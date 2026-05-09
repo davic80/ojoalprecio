@@ -96,8 +96,9 @@
               <button
                 class="btn btn-sm public-toggle"
                 data-id="<%= d.id %>"
+                title="Destacado en /ofertas"
                 style="<%= d.isPublic ? 'background:#16a34a;color:#fff;border-color:#16a34a' : 'opacity:.6' %>"
-              ><%= d.isPublic ? 'Público' : 'Privado' %></button>
+              ><%= d.isPublic ? 'Destacado' : 'No destacado' %></button>
             <% } %>
           </div>
         </div>
@@ -145,7 +146,7 @@ document.querySelectorAll('.public-toggle').forEach(function(btn) {
     try {
       const res = await fetch('/products/' + id + '/toggle-public', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
       const data = await res.json();
-      btn.textContent = data.isPublic ? 'Público' : 'Privado';
+      btn.textContent = data.isPublic ? 'Destacado' : 'No destacado';
       btn.style.background = data.isPublic ? '#16a34a' : '';
       btn.style.color = data.isPublic ? '#fff' : '';
       btn.style.borderColor = data.isPublic ? '#16a34a' : '';

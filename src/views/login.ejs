@@ -24,6 +24,7 @@
   <% } %>
 
   <form action="/auth/login" method="POST" class="auth-form">
+    <% if (typeof next !== 'undefined' && next) { %><input type="hidden" name="next" value="<%= next %>"><% } %>
     <div class="form-field">
       <label for="email">Email</label>
       <input

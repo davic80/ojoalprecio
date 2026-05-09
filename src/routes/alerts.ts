@@ -1,9 +1,10 @@
 import { Router, type Request, type Response } from 'express';
 import { body, validationResult } from 'express-validator';
 import { db } from '../db/client';
-import { alerts, products, priceHistory } from '../db/schema';
-import { eq, and, desc } from 'drizzle-orm';
+import { alerts, products, priceHistory, userProducts } from '../db/schema';
+import { eq, and, desc, sql } from 'drizzle-orm';
 import { requireAuth } from '../middleware/auth';
+import { isAdmin } from '../middleware/admin';
 
 const router = Router();
 
@@ -26,13 +27,19 @@ router.post(
     const productId = parseInt(String(req.params.id), 10);
     const userId = req.session.userId!;
 
-    const [product] = await db
-      .select()
-      .from(products)
-      .where(and(eq(products.id, productId), eq(products.userId, userId)))
-      .limit(1);
-
+    const [product] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
     if (!product) return res.status(404).json({ error: 'Producto no encontrado.' });
+
+    // Auto-follow the product if user isn't already following it (alert implies interest).
+    // Admins skip this — they can manage alerts on any product.
+    if (!isAdmin(req)) {
+      const [follow] = await db.select().from(userProducts)
+        .where(and(eq(userProducts.userId, userId), eq(userProducts.productId, productId)))
+        .limit(1);
+      if (!follow) {
+        await db.insert(userProducts).values({ userId, productId }).onConflictDoNothing();
+      }
+    }
 
     const { alertType, thresholdPrice, percentageDrop, notificationEmail, notificationChannel, telegramChatId } =
       req.body as Record<string, string>;
@@ -70,6 +77,10 @@ router.post(
     if (req.headers['hx-request']) {
       res.setHeader('HX-Redirect', `/products/${productId}`);
       return res.status(200).send('');
+    }
+    // Plain HTML form post (e.g. from /p/:asin) — go back to the public page
+    if (req.headers.accept?.includes('text/html')) {
+      return res.redirect(`/p/${product.asin}`);
     }
     res.status(201).json({ success: true });
   },

@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { db } from '../db/client';
-import { products, priceHistory } from '../db/schema';
-import { eq, desc, sql } from 'drizzle-orm';
+import { products, priceHistory, alerts, userProducts } from '../db/schema';
+import { eq, desc, sql, and } from 'drizzle-orm';
 import { affiliateUrl } from '../scraper/amazon';
 import { isAdmin } from '../middleware/admin';
 
@@ -131,28 +131,25 @@ router.get('/c/:slug', async (req: Request, res: Response) => {
   res.render('category', { category: cat, deals, isAdmin: admin, user: { email: req.session.userEmail ?? '' } });
 });
 
-// ── GET /p/:asin — Public product page ───────────────────────────────────────
+// ── GET /p/:asin — Public product page (any product, regardless of is_public) ────
 router.get('/p/:asin', async (req: Request, res: Response) => {
   const asin = String(req.params.asin).toUpperCase();
+  const userId = req.session.userId ?? null;
 
-  // Find any public product with this ASIN (pick most history if multiple users)
+  // Pick the canonical product row for this ASIN: most price history wins (handles
+  // legacy duplicates where each user had their own row). is_public is no longer
+  // a gate — it's a "featured in /ofertas" tag only.
   const rows = await db.execute(sql`
-    SELECT p.id, p.asin, p.name, p.image_url AS "imageUrl", p.url, p.created_at AS "createdAt"
+    SELECT p.id, p.asin, p.name, p.image_url AS "imageUrl", p.url, p.created_at AS "createdAt", p.is_public AS "isFeatured"
     FROM products p
-    WHERE p.asin = ${asin} AND p.is_public = TRUE AND p.is_active = TRUE
+    WHERE p.asin = ${asin} AND p.is_active = TRUE
     ORDER BY (SELECT COUNT(*) FROM price_history ph WHERE ph.product_id = p.id) DESC
     LIMIT 1
   `);
 
   const product = (rows.rows as any[])[0];
   if (!product) {
-    // If logged in, try to find the product by ASIN regardless of public status
-    if (req.session.userId) {
-      const anyRow = await db.execute(sql`SELECT id FROM products WHERE asin = ${asin} LIMIT 1`);
-      const any = (anyRow.rows as any[])[0];
-      if (any) return res.redirect(`/products/${any.id}`);
-    }
-    return res.status(404).render('404', { user: req.session.userId ? { email: req.session.userEmail } : null });
+    return res.status(404).render('404', { user: userId ? { email: req.session.userEmail } : null });
   }
 
   const history = await db
@@ -167,6 +164,20 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
   const minPrice = prices.length ? Math.min(...prices) : null;
   const maxPrice = prices.length ? Math.max(...prices) : null;
 
+  // Alerts panel data (only for logged-in users)
+  let userFollows = false;
+  let userAlerts: any[] = [];
+  if (userId) {
+    const [follow] = await db.select().from(userProducts)
+      .where(and(eq(userProducts.userId, userId), eq(userProducts.productId, product.id)))
+      .limit(1);
+    userFollows = !!follow;
+    if (userFollows) {
+      userAlerts = await db.select().from(alerts)
+        .where(and(eq(alerts.productId, product.id), eq(alerts.userId, userId)));
+    }
+  }
+
   res.render('public-product', {
     product: { ...product, amazonUrl: affiliateUrl(product.url) },
     history,
@@ -174,6 +185,10 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
     minPrice,
     maxPrice,
     siteUrl: process.env.SITE_URL ?? 'http://localhost:3000',
+    user: userId ? { email: req.session.userEmail } : null,
+    userFollows,
+    userAlerts,
+    isAdmin: isAdmin(req),
   });
 });
 
