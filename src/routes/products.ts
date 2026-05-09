@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { body, validationResult } from 'express-validator';
 import { db } from '../db/client';
-import { products, priceHistory, alerts, categories, users, userProducts } from '../db/schema';
+import { products, priceHistory, alerts, categories, userProducts } from '../db/schema';
 import { eq, and, desc, sql, asc, inArray } from 'drizzle-orm';
 import { extractAsin, normaliseAmazonUrl, scrapeProduct, scrapeWishlist, affiliateUrl, ProductUnavailableError } from '../scraper/amazon';
 import { persistScrapeResult } from '../scheduler';
@@ -299,55 +299,15 @@ router.delete('/products/:id', requireAuth, async (req: Request, res: Response) 
   res.json({ success: true });
 });
 
-// ── GET /products/:id — Internal admin management view ──────────────────────
-// All product viewing happens at /p/:asin (the canonical public page). This
-// route exists only for admin DB management (refresh, set was_price, delete
-// history records, toggle featured, set category, etc.). Non-admin users —
-// even followers — get redirected to /p/:asin where they see their alerts.
-router.get('/products/:id', requireAuth, async (req: Request, res: Response) => {
+// ── GET /products/:id — Permanent redirect to /p/:asin (the only product view) ─
+// There is no separate "internal admin view" anymore. Admin sees management
+// tools inline on /p/:asin when isAdmin is true. This route stays only as a
+// redirect target for legacy bookmarks / inbound links.
+router.get('/products/:id', async (req: Request, res: Response) => {
   const productId = parseInt(String(req.params.id), 10);
-
-  const [product] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
-  if (!product) return res.status(404).render('404', { user: { email: req.session.userEmail } });
-
-  if (!isAdmin(req)) {
-    return res.redirect(`/p/${product.asin}`);
-  }
-  const userId = req.session.userId!;
-
-  const history = await db
-    .select()
-    .from(priceHistory)
-    .where(eq(priceHistory.productId, productId))
-    .orderBy(desc(priceHistory.scrapedAt))
-    .limit(500);
-
-  const productAlerts = await db
-    .select()
-    .from(alerts)
-    .where(and(eq(alerts.productId, productId), eq(alerts.userId, userId)));
-
-  const adminUser = isAdmin(req);
-
-  const [allCategories, viewCountRow, ownerRow] = await Promise.all([
-    db.select().from(categories).orderBy(asc(categories.name)),
-    db.execute(sql`SELECT COALESCE(SUM(count),0) AS views FROM page_views WHERE path = ${'/p/' + product.asin}`),
-    adminUser
-      ? db.select({ id: users.id, email: users.email }).from(users).where(eq(users.id, product.userId)).limit(1)
-      : Promise.resolve([] as { id: number; email: string }[]),
-  ]);
-
-  res.render('product', {
-    product,
-    history,
-    alerts: productAlerts,
-    categories: allCategories,
-    user: { email: req.session.userEmail },
-    amazonUrl: affiliateUrl(product.url),
-    isAdmin: adminUser,
-    viewCount: parseInt(String((viewCountRow.rows[0] as any)?.views ?? '0'), 10),
-    productOwner: ownerRow[0] ?? null,
-  });
+  const [product] = await db.select({ asin: products.asin }).from(products).where(eq(products.id, productId)).limit(1);
+  if (!product) return res.status(404).render('404', { user: req.session.userId ? { email: req.session.userEmail } : null });
+  return res.redirect(301, `/p/${product.asin}`);
 });
 
 // ── POST /products/:id/refresh — Manual refresh (admin only) ─────────────────
@@ -371,13 +331,13 @@ router.post('/products/:id/refresh', requireAuth, requireAdmin, async (req: Requ
     await persistScrapeResult(productId, result);
 
     if (req.headers['hx-request']) {
-      return res.redirect(`/products/${productId}`);
+      return res.redirect(`/p/${product.asin}`);
     }
     res.json({ success: true, price: result.price });
   } catch (err) {
     if (err instanceof ProductUnavailableError) {
       await db.update(products).set({ isAvailable: false, lastError: null }).where(eq(products.id, productId));
-      if (req.headers['hx-request']) return res.redirect(`/products/${productId}`);
+      if (req.headers['hx-request']) return res.redirect(`/p/${product.asin}`);
       res.status(200).json({ unavailable: true });
     } else {
       const msg = err instanceof Error ? err.message : String(err);
@@ -402,7 +362,7 @@ router.post('/products/:id/toggle-public', requireAuth, requireAdmin, async (req
     .returning();
 
   if (req.headers['hx-request']) {
-    res.setHeader('HX-Redirect', `/products/${productId}`);
+    res.setHeader('HX-Redirect', `/p/${product.asin}`);
     return res.status(200).send('');
   }
   res.json({ isPublic: updated.isPublic });
@@ -421,7 +381,7 @@ router.post('/products/:id/set-category', requireAuth, requireAdmin, async (req:
   await db.update(products).set({ categoryId }).where(eq(products.id, productId));
 
   if (req.headers['hx-request']) {
-    res.setHeader('HX-Redirect', `/products/${productId}`);
+    res.setHeader('HX-Redirect', `/p/${product.asin}`);
     return res.status(200).send('');
   }
   res.json({ success: true });

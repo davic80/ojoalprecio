@@ -75,10 +75,9 @@ router.post(
     });
 
     if (req.headers['hx-request']) {
-      res.setHeader('HX-Redirect', `/products/${productId}`);
+      res.setHeader('HX-Redirect', `/p/${product.asin}`);
       return res.status(200).send('');
     }
-    // Plain HTML form post (e.g. from /p/:asin) — go back to the public page
     if (req.headers.accept?.includes('text/html')) {
       return res.redirect(`/p/${product.asin}`);
     }

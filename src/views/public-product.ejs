@@ -14,6 +14,16 @@
 </head>
 <body>
 
+<%
+  const isLogged    = typeof user !== 'undefined' && user;
+  const followsThis = typeof userFollows !== 'undefined' && userFollows;
+  const adminMode   = typeof isAdmin !== 'undefined' && isAdmin;
+  const wasPrice    = product.wasPrice ? parseFloat(String(product.wasPrice)) : null;
+  const discountPct = (wasPrice && currentPrice && wasPrice > currentPrice)
+    ? Math.round((wasPrice - currentPrice) / wasPrice * 100) : null;
+  const saleTierLabels = { 'oferta':'Oferta','super-oferta':'Super Oferta','mega-oferta':'Mega Oferta','broooooferton':'Brooooofertón','67oferta':'67% oferta' };
+%>
+
 <nav class="navbar">
   <a href="/" class="navbar-brand">
     <span class="brand-icon">👁</span>
@@ -21,11 +31,15 @@
   </a>
   <div class="navbar-actions">
     <a href="/ofertas" class="nav-link">Ofertas</a>
-    <% if (typeof user !== 'undefined' && user) { %>
+    <% if (isLogged) { %>
       <a href="/" class="nav-link">Mi panel</a>
-      <% if (typeof isAdmin !== 'undefined' && isAdmin) { %>
+      <% if (adminMode) { %>
         <a href="/admin" class="nav-link">Admin</a>
       <% } %>
+      <a href="/account" class="user-email user-email-link"><%= user.email %></a>
+      <form action="/auth/logout" method="POST" style="display:inline">
+        <button type="submit" class="btn btn-ghost btn-sm">Salir</button>
+      </form>
     <% } else { %>
       <a href="/auth/login?next=<%= encodeURIComponent('/p/' + product.asin) %>" class="btn btn-outline btn-sm">Entrar</a>
     <% } %>
@@ -36,49 +50,47 @@
 
   <div class="back-link"><a href="/ofertas">← Ver todas las ofertas</a></div>
 
-  <% if (typeof isAdmin !== 'undefined' && isAdmin) { %>
-    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 12px;margin-bottom:16px;font-size:13px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-      <strong style="color:#475569">🔧 Admin</strong>
-      <form hx-post="/products/<%= product.id %>/refresh" hx-swap="none" style="display:inline;margin:0">
-        <button type="submit" class="btn btn-sm btn-ghost" title="Re-scrapear ahora">↺ Refresh</button>
-      </form>
-      <form hx-post="/products/<%= product.id %>/toggle-public" hx-swap="none" style="display:inline;margin:0">
-        <button type="submit" class="btn btn-sm <%= product.isFeatured ? 'btn-outline btn-active-green' : 'btn-ghost' %>"
-          title="Aparece en /ofertas">
-          <%= product.isFeatured ? '✨ Destacado' : '📣 Destacar en /ofertas' %>
-        </button>
-      </form>
-      <span style="flex:1"></span>
-      <a href="/products/<%= product.id %>" class="hint" style="font-size:12px;color:#64748b">vista interna ↗</a>
-    </div>
-  <% } %>
-
   <!-- Product header -->
   <div class="product-header">
     <% if (product.imageUrl) { %>
-      <img src="<%= product.imageUrl %>" alt="<%= product.name %>" class="product-detail-img">
+      <a href="<%= product.amazonUrl %>" target="_blank" rel="noopener sponsored" class="product-img-link">
+        <img src="<%= product.imageUrl %>" alt="<%= product.name %>" class="product-detail-img">
+      </a>
     <% } %>
     <div class="product-header-info">
-      <h1><%= product.name ?? product.asin %></h1>
+      <h1><a href="<%= product.amazonUrl %>" target="_blank" rel="noopener sponsored" class="product-title-link"><%= product.name ?? product.asin %></a></h1>
       <p class="product-asin">ASIN: <strong><%= product.asin %></strong></p>
-      <a href="<%= product.amazonUrl %>" target="_blank" rel="noopener sponsored" class="amazon-link">
-        Ver en Amazon.es ↗
-      </a>
+      <a href="<%= product.amazonUrl %>" target="_blank" rel="noopener sponsored" class="amazon-link">Ver en Amazon.es ↗</a>
+
+      <% if (!product.isAvailable) { %>
+        <div class="alert-box alert-unavailable" style="margin-top:8px">Sin stock en Amazon — recibirás una notificación cuando vuelva a estar disponible.</div>
+      <% } %>
+      <% if (adminMode && product.lastError) { %>
+        <div class="alert-box alert-error" style="margin-top:8px">⚠ Último error: <%= product.lastError %></div>
+      <% } %>
     </div>
 
     <div class="price-stats">
-      <div class="stat-box stat-current">
-        <div class="stat-label">Precio actual</div>
-        <div class="stat-value"><%= currentPrice ? currentPrice.toFixed(2) + ' €' : '—' %></div>
-        <% if (currentPrice && minPrice && currentPrice > minPrice + 0.01) {
-             const diffAbs = (currentPrice - minPrice).toFixed(2);
-             const diffPct = Math.round((currentPrice - minPrice) / minPrice * 100);
-        %>
-          <div class="stat-sublabel stat-above-min">+<%= diffAbs %> € vs mínimo (<%= diffPct %>%)</div>
-        <% } else if (currentPrice && minPrice && currentPrice <= minPrice + 0.01) { %>
-          <div class="stat-sublabel stat-at-min">Precio mínimo histórico</div>
+      <a href="<%= product.amazonUrl %>" target="_blank" rel="noopener sponsored" class="stat-box stat-current stat-box-link" title="Ver en Amazon.es">
+        <div class="stat-label">Precio actual ↗</div>
+        <% if (wasPrice && discountPct && product.isAvailable) { %>
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
+            <span style="font-size:13px;text-decoration:line-through;color:var(--gray-400)"><%= wasPrice.toFixed(2) %> €</span>
+            <span style="font-size:12px;font-weight:700;background:#dc2626;color:#fff;border-radius:4px;padding:1px 5px">-<%= discountPct %>%</span>
+          </div>
         <% } %>
+        <div class="stat-value"><%= !product.isAvailable ? 'Sin stock' : (currentPrice ? currentPrice.toFixed(2) + ' €' : '—') %></div>
+        <% if (product.isOnSale && product.saleTier) { %>
+          <div style="margin-top:4px"><span class="badge-sale badge-tier-<%= product.saleTier %>"><%= saleTierLabels[product.saleTier] || 'Oferta' %></span></div>
+        <% } %>
+      </a>
+      <% if (wasPrice) { %>
+      <div class="stat-box" style="border-left:3px solid #dc2626">
+        <div class="stat-label">PVP recomendado</div>
+        <div class="stat-value" style="text-decoration:line-through;color:var(--gray-400)"><%= wasPrice.toFixed(2) %> €</div>
+        <% if (discountPct) { %><div class="stat-sublabel" style="color:#dc2626;font-weight:600">Ahorras un <%= discountPct %>%</div><% } %>
       </div>
+      <% } %>
       <div class="stat-box stat-min">
         <div class="stat-label">Precio mínimo</div>
         <div class="stat-value"><%= minPrice ? minPrice.toFixed(2) + ' €' : '—' %></div>
@@ -95,16 +107,15 @@
     </div>
   </div>
 
+  <!-- CTA bar -->
   <div class="cta-bar">
     <a href="<%= product.amazonUrl %>" target="_blank" rel="noopener sponsored" class="btn btn-primary">
       Comprar en Amazon.es — <%= currentPrice ? currentPrice.toFixed(2) + ' €' : 'Ver precio' %>
     </a>
-    <%
-      const isLogged    = typeof user      !== 'undefined' && user;
-      const followsThis = typeof userFollows !== 'undefined' && userFollows;
-    %>
     <% if (!isLogged) { %>
-      <a href="/auth/register?next=<%= encodeURIComponent('/p/' + product.asin) %>&intent=alert" class="btn btn-outline">Crear alerta de precio gratis</a>
+      <a href="/auth/register?next=<%= encodeURIComponent('/p/' + product.asin) %>&intent=alert" class="btn btn-outline">
+        Crear alerta de precio gratis
+      </a>
     <% } else if (!followsThis) { %>
       <form method="POST" action="/products" style="display:inline">
         <input type="hidden" name="url" value="<%= product.amazonUrl %>">
@@ -114,67 +125,108 @@
     <% } %>
   </div>
 
-  <% if (isLogged && followsThis) { %>
-    <div class="card" style="margin-top:24px">
-      <h2 style="margin-top:0">Tus alertas para este producto</h2>
-      <% if (userAlerts && userAlerts.length) { %>
-        <ul style="list-style:none;padding:0;margin:0 0 12px">
-          <% userAlerts.forEach(function(a) {
-               const refP = a.referencePrice ? parseFloat(a.referencePrice) : null;
-               const label = a.alertType === 'percent'
-                 ? '−' + parseFloat(a.percentageDrop).toFixed(0) + '%' + (refP ? ' desde ' + refP.toFixed(2) + ' €' : ' (pendiente primer precio)')
-                 : a.alertType === 'price'
-                 ? '≤ ' + parseFloat(a.thresholdPrice).toFixed(2) + ' €'
-                 : a.alertType === 'alltime_low'
-                 ? 'Mínimo histórico'
-                 : 'Stock';
-          %>
-            <li style="padding:8px 0;border-bottom:1px solid var(--border,#eee);display:flex;justify-content:space-between;align-items:center;gap:12px">
-              <span>
-                <strong><%= label %></strong>
-                <% if (a.isDefault) { %><span class="badge" style="font-size:0.75em;background:#eef;color:#447;padding:2px 6px;border-radius:4px;margin-left:6px">auto</span><% } %>
-                <span style="color:#666;font-size:0.9em">· <%= a.notificationChannel %> → <%= a.notificationEmail %></span>
-              </span>
-              <button type="button"
-                class="btn btn-sm btn-outline"
-                hx-delete="/alerts/<%= a.id %>"
-                hx-confirm="¿Borrar esta alerta?"
-                hx-target="closest li"
-                hx-swap="outerHTML">Borrar</button>
-            </li>
-          <% }); %>
-        </ul>
-      <% } else { %>
-        <p class="hint">Aún no tienes alertas configuradas para este producto.</p>
-      <% } %>
-
-      <details style="margin-top:12px">
-        <summary style="cursor:pointer;font-weight:500">+ Configurar nueva alerta</summary>
-        <form method="POST" action="/products/<%= product.id %>/alerts" style="margin-top:12px;display:flex;flex-direction:column;gap:8px;max-width:480px">
-          <label>
-            Tipo
-            <select name="alertType" required>
-              <option value="percent">Bajada de %</option>
-              <option value="price">Precio máximo (€)</option>
-              <option value="alltime_low">Cualquier mínimo histórico</option>
-            </select>
-          </label>
-          <label>
-            % de bajada / precio umbral
-            <input type="number" step="0.01" name="percentageDrop" placeholder="Ej: 10" />
-            <input type="number" step="0.01" name="thresholdPrice" placeholder="Ej: 99.00" />
-          </label>
-          <label>
-            Email
-            <input type="email" name="notificationEmail" value="<%= user.email %>" required>
-          </label>
-          <input type="hidden" name="notificationChannel" value="email">
-          <button type="submit" class="btn btn-primary">Crear alerta</button>
+  <!-- Admin panel (inline, only for admin) -->
+  <% if (adminMode) { %>
+  <div class="card" style="border-left:3px solid var(--primary,#e63946);margin-top:20px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+      <div style="font-size:13px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.06em">🔧 Panel de admin</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button id="refresh-btn" class="btn <%= product.isFailed ? 'btn-primary' : 'btn-outline' %> btn-sm"
+          hx-post="/products/<%= product.id %>/refresh"
+          hx-disabled-elt="#refresh-btn"
+          hx-on::before-request="this.textContent='Actualizando…'"
+          hx-on::after-request="location.reload()">
+          <%= product.isFailed ? '↺ Reintentar' : '↺ Forzar scrape' %>
+        </button>
+        <form hx-post="/products/<%= product.id %>/toggle-public" hx-swap="none" style="display:inline;margin:0">
+          <button type="submit" class="btn btn-sm <%= product.isPublic ? 'btn-outline btn-active-green' : 'btn-ghost' %>"
+            title="Aparece en /ofertas y feeds destacados">
+            <%= product.isPublic ? '✨ Destacado en /ofertas' : '📣 Destacar en /ofertas' %>
+          </button>
         </form>
-      </details>
+        <button class="btn btn-danger btn-sm"
+          hx-delete="/products/<%= product.id %>"
+          hx-confirm="¿Eliminar este producto y todo su historial de precios? Esta acción no se puede deshacer."
+        >Eliminar producto</button>
+      </div>
     </div>
+
+    <div style="display:flex;gap:24px;flex-wrap:wrap;font-size:13px;margin-bottom:14px">
+      <div>
+        <div style="font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Propietario</div>
+        <% if (productOwner) { %>
+          <a href="/admin/users?q=<%= encodeURIComponent(productOwner.email) %>" style="color:var(--primary,#e63946);font-weight:500"><%= productOwner.email %></a>
+          <span style="color:var(--gray-400);margin-left:4px">#<%= productOwner.id %></span>
+        <% } else { %><span style="color:var(--gray-400)">—</span><% } %>
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">ID producto</div>
+        <span style="font-family:monospace;font-weight:600">#<%= product.id %></span>
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Añadido</div>
+        <span><%= new Date(product.createdAt).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' }) %></span>
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Último scrape</div>
+        <% if (history.length > 0) { %>
+          <span><%= new Date(history[0].scrapedAt).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' }) %></span>
+        <% } else { %><span style="color:var(--gray-400)">Sin datos</span><% } %>
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Fallos</div>
+        <span style="<%= product.isFailed ? 'color:#b91c1c;font-weight:600' : '' %>">
+          <%= product.consecutiveFailures %> consec · <%= product.totalFailures ?? 0 %> total
+        </span>
+      </div>
+      <% if (viewCount > 0) { %>
+      <div>
+        <div style="font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Visitas /p/</div>
+        <span><%= viewCount %></span>
+      </div>
+      <% } %>
+      <div>
+        <div style="font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">PVP recomendado</div>
+        <form hx-post="/products/<%= product.id %>/set-was-price" hx-target="#was-price-msg" hx-swap="innerHTML" style="display:flex;align-items:center;gap:6px">
+          <input type="number" name="wasPrice" min="0" step="0.01"
+            value="<%= wasPrice ? wasPrice.toFixed(2) : '' %>"
+            placeholder="0.00"
+            class="input" style="width:90px;padding:4px 8px;font-size:13px;text-align:right">
+          <span style="font-size:13px;color:var(--gray-500)">€</span>
+          <button type="submit" class="btn btn-outline btn-sm">Fijar</button>
+          <span id="was-price-msg" style="font-size:12px;color:var(--success,#16a34a)"></span>
+        </form>
+      </div>
+    </div>
+
+    <% if (allCategories && allCategories.length > 0) { %>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;border-top:1px solid var(--border,#e2e8f0);padding-top:12px">
+      <form hx-post="/products/<%= product.id %>/set-category" style="display:flex;gap:6px;align-items:flex-end">
+        <div>
+          <label style="display:block;font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Categoría</label>
+          <select name="categoryId" class="input input-sm" style="font-size:13px">
+            <option value="">Sin categoría</option>
+            <% allCategories.forEach(function(cat) { %>
+              <option value="<%= cat.id %>" <%= product.categoryId === cat.id ? 'selected' : '' %>><%= cat.name %></option>
+            <% }); %>
+          </select>
+        </div>
+        <button type="submit" class="btn btn-sm btn-outline">Guardar</button>
+      </form>
+      <form hx-post="/admin/categories" style="display:flex;gap:6px;align-items:flex-end">
+        <input type="hidden" name="_redirect" value="/p/<%= product.asin %>">
+        <div>
+          <label style="display:block;font-size:11px;font-weight:600;color:var(--gray-400);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Crear categoría</label>
+          <input type="text" name="name" placeholder="Nombre…" class="input input-sm" style="font-size:13px" maxlength="100" required>
+        </div>
+        <button type="submit" class="btn btn-sm btn-primary">Crear</button>
+      </form>
+    </div>
+    <% } %>
+  </div>
   <% } %>
 
+  <!-- Price chart -->
   <% if (history.length > 0) { %>
     <div class="card chart-card">
       <h2>Historial de precios</h2>
@@ -183,85 +235,215 @@
       </div>
     </div>
 
-    <%
-      const tableRows = history.slice(0, 50);
-      const tablePrices = tableRows.map(h => parseFloat(h.price));
-      const tableMin = Math.min(...tablePrices);
-      const tableMax = Math.max(...tablePrices);
-    %>
-    <div class="card history-table-card">
+    <!-- Recent price table -->
+    <div class="card">
       <h2>Últimos registros</h2>
-      <div class="history-table-wrap">
-        <table class="history-table">
+      <div class="table-wrap">
+        <table class="price-table">
           <thead>
-            <tr><th>Fecha</th><th>Precio</th><th>Variación</th></tr>
+            <tr>
+              <th>Fecha</th>
+              <th>Precio</th>
+              <th>Variación</th>
+              <% if (adminMode) { %><th></th><% } %>
+            </tr>
           </thead>
           <tbody>
-            <% tableRows.forEach(function(h, i) {
-              const price = parseFloat(h.price);
-              const prev  = i + 1 < tableRows.length ? parseFloat(tableRows[i + 1].price) : null;
-              const delta = prev !== null ? price - prev : null;
-              const isMin = Math.abs(price - tableMin) < 0.005;
-              const isMax = Math.abs(price - tableMax) < 0.005;
+            <% history.slice(0, 50).forEach(function(h, i, arr) {
+              const prev = arr[i + 1];
+              const diff = prev ? parseFloat(h.price) - parseFloat(prev.price) : null;
+              const pct  = (prev && parseFloat(prev.price) !== 0) ? diff / parseFloat(prev.price) * 100 : null;
             %>
-            <tr class="<%= isMin ? 'row-min' : isMax ? 'row-max' : '' %>">
-              <td><%= new Date(h.scrapedAt).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) %></td>
-              <td class="price-cell">
-                <%= price.toFixed(2) %> €
-                <% if (isMin) { %><span class="badge-min-inline">mín</span><% } %>
-                <% if (isMax) { %><span class="badge-max-inline">máx</span><% } %>
-              </td>
-              <td class="delta-cell">
-                <% if (delta !== null) { %>
-                  <span class="<%= delta < 0 ? 'delta-down' : delta > 0 ? 'delta-up' : 'delta-flat' %>">
-                    <%= delta > 0 ? '+' : '' %><%= delta.toFixed(2) %> €
-                  </span>
-                <% } else { %>—<% } %>
-              </td>
-            </tr>
+              <tr id="hist-<%= h.id %>">
+                <td><%= new Date(h.scrapedAt).toLocaleString('es-ES') %></td>
+                <td class="price-cell"><%= parseFloat(h.price).toFixed(2) %> €</td>
+                <td class="price-cell">
+                  <% if (diff !== null && Math.abs(pct) >= 0.1) { %>
+                    <span class="<%= diff < 0 ? 'trend-down' : 'trend-up' %>">
+                      <%= diff >= 0 ? '+' : '−' %><%= Math.abs(diff).toFixed(2) %> € (<%= diff >= 0 ? '+' : '−' %><%= Math.abs(pct).toFixed(1) %>%)
+                    </span>
+                  <% } else { %>—<% } %>
+                </td>
+                <% if (adminMode) { %>
+                <td style="text-align:right;padding:4px 8px">
+                  <button class="btn btn-danger btn-sm" style="padding:2px 7px;font-size:11px"
+                    hx-delete="/products/<%= product.id %>/history/<%= h.id %>"
+                    hx-target="#hist-<%= h.id %>"
+                    hx-swap="outerHTML"
+                    hx-confirm="¿Eliminar este registro?">×</button>
+                </td>
+                <% } %>
+              </tr>
             <% }); %>
           </tbody>
         </table>
       </div>
-      <% if (history.length > 50) { %>
-        <p class="table-note">Mostrando los 50 registros más recientes de <%= history.length %> totales.</p>
-      <% } %>
     </div>
 
     <script>
       const chartData = <%- JSON.stringify(
-        history.slice().reverse().map(h => ({
-          x: new Date(h.scrapedAt).toISOString(),
-          y: parseFloat(h.price)
-        }))
+        history.slice().reverse().map(h => ({ x: new Date(h.scrapedAt).toISOString(), y: parseFloat(h.price) }))
       ) %>;
       document.addEventListener('DOMContentLoaded', () => {
         const ctx = document.getElementById('priceChart').getContext('2d');
         new Chart(ctx, {
           type: 'line',
-          data: {
-            datasets: [{
-              label: 'Precio (€)', data: chartData,
-              borderColor: '#e63946', backgroundColor: 'rgba(230,57,70,0.08)',
-              borderWidth: 2, pointRadius: chartData.length > 100 ? 0 : 3,
-              pointHoverRadius: 5, tension: 0.2, fill: true,
-            }]
-          },
+          data: { datasets: [{
+            label: 'Precio (€)', data: chartData,
+            borderColor: '#e63946', backgroundColor: 'rgba(230,57,70,0.08)',
+            borderWidth: 2, pointRadius: chartData.length > 100 ? 0 : 3,
+            pointHoverRadius: 5, tension: 0.2, fill: true,
+          }]},
           options: {
             responsive: true, maintainAspectRatio: false,
             interaction: { intersect: false, mode: 'index' },
             plugins: {
               legend: { display: false },
-              tooltip: { callbacks: { label: ctx => ctx.parsed.y.toFixed(2) + ' €' } }
+              tooltip: { callbacks: { label: ctx => {
+                const price = ctx.parsed.y.toFixed(2) + ' €';
+                const idx = ctx.dataIndex;
+                if (idx === 0) return price;
+                const prev = chartData[idx - 1].y;
+                const diff = ctx.parsed.y - prev;
+                const pct = (diff / prev * 100);
+                if (Math.abs(pct) < 0.1) return price;
+                const sign = diff >= 0 ? '+' : '−';
+                return price + '   ' + sign + Math.abs(diff).toFixed(2) + ' € (' + sign + Math.abs(pct).toFixed(1) + '%)';
+              }}}
             },
             scales: {
-              x: { type: 'time', time: { tooltipFormat: 'dd/MM/yyyy HH:mm', displayFormats: { hour: 'dd/MM HH:mm', day: 'dd/MM', month: 'MMM yyyy' } }, grid: { color: 'rgba(0,0,0,0.05)' } },
+              x: { type: 'time', time: { tooltipFormat: 'dd/MM/yyyy HH:mm', displayFormats: { hour: 'dd/MM HH:mm', day: 'dd/MM', month: 'MMM yyyy' } }, ticks: { maxTicksLimit: 6, autoSkip: true, maxRotation: 0 }, grid: { color: 'rgba(0,0,0,0.05)' } },
               y: { ticks: { callback: v => v.toFixed(2) + ' €' }, grid: { color: 'rgba(0,0,0,0.05)' } }
             }
           }
         });
       });
     </script>
+  <% } else { %>
+    <div class="empty-state" style="margin-top:20px">
+      <div class="empty-icon">📊</div>
+      <p>Aún no hay datos de precio. El seguimiento comenzará en breve.</p>
+    </div>
+  <% } %>
+
+  <!-- Alerts panel (logged-in followers only; alerts list always shown if any) -->
+  <% if (isLogged && followsThis) { %>
+    <div class="card" id="alerts-section" style="margin-top:20px">
+      <h2>Tus alertas para este producto</h2>
+      <p class="subtitle">Recibe una notificación cuando el precio baje según tus condiciones.</p>
+
+      <form hx-post="/products/<%= product.id %>/alerts" hx-target="#alerts-section" hx-swap="outerHTML"
+        class="alert-form" id="alert-form">
+        <div class="alert-type-tabs">
+          <label class="alert-type-tab"><input type="radio" name="alertType" value="price" checked onchange="updateAlertForm(this.value)"><span>Precio fijo</span></label>
+          <label class="alert-type-tab"><input type="radio" name="alertType" value="percent" onchange="updateAlertForm(this.value)"><span>% de bajada</span></label>
+          <label class="alert-type-tab"><input type="radio" name="alertType" value="alltime_low" onchange="updateAlertForm(this.value)"><span>Precio mínimo</span></label>
+          <label class="alert-type-tab"><input type="radio" name="alertType" value="stock" onchange="updateAlertForm(this.value)"><span>Vuelta en stock</span></label>
+        </div>
+
+        <div class="alert-inputs">
+          <div class="form-field" id="field-price">
+            <label for="thresholdPrice">Avisar si el precio baja de</label>
+            <div class="input-with-unit">
+              <input type="number" name="thresholdPrice" id="thresholdPrice" min="0.01" step="0.01" placeholder="0.00" class="input input-sm">
+              <span class="unit">€</span>
+            </div>
+          </div>
+          <div class="form-field" id="field-percent" style="display:none">
+            <label for="percentageDrop">Avisar si baja un</label>
+            <div class="input-with-unit">
+              <input type="number" name="percentageDrop" id="percentageDrop" min="1" max="99" step="1" placeholder="15" class="input input-sm">
+              <span class="unit">%</span>
+            </div>
+            <p class="hint" style="margin-top:4px">desde el precio actual (<%= currentPrice ? currentPrice.toFixed(2) + ' €' : '—' %>)<% if (currentPrice) { %> → avisar si baja de <strong id="percent-target-label">—</strong><% } %></p>
+          </div>
+          <div class="form-field" id="field-alltime" style="display:none"><p class="hint">Recibirás una notificación cada vez que se registre un nuevo precio mínimo.</p></div>
+          <div class="form-field" id="field-stock"   style="display:none"><p class="hint">Recibirás una notificación cuando este producto vuelva a estar disponible en Amazon.</p></div>
+
+          <div class="form-field">
+            <label for="notificationEmail">Email de notificación</label>
+            <input type="email" name="notificationEmail" id="notificationEmail" value="<%= user.email %>" required class="input input-sm">
+          </div>
+          <div class="form-field">
+            <label for="notificationChannel">Canal</label>
+            <select name="notificationChannel" id="notificationChannel" class="input input-sm">
+              <option value="email">Email</option>
+              <option value="telegram">Telegram</option>
+              <option value="both">Email + Telegram</option>
+            </select>
+          </div>
+          <div class="form-field" id="field-telegram" style="display:none">
+            <label for="telegramChatId">Telegram Chat ID</label>
+            <input type="text" name="telegramChatId" id="telegramChatId" placeholder="123456789" class="input input-sm">
+            <p class="hint" style="margin-top:4px">Consíguelo escribiendo /start a @userinfobot</p>
+          </div>
+          <button type="submit" class="btn btn-primary btn-sm alert-submit">Crear alerta</button>
+        </div>
+      </form>
+
+      <script>
+        const _currentPrice = <%= currentPrice ?? 'null' %>;
+        function updateAlertForm(type) {
+          document.getElementById('field-price').style.display   = type === 'price'       ? '' : 'none';
+          document.getElementById('field-percent').style.display = type === 'percent'     ? '' : 'none';
+          document.getElementById('field-alltime').style.display = type === 'alltime_low' ? '' : 'none';
+          document.getElementById('field-stock').style.display   = type === 'stock'       ? '' : 'none';
+          document.getElementById('thresholdPrice').required = type === 'price';
+          document.getElementById('percentageDrop').required = type === 'percent';
+        }
+        document.getElementById('percentageDrop').addEventListener('input', function() {
+          const label = document.getElementById('percent-target-label');
+          if (!label || !_currentPrice) return;
+          const pct = parseFloat(this.value);
+          if (isNaN(pct) || pct <= 0) { label.textContent = '—'; return; }
+          label.textContent = (_currentPrice * (1 - pct / 100)).toFixed(2) + ' €';
+        });
+        document.getElementById('notificationChannel').addEventListener('change', function() {
+          document.getElementById('field-telegram').style.display = (this.value === 'telegram' || this.value === 'both') ? '' : 'none';
+        });
+      </script>
+
+      <% if (userAlerts && userAlerts.length > 0) { %>
+        <div class="alerts-list" style="margin-top:16px">
+          <% userAlerts.forEach(function(alert) { %>
+            <div class="alert-item <%= alert.notifiedAt ? 'alert-triggered' : 'alert-active' %>" id="alert-<%= alert.id %>">
+              <div class="alert-info">
+                <%
+                  let label = '';
+                  if (alert.alertType === 'percent') {
+                    const refP = alert.referencePrice ? parseFloat(alert.referencePrice) : null;
+                    label = '−' + parseFloat(alert.percentageDrop).toFixed(0) + '%' + (refP ? ' desde ' + refP.toFixed(2) + ' €' : ' (pendiente primer precio)');
+                  } else if (alert.alertType === 'alltime_low') label = 'Nuevo precio mínimo';
+                  else if (alert.alertType === 'stock')         label = 'Vuelta en stock';
+                  else                                          label = '≤ ' + parseFloat(alert.thresholdPrice).toFixed(2) + ' €';
+                %>
+                <span class="alert-threshold"><%= label %></span>
+                <% if (alert.isDefault) { %><span class="alert-badge" style="background:var(--muted,#6b7280);color:#fff;font-size:0.68rem;padding:1px 6px;border-radius:4px">auto</span><% } %>
+                <span class="alert-email"><%= alert.notificationEmail %></span>
+                <% if (alert.notifiedAt) { %>
+                  <span class="alert-badge badge-triggered">Enviada <%= new Date(alert.notifiedAt).toLocaleString('es-ES') %></span>
+                <% } else { %>
+                  <span class="alert-badge badge-active">Activa</span>
+                <% } %>
+              </div>
+              <div class="alert-actions">
+                <% if (alert.notifiedAt) { %>
+                  <button class="btn btn-sm btn-outline"
+                    hx-patch="/alerts/<%= alert.id %>/reset"
+                    hx-target="#alerts-section" hx-swap="outerHTML"
+                    title="Reactivar para volver a notificar">Reactivar</button>
+                <% } %>
+                <button class="btn btn-sm btn-danger"
+                  hx-delete="/alerts/<%= alert.id %>"
+                  hx-target="#alert-<%= alert.id %>"
+                  hx-swap="outerHTML"
+                  hx-confirm="¿Eliminar esta alerta?">Eliminar</button>
+              </div>
+            </div>
+          <% }); %>
+        </div>
+      <% } %>
+    </div>
   <% } %>
 
 </main>

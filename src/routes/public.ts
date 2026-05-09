@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { db } from '../db/client';
-import { products, priceHistory, alerts, userProducts } from '../db/schema';
-import { eq, desc, sql, and } from 'drizzle-orm';
+import { products, priceHistory, alerts, userProducts, categories, users } from '../db/schema';
+import { eq, desc, sql, and, asc } from 'drizzle-orm';
 import { affiliateUrl } from '../scraper/amazon';
 import { isAdmin } from '../middleware/admin';
 
@@ -131,16 +131,18 @@ router.get('/c/:slug', async (req: Request, res: Response) => {
   res.render('category', { category: cat, deals, isAdmin: admin, user: { email: req.session.userEmail ?? '' } });
 });
 
-// ── GET /p/:asin — Public product page (any product, regardless of is_public) ────
+// ── GET /p/:asin — Canonical product page (public, single view for everyone) ───
+// Same template renders for anon visitors, logged-in followers, and admin —
+// admin tools and follower alerts panel show conditionally on top.
 router.get('/p/:asin', async (req: Request, res: Response) => {
   const asin = String(req.params.asin).toUpperCase();
   const userId = req.session.userId ?? null;
+  const adminUser = isAdmin(req);
 
-  // Pick the canonical product row for this ASIN: most price history wins (handles
-  // legacy duplicates where each user had their own row). is_public is no longer
-  // a gate — it's a "featured in /ofertas" tag only.
+  // Canonical row per ASIN: most price history wins (resolves legacy duplicates).
+  // is_public is no longer a gate — it's a "featured in /ofertas" tag only.
   const rows = await db.execute(sql`
-    SELECT p.id, p.asin, p.name, p.image_url AS "imageUrl", p.url, p.created_at AS "createdAt", p.is_public AS "isFeatured"
+    SELECT p.*
     FROM products p
     WHERE p.asin = ${asin} AND p.is_active = TRUE
     ORDER BY (SELECT COUNT(*) FROM price_history ph WHERE ph.product_id = p.id) DESC
@@ -164,7 +166,7 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
   const minPrice = prices.length ? Math.min(...prices) : null;
   const maxPrice = prices.length ? Math.max(...prices) : null;
 
-  // Alerts panel data (only for logged-in users)
+  // Follower alerts (only when logged in AND following)
   let userFollows = false;
   let userAlerts: any[] = [];
   if (userId) {
@@ -178,8 +180,49 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
     }
   }
 
+  // Admin-only extras: categories list, owner info, view count
+  let allCategories: any[] = [];
+  let productOwner: { id: number; email: string } | null = null;
+  let viewCount = 0;
+  if (adminUser) {
+    const [cats, ownerRows, viewRow] = await Promise.all([
+      db.select().from(categories).orderBy(asc(categories.name)),
+      product.user_id
+        ? db.select({ id: users.id, email: users.email }).from(users).where(eq(users.id, product.user_id)).limit(1)
+        : Promise.resolve([] as { id: number; email: string }[]),
+      db.execute(sql`SELECT COALESCE(SUM(count),0) AS views FROM page_views WHERE path = ${'/p/' + product.asin}`),
+    ]);
+    allCategories = cats;
+    productOwner = ownerRows[0] ?? null;
+    viewCount = parseInt(String((viewRow.rows[0] as any)?.views ?? '0'), 10);
+  }
+
+  // Map snake_case from raw SQL to camelCase the template expects
+  const productView = {
+    id:                   product.id,
+    asin:                 product.asin,
+    name:                 product.name,
+    imageUrl:             product.image_url,
+    extraImages:          product.extra_images,
+    url:                  product.url,
+    categoryId:           product.category_id,
+    isActive:             product.is_active,
+    isPublic:             product.is_public,
+    isAvailable:          product.is_available,
+    isOnSale:             product.is_on_sale,
+    saleTier:             product.sale_tier,
+    dealScore:            product.deal_score,
+    wasPrice:             product.was_price,
+    consecutiveFailures:  product.consecutive_failures,
+    totalFailures:        product.total_failures,
+    isFailed:             product.is_failed,
+    lastError:            product.last_error,
+    createdAt:            product.created_at,
+    amazonUrl:            affiliateUrl(product.url),
+  };
+
   res.render('public-product', {
-    product: { ...product, amazonUrl: affiliateUrl(product.url) },
+    product: productView,
     history,
     currentPrice,
     minPrice,
@@ -188,7 +231,10 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
     user: userId ? { email: req.session.userEmail } : null,
     userFollows,
     userAlerts,
-    isAdmin: isAdmin(req),
+    isAdmin: adminUser,
+    allCategories,
+    productOwner,
+    viewCount,
   });
 });
 
