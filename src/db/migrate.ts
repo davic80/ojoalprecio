@@ -408,6 +408,11 @@ const MIGRATIONS = [
   SELECT user_id, id, created_at FROM products
   ON CONFLICT DO NOTHING;
   `,
+  // Migration 33: consecutive_anomalies — counter for rejected price scrapes that
+  // diverge wildly from the recent median (e.g. selectors picking up accessory or
+  // "Nuevo y de segunda mano desde X €" prices). After 3 consecutive anomalies the
+  // guard accepts the new price (in case the real price genuinely shifted).
+  `ALTER TABLE products ADD COLUMN IF NOT EXISTS consecutive_anomalies INTEGER DEFAULT 0 NOT NULL;`,
 ];
 
 export async function migrate(): Promise<void> {

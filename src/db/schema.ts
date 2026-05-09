@@ -59,6 +59,7 @@ export const products = pgTable('products', {
   dealScore: numeric('deal_score', { precision: 5, scale: 1 }),
   wasPrice: numeric('was_price', { precision: 10, scale: 2 }),
   consecutiveFailures: integer('consecutive_failures').default(0).notNull(),
+  consecutiveAnomalies: integer('consecutive_anomalies').default(0).notNull(),
   totalFailures: integer('total_failures').default(0).notNull(),
   isFailed: boolean('is_failed').default(false).notNull(),
   lastError: text('last_error'),

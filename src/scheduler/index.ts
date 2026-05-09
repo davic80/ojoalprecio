@@ -133,7 +133,11 @@ function calcSaleTier(currentPrice: number, reference: number): SaleInfo {
 
 async function checkProduct(productId: number, url: string, label: string, timeoutSeconds = 30): Promise<void> {
   // Load current state to detect availability transitions and track failures
-  const [current] = await db.select({ isAvailable: products.isAvailable, consecutiveFailures: products.consecutiveFailures }).from(products).where(eq(products.id, productId)).limit(1);
+  const [current] = await db.select({
+    isAvailable: products.isAvailable,
+    consecutiveFailures: products.consecutiveFailures,
+    consecutiveAnomalies: products.consecutiveAnomalies,
+  }).from(products).where(eq(products.id, productId)).limit(1);
   const wasUnavailable = current ? !current.isAvailable : false;
 
   // Fetch all-time stats before this scrape (for sale tier detection)
@@ -153,6 +157,35 @@ async function checkProduct(productId: number, url: string, label: string, timeo
   try {
     console.log(`[scheduler] Scraping: ${label}`);
     const result = await scrapeProduct(url, timeoutSeconds);
+
+    // ── Anomaly guard ────────────────────────────────────────────────────────
+    // Reject prices that drop >60% below the recent median when we have enough
+    // history to be confident. Catches selectors picking up "Nuevo y de segunda
+    // mano desde X €", accessory prices, or sponsored cards.
+    // Bypass the guard if wasPrice corroborates the deal (real RRP / 4 ≥ price).
+    // After 3 consecutive anomalies we accept anyway: the price may have genuinely
+    // shifted (e.g. Amazon clearance), and we don't want to wedge the product.
+    const recentRows = await db.execute(sql`
+      SELECT price::float AS p FROM price_history
+      WHERE product_id = ${productId}
+      ORDER BY scraped_at DESC LIMIT 5
+    `);
+    const recent = (recentRows.rows as any[]).map(r => r.p as number);
+    const anomalyCount = current?.consecutiveAnomalies ?? 0;
+    if (recent.length >= 3 && anomalyCount < 3) {
+      const sorted = recent.slice().sort((a, b) => a - b);
+      const median = sorted[Math.floor(sorted.length / 2)];
+      const wasPriceCorroborates = result.wasPrice != null && result.wasPrice >= result.price * 4;
+      if (result.price < median * 0.4 && !wasPriceCorroborates) {
+        const newCount = anomalyCount + 1;
+        console.warn(`[scheduler] ${label} → ANOMALÍA (${newCount}/3): ${result.price.toFixed(2)} € << mediana ${median.toFixed(2)} € — descartado`);
+        await db.update(products).set({
+          consecutiveAnomalies: newCount,
+          lastError: `Precio anómalo descartado (${newCount}/3): ${result.price.toFixed(2)} € << mediana ${median.toFixed(2)} € — probable accesorio o "Nuevo y de segunda mano"`,
+        }).where(eq(products.id, productId));
+        return;
+      }
+    }
 
     await db.insert(priceHistory).values({ productId, price: String(result.price), currency: result.currency });
 
@@ -176,6 +209,7 @@ async function checkProduct(productId: number, url: string, label: string, timeo
       lastError: null,
       isAvailable: true,
       consecutiveFailures: 0,
+      consecutiveAnomalies: 0,
       isFailed: false,
       isOnSale: saleInfo.isOnSale,
       saleTier: saleInfo.saleTier,

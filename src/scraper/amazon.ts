@@ -117,18 +117,20 @@ const CHROMIUM_ARGS = [
 // image y font se permiten — bloquearlos es señal de bot para Amazon
 const BLOCKED_TYPES = new Set(['media', 'other', 'ping', 'beacon']);
 
+// Strictly the main buybox containers. We deliberately avoid:
+//  - #rightCol / #buybox: they wrap the buybox AND adjacent widgets like
+//    "Nuevo y de segunda mano desde X €" and "More buying choices", which
+//    show prices for used items / third-party sellers (sometimes excluding
+//    shipping). Promise.any made those win when the real buybox lagged.
+//  - .a-price.aok-align-center: matches sponsored / recommendation cards.
+//  - #dp: too broad, catches accessory prices from "frequently bought together".
+// If none of these match, the product has no buybox price (variant unselected,
+// only used offers, etc.) and we fail cleanly rather than guess.
 const PRICE_SELECTORS = [
-  // Buybox containers only — ordered most-to-least specific.
-  // No broad #dp fallback: if none of these match the product has no buybox price
-  // (variant unselected, unavailable) and should fail cleanly rather than grab
-  // an accessory / "frequently bought together" price from elsewhere in #dp.
-  '#corePriceDisplay_desktop_feature_div .a-price:not(.a-text-price) .a-offscreen',
-  '#corePrice_feature_div .a-price:not(.a-text-price) .a-offscreen',
-  '#corePrice_desktop .a-price:not(.a-text-price) .a-offscreen',
-  '#apex_desktop_qualifiedBuybox .a-price:not(.a-text-price) .a-offscreen',
-  '#rightCol .a-price:not(.a-text-price) .a-offscreen',
-  '#buybox .a-price:not(.a-text-price) .a-offscreen',
-  '.a-price.aok-align-center .a-offscreen',
+  '#corePriceDisplay_desktop_feature_div .a-price:not(.a-text-price):not(.a-text-strike) .a-offscreen',
+  '#corePrice_feature_div .a-price:not(.a-text-price):not(.a-text-strike) .a-offscreen',
+  '#corePrice_desktop .a-price:not(.a-text-price):not(.a-text-strike) .a-offscreen',
+  '#apex_desktop_qualifiedBuybox .a-price:not(.a-text-price):not(.a-text-strike) .a-offscreen',
   '#priceblock_ourprice',
   '#priceblock_dealprice',
 ];
