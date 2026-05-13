@@ -507,6 +507,28 @@ const MIGRATIONS = [
   -- 5. Delete the obsolete categories (FK on amazon_category_sources is SET NULL)
   DELETE FROM categories WHERE slug IN ('apple','coche','cuidado-personal','bricolaje','moda');
   `,
+  // Migration 38: aggressive purge of system-discovered variants + featured cap.
+  //   purged_asins        — blacklist consulted by ingestNewVariants. Without
+  //                          this, every parent scrape re-discovers the
+  //                          variant we just deleted ⇒ infinite churn loop.
+  //   featured_max_count  — soft cap on /ofertas. After each scrape, the
+  //                          worst-ranked auto-featured products are demoted
+  //                          back to is_public=FALSE so the panel only ever
+  //                          shows the N best chollos.
+  `
+  CREATE TABLE IF NOT EXISTS purged_asins (
+    asin       VARCHAR(20) PRIMARY KEY,
+    purged_at  TIMESTAMP DEFAULT NOW() NOT NULL,
+    reason     TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_purged_asins_recent ON purged_asins(purged_at DESC);
+
+  INSERT INTO app_settings (key, value, value_type, label, hint) VALUES
+    ('featured_max_count', '100', 'integer',
+     'Máximo de productos destacados en /ofertas',
+     'Tras cada scrape se demotan los productos auto-destacados con peor deal_score que caigan fuera del top N. Los pin manuales del admin no cuentan en el cap. Default 100.')
+  ON CONFLICT (key) DO NOTHING;
+  `,
 ];
 
 export async function migrate(): Promise<void> {

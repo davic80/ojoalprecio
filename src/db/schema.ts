@@ -81,6 +81,17 @@ export const products = pgTable('products', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+// ── Purged ASIN blacklist ─────────────────────────────────────────────────────
+// Stores ASINs that were auto-purged so the variant ingester doesn't keep
+// re-discovering them on every parent scrape. Entries TTL out after ~30 days
+// (lazy cleanup at query time).
+
+export const purgedAsins = pgTable('purged_asins', {
+  asin:      varchar('asin', { length: 20 }).primaryKey(),
+  purgedAt:  timestamp('purged_at').defaultNow().notNull(),
+  reason:    text('reason'),
+});
+
 // ── Scrape Anomalies (review queue) ───────────────────────────────────────────
 
 export const scrapeAnomalies = pgTable('scrape_anomalies', {

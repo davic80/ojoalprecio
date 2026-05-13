@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 import { db } from '../db/client';
-import { products, priceHistory, alerts, alertEvents, users, scrapeAnomalies, userProducts } from '../db/schema';
+import { products, priceHistory, alerts, alertEvents, users, scrapeAnomalies, userProducts, purgedAsins } from '../db/schema';
 import { eq, and, desc, min, isNull, sql, inArray } from 'drizzle-orm';
 import { scrapeProduct, affiliateUrl, ProductUnavailableError, CaptchaDetectedError, isCaptchaBlocked, captchaRemainingMs, type ScrapeResult } from '../scraper/amazon';
 import { autoCategorizeId } from '../scraper/categorize';
@@ -291,6 +291,29 @@ export async function persistScrapeResult(
   // re-render server-side fragments on their own.
   emitScrapeUpdate(result.asin);
 
+  // Cap the auto-featured pool to N best chollos. Pin'd products are not
+  // demoted (admin's explicit choice overrides). Runs after each scrape so
+  // the ranking stays fresh. Cheap: single SQL with a window function.
+  try {
+    const capRaw = await getSetting('featured_max_count', 100);
+    const cap    = Math.max(1, Math.min(500, Number(capRaw)));
+    const demoted = await db.execute(sql`
+      WITH ranked AS (
+        SELECT id, ROW_NUMBER() OVER (ORDER BY deal_score DESC NULLS LAST, featured_at DESC NULLS LAST) AS rnk
+        FROM products
+        WHERE is_active = TRUE AND is_public = TRUE AND feature_lock = 'auto'
+      )
+      UPDATE products SET is_public = FALSE, featured_at = NULL
+      WHERE id IN (SELECT id FROM ranked WHERE rnk > ${cap})
+      RETURNING id
+    `);
+    if (demoted.rows.length > 0 && opts.label) {
+      console.log(`[scheduler] cap enforcement: demoted ${demoted.rows.length} auto-featured products (cap=${cap})`);
+    }
+  } catch (err) {
+    console.error('[scheduler] featured cap enforcement failed:', err);
+  }
+
   // Variant auto-ingest + immediate scrape. For each twister sibling we don't
   // already have, insert it owned by the system user with the parent's
   // category, then queue an immediate background scrape so users see prices
@@ -373,7 +396,16 @@ async function ingestNewVariants(parentProductId: number, variantAsins: string[]
     .from(products)
     .where(inArray(products.asin, variantAsins));
   const existing = new Set(existingRows.map(r => r.asin));
-  const newAsins = variantAsins.filter(a => !existing.has(a));
+
+  // Also skip ASINs that were recently auto-purged (within 30 days). Without
+  // this, the next parent scrape re-discovers them and we churn forever.
+  const purgedRows = await db
+    .select({ asin: purgedAsins.asin })
+    .from(purgedAsins)
+    .where(and(inArray(purgedAsins.asin, variantAsins), sql`purged_at > NOW() - INTERVAL '30 days'`));
+  const purged = new Set(purgedRows.map(r => r.asin));
+
+  const newAsins = variantAsins.filter(a => !existing.has(a) && !purged.has(a));
   if (!newAsins.length) return [];
 
   // Inherit category from parent for nicer grouping
@@ -406,33 +438,49 @@ async function ingestNewVariants(parentProductId: number, variantAsins: string[]
 /**
  * Auto-purge logic for products stuck unavailable. Caller must have just
  * incremented `consecutive_unavailable`. Returns true if the product was
- * deleted (so the caller knows not to try further updates on the now-gone row).
+ * deleted.
  *
- * Delete only when:
- *   • consecutive_unavailable >= 3
- *   • no alerts at all (any user)
- *   • no non-system followers (system-owned variant rows are eligible to go)
+ * System-discovered variants (only system follows them, no alerts) get a
+ * 1-strike fast purge — they're catalog noise that the parent twister will
+ * re-discover whenever Amazon brings them back. Products with real followers
+ * or active alerts are never auto-purged: user data is sacred.
+ *
+ * Purged ASINs are written to `purged_asins` so the variant ingester won't
+ * reanimate them on the next parent scrape (would otherwise be an infinite
+ * churn loop). Blacklist TTLs at 30 days.
  */
 async function maybePurgeStaleUnavailable(productId: number, label: string): Promise<boolean> {
   const systemUserId = await getSystemUserId();
   const checkRows = await db.execute(sql`
     SELECT
-      (SELECT consecutive_unavailable FROM products WHERE id = ${productId}) AS cu,
-      (SELECT COUNT(*) FROM alerts WHERE product_id = ${productId})        AS alerts_n,
-      (SELECT COUNT(*) FROM user_products WHERE product_id = ${productId}
+      p.asin,
+      p.consecutive_unavailable AS cu,
+      (SELECT COUNT(*) FROM alerts WHERE product_id = p.id) AS alerts_n,
+      (SELECT COUNT(*) FROM user_products WHERE product_id = p.id
         AND ${systemUserId !== null ? sql`user_id != ${systemUserId}` : sql`TRUE`}) AS real_followers_n
+    FROM products p WHERE p.id = ${productId}
   `);
   const r = checkRows.rows[0] as any;
-  const cu      = parseInt(r?.cu ?? '0', 10);
-  const alertsN = parseInt(r?.alerts_n ?? '0', 10);
-  const realN   = parseInt(r?.real_followers_n ?? '0', 10);
+  if (!r) return false;
+  const asin    = String(r.asin);
+  const cu      = parseInt(r.cu ?? '0', 10);
+  const alertsN = parseInt(r.alerts_n ?? '0', 10);
+  const realN   = parseInt(r.real_followers_n ?? '0', 10);
 
-  if (cu >= 3 && alertsN === 0 && realN === 0) {
-    await db.delete(products).where(eq(products.id, productId));
-    console.log(`[scheduler] ${label} → AUTO-PURGE (${cu} unavailable, no alerts, no real followers)`);
-    return true;
-  }
-  return false;
+  // Only orphan system-discovered variants are eligible to auto-purge.
+  if (alertsN !== 0 || realN !== 0) return false;
+  // Aggressive: 1 strike is enough — variant churn is cheap to recover from
+  // (parent twister re-discovers when Amazon restocks) and the blacklist
+  // prevents loop reanimation in the meantime.
+  if (cu < 1) return false;
+
+  await db.transaction(async (tx) => {
+    await tx.insert(purgedAsins).values({ asin, reason: 'auto-purge: orphan variant unavailable' })
+      .onConflictDoUpdate({ target: purgedAsins.asin, set: { purgedAt: new Date(), reason: 'auto-purge: orphan variant unavailable' } });
+    await tx.delete(products).where(eq(products.id, productId));
+  });
+  console.log(`[scheduler] ${label} → AUTO-PURGE (cu=${cu}, orphan variant, blacklisted)`);
+  return true;
 }
 
 /**
