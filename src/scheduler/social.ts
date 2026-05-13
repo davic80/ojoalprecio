@@ -7,7 +7,13 @@ import { getSetting } from '../db/settings';
 const SITE_URL = process.env.SITE_URL ?? 'https://ojoalprecio.com';
 
 async function getTelegramChannel(): Promise<string> {
-  return String(await getSetting('telegram_public_channel', process.env.TELEGRAM_PUBLIC_CHANNEL ?? ''));
+  const raw = String(await getSetting('telegram_public_channel', process.env.TELEGRAM_PUBLIC_CHANNEL ?? '')).trim();
+  if (!raw) return '';
+  // Telegram Bot API requires '@' prefix for public channel usernames.
+  // Numeric chat IDs (negative for groups/channels) and chat IDs starting
+  // with '-' should be passed verbatim.
+  if (raw.startsWith('@') || raw.startsWith('-') || /^\d+$/.test(raw)) return raw;
+  return '@' + raw;
 }
 
 async function telegramEnabled(): Promise<boolean> {
@@ -25,7 +31,11 @@ async function sendTelegramPost(text: string): Promise<string | null> {
     body: JSON.stringify({ chat_id: channel, text, parse_mode: 'HTML', disable_web_page_preview: false }),
   });
   const data = await res.json() as any;
-  return data.ok ? String(data.result.message_id) : null;
+  if (!data.ok) {
+    console.error(`[social] Telegram API error: ${data.description ?? 'unknown'} (chat_id=${channel})`);
+    return null;
+  }
+  return String(data.result.message_id);
 }
 
 export async function getBestUnpostedDeal(): Promise<any | null> {
@@ -106,14 +116,19 @@ export async function postDailyDeal(): Promise<void> {
   }
 }
 
-export const POST_HOURS = [9, 13, 21];
+// Publica cada 2 h en el rango activo del día (08:00 → 00:00 hora Madrid).
+// 9 slots/día. La query `getBestUnpostedDeal` dedupe por 7 días, así que
+// hay variedad suficiente mientras haya >= 9 chollos destacados en el catálogo.
+export const POST_HOURS = [8, 10, 12, 14, 16, 18, 20, 22, 0];
 
 export function startSocialScheduler(): void {
   // Telegram enablement is checked per-run from DB; always start the cron.
   // sendDeal() will skip posting if neither token nor channel is set.
   const tz = 'Europe/Madrid';
-  console.log(`[social] Scheduler activado — publica a las ${POST_HOURS.map(h => h + ':00').join(', ')} hora Madrid.`);
-  cron.schedule('0 9 * * *',  () => { postDailyDeal(); }, { timezone: tz });
-  cron.schedule('0 13 * * *', () => { postDailyDeal(); }, { timezone: tz });
-  cron.schedule('0 21 * * *', () => { postDailyDeal(); }, { timezone: tz });
+  console.log(`[social] Scheduler activado — publica a las ${POST_HOURS.map(h => String(h).padStart(2,'0') + ':00').join(', ')} hora Madrid.`);
+  for (const h of POST_HOURS) {
+    cron.schedule(`0 ${h} * * *`, () => {
+      postDailyDeal().catch(err => console.error('[social] postDailyDeal error:', err));
+    }, { timezone: tz });
+  }
 }
