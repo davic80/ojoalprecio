@@ -191,18 +191,25 @@ export async function persistScrapeResult(
   opts: { allTimeMax?: number | null; scrapeCount?: number; daysSpan?: number; label?: string; skipVariantIngest?: boolean } = {},
 ): Promise<SaleInfo> {
   let { allTimeMax, scrapeCount, daysSpan } = opts;
-  if (allTimeMax === undefined || scrapeCount === undefined || daysSpan === undefined) {
-    const statsRes = await db.execute(sql`
-      SELECT MAX(price)::float AS all_time_max,
-             COUNT(*)::int AS scrape_count,
-             EXTRACT(DAY FROM (NOW() - MIN(scraped_at)))::int AS days_span
-      FROM price_history WHERE product_id = ${productId}
-    `);
-    const r = statsRes.rows[0] as any;
-    allTimeMax  = (r?.all_time_max  ?? null) as number | null;
-    scrapeCount = (r?.scrape_count  ?? 0)    as number;
-    daysSpan    = (r?.days_span     ?? 0)    as number;
-  }
+  // recent_high is always fetched: it's the MAX price observed between 2 and
+  // 14 days ago and serves as the baseline for "real" sale detection. The
+  // scheduler doesn't preflight it, so we read it here regardless of opts.
+  const stats2Res = await db.execute(sql`
+    SELECT
+      ${allTimeMax === undefined  ? sql`MAX(price)::float`                                              : sql`NULL::float`} AS all_time_max,
+      ${scrapeCount === undefined ? sql`COUNT(*)::int`                                                  : sql`NULL::int`}   AS scrape_count,
+      ${daysSpan === undefined    ? sql`EXTRACT(DAY FROM (NOW() - MIN(scraped_at)))::int`               : sql`NULL::int`}   AS days_span,
+      (SELECT MAX(price)::float FROM price_history
+        WHERE product_id = ${productId}
+          AND scraped_at >= NOW() - INTERVAL '14 days'
+          AND scraped_at <  NOW() - INTERVAL '2 days')                                                  AS recent_high
+    FROM price_history WHERE product_id = ${productId}
+  `);
+  const r = stats2Res.rows[0] as any;
+  if (allTimeMax  === undefined) allTimeMax  = (r?.all_time_max  ?? null) as number | null;
+  if (scrapeCount === undefined) scrapeCount = (r?.scrape_count  ?? 0)    as number;
+  if (daysSpan    === undefined) daysSpan    = (r?.days_span     ?? 0)    as number;
+  const recentHigh = (r?.recent_high ?? null) as number | null;
 
   // Read current feature + category state so we can decide whether to toggle
   // is_public AND set category_id in the same transaction as the scrape.
@@ -229,16 +236,22 @@ export async function persistScrapeResult(
     } catch (err) { console.error('[scheduler] auto-categorize failed:', err); }
   }
 
-  const wasPriceRef   = (result.wasPrice && result.wasPrice > result.price) ? result.wasPrice : null;
-  const historicalRef = (scrapeCount! >= 5 && daysSpan! >= 2 && allTimeMax !== null && result.price < allTimeMax) ? allTimeMax : null;
-  const saleReference = Math.max(wasPriceRef ?? 0, historicalRef ?? 0) || null;
-  const saleInfo: SaleInfo = saleReference
-    ? calcSaleTier(result.price, saleReference)
+  // is_on_sale and deal_score are derived from REAL price movement, not from
+  // Amazon's "PVP recomendado" (wasPrice) — that field is routinely inflated
+  // and was flagging stable-price products as permanently on sale. The
+  // baseline is the max price observed 2-14 days ago; current must be below
+  // that for the product to count as on sale. wasPrice still gets stored and
+  // shown in the UI as a crossed-out RRP, just not used to drive on_sale.
+  const hasEnoughHistory = scrapeCount! >= 5 && daysSpan! >= 2;
+  const baselineRef = (hasEnoughHistory && recentHigh !== null && result.price < recentHigh)
+    ? recentHigh
+    : null;
+  const saleInfo: SaleInfo = baselineRef
+    ? calcSaleTier(result.price, baselineRef)
     : { isOnSale: false, saleTier: null, dealScore: null };
 
   if (saleInfo.isOnSale && opts.label) {
-    const refSrc = (wasPriceRef && wasPriceRef >= (historicalRef ?? 0)) ? 'was_price' : 'all_time_max';
-    console.log(`[scheduler] ${opts.label} → ${saleInfo.saleTier} (${saleInfo.dealScore!.toFixed(1)}% off, ref ${saleReference?.toFixed(2)} [${refSrc}])`);
+    console.log(`[scheduler] ${opts.label} → ${saleInfo.saleTier} (${saleInfo.dealScore!.toFixed(1)}% off, ref ${baselineRef?.toFixed(2)} [recent_high 2-14d])`);
   }
 
   // Auto-curation of /ofertas. Only when feature_lock = 'auto'. 'pin' and 'mute'
