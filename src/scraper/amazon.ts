@@ -395,6 +395,28 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
             throw new ProductUnavailableError('Producto no encontrado en Amazon (ASIN eliminado o URL inválida)');
           }
 
+          // Amazon non-product surfaces (Luna gaming, Audible, Prime Video,
+          // Music, Alexa Skills, Kindle subscriptions, etc.). These return
+          // valid HTML but no #dp container; treating them as a captcha
+          // pauses the whole scraper for 10 min unnecessarily — and the same
+          // ASIN bombs the next cycle. ProductUnavailableError instead lets
+          // consecutive_unavailable + auto-purge clean these out.
+          const lowerTitle = pageTitle.toLowerCase();
+          const lowerBody  = bodyText.toLowerCase();
+          const isNonPhysicalAmazon =
+            lowerTitle.includes('luna') ||
+            lowerTitle.includes('audible') ||
+            lowerTitle.includes('prime video') ||
+            lowerTitle.includes('amazon music') ||
+            lowerTitle.includes('alexa skill') ||
+            lowerTitle.includes('kindle unlimited') ||
+            lowerBody.includes('luna premium') ||
+            lowerBody.includes('suscribirse a luna') ||
+            lowerBody.includes('audible plus');
+          if (isNonPhysicalAmazon) {
+            throw new ProductUnavailableError(`Producto no físico (servicio digital Amazon — "${pageTitle}")`);
+          }
+
           // Try clicking through Amazon's interstitial ("Haz clic en el botón de abajo para seguir")
           if (bodyText.includes('botón de abajo') || bodyText.includes('continuar')) {
             const btn = page.locator('input[type="submit"], button[type="submit"], a.a-button-text').first();
