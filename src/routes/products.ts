@@ -149,11 +149,13 @@ router.post(
   async (req: Request, res: Response) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+      console.warn(`[products POST] validation failed:`, errors.array());
       return res.status(400).json({ error: errors.array()[0].msg });
     }
 
     const { url } = req.body as { url: string };
     const userId = req.session.userId!;
+    console.log(`[products POST] user=${userId} url="${String(url).slice(0,120)}" hx=${!!req.headers['hx-request']} intent="${req.body.intent ?? ''}" admin=${isAdmin(req)}`);
 
     let asin = extractAsin(url);
     if (!asin && /amzn\.(eu|to)|a\.co/i.test(url)) {
@@ -174,8 +176,10 @@ router.post(
       } catch { /* ignore */ }
     }
     if (!asin) {
+      console.warn(`[products POST] could not extract ASIN from "${url}"`);
       return res.status(400).json({ error: 'No se pudo extraer el ASIN. ¿Es una URL válida de Amazon.es?' });
     }
+    console.log(`[products POST] extracted asin=${asin}`);
 
     const canonicalUrl = normaliseAmazonUrl(asin);
 
@@ -197,6 +201,7 @@ router.post(
         .where(and(eq(userProducts.userId, userId), eq(userProducts.productId, product.id)))
         .limit(1);
       if (follow) {
+        console.log(`[products POST] asin=${asin} → user ${userId} already follows (409 / HX-Redirect)`);
         if (req.headers['hx-request']) {
           res.setHeader('HX-Redirect', '/');
           return res.status(200).send('');
@@ -205,6 +210,7 @@ router.post(
       }
       // Attach the user
       await db.insert(userProducts).values({ userId, productId: product.id });
+      console.log(`[products POST] asin=${asin} → attached to existing product #${product.id}`);
     } else {
       // Brand-new product — insert with this user as creator + immediate user_products row
       const [created] = await db
