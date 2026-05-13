@@ -4,6 +4,7 @@ import { products, priceHistory, alerts, userProducts, categories, users } from 
 import { eq, desc, sql, and, asc, inArray } from 'drizzle-orm';
 import { affiliateUrl } from '../scraper/amazon';
 import { isAdmin } from '../middleware/admin';
+import { onScrapeUpdate } from '../lib/product-events';
 
 const router = Router();
 
@@ -253,6 +254,74 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
     productOwner,
     viewCount,
     variants: variantsView,
+  });
+});
+
+// ── GET /p/:asin/fragment/price — HTML fragment of just the price card ────────
+// Used by HTMX after an SSE "price-update" tells the browser something
+// changed. Returns the same partial that public-product.ejs includes inline.
+router.get('/p/:asin/fragment/price', async (req: Request, res: Response) => {
+  const asin = String(req.params.asin).toUpperCase();
+  const rows = await db.execute(sql`
+    SELECT p.* FROM products p
+    WHERE p.asin = ${asin} AND p.is_active = TRUE
+    ORDER BY (SELECT COUNT(*) FROM price_history ph WHERE ph.product_id = p.id) DESC
+    LIMIT 1
+  `);
+  const product = (rows.rows as any[])[0];
+  if (!product) return res.status(404).send('');
+
+  const history = await db.select().from(priceHistory)
+    .where(eq(priceHistory.productId, product.id))
+    .orderBy(desc(priceHistory.scrapedAt))
+    .limit(500);
+
+  const prices = history.map(h => parseFloat(String(h.price)));
+  const currentPrice = prices[0] ?? null;
+  const minPrice = prices.length ? Math.min(...prices) : null;
+  const maxPrice = prices.length ? Math.max(...prices) : null;
+
+  const productView = {
+    asin:        product.asin,
+    name:        product.name,
+    imageUrl:    product.image_url,
+    isAvailable: product.is_available,
+    isOnSale:    product.is_on_sale,
+    saleTier:    product.sale_tier,
+    wasPrice:    product.was_price,
+    createdAt:   product.created_at,
+    amazonUrl:   affiliateUrl(product.url),
+  };
+
+  res.render('partials/price-stats', { product: productView, currentPrice, minPrice, maxPrice, history });
+});
+
+// ── GET /events/products/:asin — Server-Sent Events for live price updates ────
+// Browser opens a long-lived text/event-stream connection. When the scheduler
+// finishes scraping this ASIN it emits on productBus; the listener forwards
+// the event down the wire and HTMX's SSE extension wakes up. Auto-reconnect
+// is handled natively by EventSource, so Watchtower restarts are invisible.
+router.get('/events/products/:asin', (req: Request, res: Response) => {
+  const asin = String(req.params.asin).toUpperCase();
+
+  res.setHeader('Content-Type',  'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection',    'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');  // disable nginx buffering if present
+  res.flushHeaders();
+  res.write('retry: 10000\n\n');              // browser reconnect delay 10s
+
+  // Heartbeat every 25s so proxies / load balancers don't close the idle conn.
+  const heartbeat = setInterval(() => { res.write(': ping\n\n'); }, 25_000);
+
+  const unsubscribe = onScrapeUpdate(asin, () => {
+    res.write(`event: price-update\ndata: ${JSON.stringify({ asin, at: Date.now() })}\n\n`);
+  });
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    unsubscribe();
+    res.end();
   });
 });
 

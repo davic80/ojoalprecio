@@ -9,6 +9,7 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
   <link rel="stylesheet" href="/css/style.css">
   <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js" defer></script>
+  <script src="https://unpkg.com/htmx-ext-sse@2.2.2/sse.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 </head>
@@ -70,40 +71,16 @@
       <% } %>
     </div>
 
-    <div class="price-stats">
-      <a href="<%= product.amazonUrl %>" target="_blank" rel="noopener sponsored" class="stat-box stat-current stat-box-link" title="Ver en Amazon.es">
-        <div class="stat-label">Precio actual ↗</div>
-        <% if (wasPrice && discountPct && product.isAvailable) { %>
-          <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
-            <span style="font-size:13px;text-decoration:line-through;color:var(--gray-400)"><%= wasPrice.toFixed(2) %> €</span>
-            <span style="font-size:12px;font-weight:700;background:#dc2626;color:#fff;border-radius:4px;padding:1px 5px">-<%= discountPct %>%</span>
-          </div>
-        <% } %>
-        <div class="stat-value"><%= !product.isAvailable ? 'Sin stock' : (currentPrice ? currentPrice.toFixed(2) + ' €' : '—') %></div>
-        <% if (product.isOnSale && product.saleTier) { %>
-          <div style="margin-top:4px"><span class="badge-sale badge-tier-<%= product.saleTier %>"><%= saleTierLabels[product.saleTier] || 'Oferta' %></span></div>
-        <% } %>
-      </a>
-      <% if (wasPrice) { %>
-      <div class="stat-box" style="border-left:3px solid #dc2626">
-        <div class="stat-label">PVP recomendado</div>
-        <div class="stat-value" style="text-decoration:line-through;color:var(--gray-400)"><%= wasPrice.toFixed(2) %> €</div>
-        <% if (discountPct) { %><div class="stat-sublabel" style="color:#dc2626;font-weight:600">Ahorras un <%= discountPct %>%</div><% } %>
-      </div>
-      <% } %>
-      <div class="stat-box stat-min">
-        <div class="stat-label">Precio mínimo</div>
-        <div class="stat-value"><%= minPrice ? minPrice.toFixed(2) + ' €' : '—' %></div>
-        <% if (minPrice) { %><div class="stat-sublabel">desde <%= new Date(product.createdAt).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' }) %></div><% } %>
-      </div>
-      <div class="stat-box stat-max">
-        <div class="stat-label">Precio máximo</div>
-        <div class="stat-value"><%= maxPrice ? maxPrice.toFixed(2) + ' €' : '—' %></div>
-      </div>
-      <div class="stat-box stat-checks">
-        <div class="stat-label">Registros</div>
-        <div class="stat-value"><%= history.length %></div>
-      </div>
+    <!-- Live-updating price card. SSE pushes a "price-update" event from the
+         scheduler when this ASIN is re-scraped; HTMX then refetches just the
+         fragment and swaps it in-place. -->
+    <div hx-ext="sse"
+         sse-connect="/events/products/<%= product.asin %>"
+         hx-trigger="sse:price-update"
+         hx-get="/p/<%= product.asin %>/fragment/price"
+         hx-swap="outerHTML"
+         hx-target="#price-stats-card">
+      <%- include('partials/price-stats', { product: product, currentPrice: currentPrice, minPrice: minPrice, maxPrice: maxPrice, history: history }) %>
     </div>
   </div>
 
@@ -120,7 +97,8 @@
       <form method="POST" action="/products" style="display:inline">
         <input type="hidden" name="url" value="<%= product.amazonUrl %>">
         <input type="hidden" name="next" value="/p/<%= product.asin %>">
-        <button type="submit" class="btn btn-outline">+ Seguir y crear alerta 1%</button>
+        <input type="hidden" name="intent" value="alert">
+        <button type="submit" class="btn btn-outline">+ Seguir y crear alerta −10%</button>
       </form>
     <% } %>
   </div>

@@ -4,6 +4,7 @@ import { products, priceHistory, alerts, alertEvents, users, scrapeAnomalies, us
 import { eq, and, desc, min, isNull, sql, inArray } from 'drizzle-orm';
 import { scrapeProduct, affiliateUrl, ProductUnavailableError, CaptchaDetectedError, isCaptchaBlocked, captchaRemainingMs, type ScrapeResult } from '../scraper/amazon';
 import { autoCategorizeId } from '../scraper/categorize';
+import { emitScrapeUpdate } from '../lib/product-events';
 import { sendPriceAlert, sendBackInStockAlert } from '../mailer';
 import { sendTelegramAlert, sendTelegramBackInStock } from '../mailer/telegram';
 import { getSetting } from '../db/settings';
@@ -187,7 +188,7 @@ function evaluateAutoFeature(
 export async function persistScrapeResult(
   productId: number,
   result: ScrapeResult,
-  opts: { allTimeMax?: number | null; scrapeCount?: number; daysSpan?: number; label?: string } = {},
+  opts: { allTimeMax?: number | null; scrapeCount?: number; daysSpan?: number; label?: string; skipVariantIngest?: boolean } = {},
 ): Promise<SaleInfo> {
   let { allTimeMax, scrapeCount, daysSpan } = opts;
   if (allTimeMax === undefined || scrapeCount === undefined || daysSpan === undefined) {
@@ -286,20 +287,68 @@ export async function persistScrapeResult(
 
   if (opts.label) console.log(`[scheduler] ${opts.label} → ${result.price} ${result.currency}`);
 
-  // Variant auto-ingest. For each twister sibling we don't already have a
-  // product row for, insert one owned by the system user with the same
-  // category as the parent. The next scheduler cycle picks them up like any
-  // other product. Cheap: only runs when scraping the parent and only INSERTs
-  // missing ASINs; existing variants are left untouched.
-  if (result.variants && result.variants.length) {
+  // Live push to any open /p/:asin viewer via SSE. Fire-and-forget — listeners
+  // re-render server-side fragments on their own.
+  emitScrapeUpdate(result.asin);
+
+  // Variant auto-ingest + immediate scrape. For each twister sibling we don't
+  // already have, insert it owned by the system user with the parent's
+  // category, then queue an immediate background scrape so users see prices
+  // right away instead of waiting for the next scheduler cycle. skipVariantIngest
+  // breaks the recursion: variants scraped from the queue don't re-ingest their
+  // own siblings (they'd be the same set we just discovered).
+  if (!opts.skipVariantIngest && result.variants && result.variants.length) {
     try {
-      await ingestNewVariants(productId, result.variants.map(v => v.asin));
+      const newOnes = await ingestNewVariants(productId, result.variants.map(v => v.asin));
+      for (const { productId: vId, asin: vAsin } of newOnes) {
+        queueImmediateVariantScrape(vId, `https://www.amazon.es/dp/${vAsin}`, vAsin);
+      }
     } catch (err) {
       console.error(`[scheduler] variant ingest failed for ${result.asin}:`, err);
     }
   }
 
   return saleInfo;
+}
+
+// ── Immediate variant scrape queue ────────────────────────────────────────────
+// Sequential drain so we don't spawn N concurrent Chromium contexts when a
+// parent reveals many new variants. Fire-and-forget from the caller.
+interface VariantScrapeJob { productId: number; url: string; asin: string }
+const _variantQueue: VariantScrapeJob[] = [];
+let _variantDraining = false;
+
+function queueImmediateVariantScrape(productId: number, url: string, asin: string): void {
+  _variantQueue.push({ productId, url, asin });
+  if (!_variantDraining) void drainVariantQueue();
+}
+
+async function drainVariantQueue(): Promise<void> {
+  if (_variantDraining) return;
+  _variantDraining = true;
+  try {
+    while (_variantQueue.length > 0) {
+      const job = _variantQueue.shift()!;
+      try {
+        // Use a generous timeout — the parent's already cached the storage state
+        // so subsequent contexts navigate fast.
+        const r = await scrapeProduct(job.url, 30);
+        await persistScrapeResult(job.productId, r, { skipVariantIngest: true, label: `variant ${job.asin}` });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (err instanceof ProductUnavailableError) {
+          // Variant exists but Amazon shows no Amazon offer for it — mark
+          // unavailable so the auto-purge can clean it up later.
+          await db.update(products).set({ isAvailable: false }).where(eq(products.id, job.productId));
+        } else {
+          await db.update(products).set({ lastError: msg }).where(eq(products.id, job.productId));
+          console.warn(`[scheduler] immediate variant scrape failed for ${job.asin}: ${msg}`);
+        }
+      }
+    }
+  } finally {
+    _variantDraining = false;
+  }
 }
 
 let _systemUserIdCache: number | null = null;
@@ -310,10 +359,10 @@ async function getSystemUserId(): Promise<number | null> {
   return _systemUserIdCache;
 }
 
-async function ingestNewVariants(parentProductId: number, variantAsins: string[]): Promise<void> {
-  if (!variantAsins.length) return;
+async function ingestNewVariants(parentProductId: number, variantAsins: string[]): Promise<Array<{ productId: number; asin: string }>> {
+  if (!variantAsins.length) return [];
   const systemUserId = await getSystemUserId();
-  if (systemUserId === null) return;
+  if (systemUserId === null) return [];
 
   // Filter out ASINs that already exist anywhere in the catalog. Use the
   // drizzle `inArray` helper instead of `ANY(${...})` because the raw sql
@@ -325,15 +374,16 @@ async function ingestNewVariants(parentProductId: number, variantAsins: string[]
     .where(inArray(products.asin, variantAsins));
   const existing = new Set(existingRows.map(r => r.asin));
   const newAsins = variantAsins.filter(a => !existing.has(a));
-  if (!newAsins.length) return;
+  if (!newAsins.length) return [];
 
   // Inherit category from parent for nicer grouping
   const [parent] = await db.select({ categoryId: products.categoryId }).from(products).where(eq(products.id, parentProductId)).limit(1);
   const categoryId = parent?.categoryId ?? null;
 
+  const inserted: Array<{ productId: number; asin: string }> = [];
   for (const asin of newAsins) {
     try {
-      const [inserted] = await db.insert(products).values({
+      const [row] = await db.insert(products).values({
         userId: systemUserId,
         asin,
         url: `https://www.amazon.es/dp/${asin}`,
@@ -343,12 +393,14 @@ async function ingestNewVariants(parentProductId: number, variantAsins: string[]
       // System owns the discovery; this is what protects the variant from being
       // visible in any real user's dashboard while still letting auto-purge run
       // (the purge check excludes system-only follows).
-      await db.insert(userProducts).values({ userId: systemUserId, productId: inserted.id }).onConflictDoNothing();
+      await db.insert(userProducts).values({ userId: systemUserId, productId: row.id }).onConflictDoNothing();
+      inserted.push({ productId: row.id, asin });
       console.log(`[scheduler] variant ingest: + ${asin}`);
     } catch (err) {
       console.error(`[scheduler] variant ingest failed for ${asin}:`, err);
     }
   }
+  return inserted;
 }
 
 /**

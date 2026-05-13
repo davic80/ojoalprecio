@@ -216,10 +216,14 @@ router.post(
       await db.insert(userProducts).values({ userId, productId: product.id });
     }
 
-    // Default 1% drop alert for regular users (not admin)
-    const userEmail = req.session.userEmail!;
+    // Default −10% drop alert. Skipped for admin bulk-adds (admin doesn't want
+    // every catalog product spamming their inbox), but the "+ Seguir y crear
+    // alerta" button on /p/:asin forwards intent=alert which forces creation
+    // regardless of admin status — the click is an explicit personal opt-in.
+    const userEmail   = req.session.userEmail!;
+    const intentAlert = String(req.body.intent ?? '') === 'alert';
     let defaultAlertId: number | null = null;
-    if (!isAdmin(req)) {
+    if (intentAlert || !isAdmin(req)) {
       // If product already had price history, anchor the reference now; otherwise null until first scrape
       const [latest] = await db.select({ price: priceHistory.price }).from(priceHistory)
         .where(eq(priceHistory.productId, product.id))
@@ -228,7 +232,7 @@ router.post(
         productId: product.id,
         userId,
         alertType: 'percent',
-        percentageDrop: '1.00',
+        percentageDrop: '10.00',
         referencePrice: latest?.price ?? null,
         notificationEmail: userEmail,
         notificationChannel: 'email',
@@ -471,7 +475,7 @@ router.post('/products/import-wishlist', requireAuth, async (req: Request, res: 
     }
     added++;
 
-    // Default 1% alert for wishlist imports (non-admin)
+    // Default −10% alert for wishlist imports (non-admin)
     const wishlistUserEmail = req.session.userEmail!;
     let wishlistDefaultAlertId: number | null = null;
     if (!isAdmin(req)) {
@@ -480,7 +484,7 @@ router.post('/products/import-wishlist', requireAuth, async (req: Request, res: 
         .orderBy(desc(priceHistory.scrapedAt)).limit(1);
       const [da] = await db.insert(alerts).values({
         productId: product.id, userId,
-        alertType: 'percent', percentageDrop: '1.00',
+        alertType: 'percent', percentageDrop: '10.00',
         referencePrice: latest?.price ?? null,
         notificationEmail: wishlistUserEmail, notificationChannel: 'email',
         isActive: true, isDefault: true,
