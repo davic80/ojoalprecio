@@ -653,27 +653,12 @@ async function notifyBackInStock(
 ): Promise<void> {
   const productAffilUrl = affiliateUrl(productUrl);
 
-  const [product] = await db.select({ userId: products.userId }).from(products).where(eq(products.id, productId)).limit(1);
-  if (!product) return;
-  const [owner] = await db.select({ email: users.email, telegramChatId: users.telegramChatId }).from(users).where(eq(users.id, product.userId)).limit(1);
-  if (!owner) return;
-
-  try {
-    await sendBackInStockAlert({ to: owner.email, productName, productUrl: productAffilUrl, currentPrice, imageUrl, currency });
-  } catch (err) {
-    console.error(`[scheduler] Back-in-stock email failed:`, err);
-  }
-
-  const chatId = owner.telegramChatId ?? process.env.TELEGRAM_CHAT_ID;
-  if (chatId) {
-    try {
-      await sendTelegramBackInStock({ chatId, productName, productUrl: productAffilUrl, currentPrice, currency });
-    } catch (err) {
-      console.error(`[scheduler] Back-in-stock Telegram failed:`, err);
-    }
-  }
-
-  // Fire explicit stock-type alerts (may include users other than the owner)
+  // Only notify users who have explicitly opted in via a `stock` alert.
+  // The legacy "products.userId == owner gets notified by default" block
+  // was removed because it spammed the system user (mail to
+  // system@ojoalprecio.local + Telegram to the public channel as fallback)
+  // whenever a variant came back into stock. Followers who want stock
+  // notifications must add a stock-type alert explicitly.
   const stockAlerts = await db.select().from(alerts).where(
     and(
       eq(alerts.productId, productId),
@@ -689,11 +674,11 @@ async function notifyBackInStock(
       if (channel === 'email' || channel === 'both') {
         await sendBackInStockAlert({ to: alert.notificationEmail, productName, productUrl: productAffilUrl, currentPrice, imageUrl, currency });
       }
-      if (channel === 'telegram' || channel === 'both') {
-        const alertChatId = alert.telegramChatId ?? process.env.TELEGRAM_CHAT_ID;
-        if (alertChatId) {
-          await sendTelegramBackInStock({ chatId: alertChatId, productName, productUrl: productAffilUrl, currentPrice, currency });
-        }
+      // Telegram: only if the alert specifies a personal chat_id. Never fall
+      // back to the public channel — that would broadcast a personal stock
+      // notification to every subscriber.
+      if ((channel === 'telegram' || channel === 'both') && alert.telegramChatId) {
+        await sendTelegramBackInStock({ chatId: alert.telegramChatId, productName, productUrl: productAffilUrl, currentPrice, currency });
       }
       await db.update(alerts).set({ notifiedAt: new Date() }).where(eq(alerts.id, alert.id));
     } catch (err) {
@@ -791,18 +776,17 @@ async function processAlerts(
         });
       }
 
-      if (channel === 'telegram' || channel === 'both') {
-        const chatId = alert.telegramChatId ?? process.env.TELEGRAM_CHAT_ID;
-        if (chatId) {
-          await sendTelegramAlert({
-            chatId,
-            productName,
-            productUrl: productAffilUrl,
-            currentPrice,
-            thresholdLabel,
-            currency,
-          });
-        }
+      // Telegram: only with a personal chat_id on the alert. No public-channel
+      // fallback — a price alert is per-user and must not be broadcast.
+      if ((channel === 'telegram' || channel === 'both') && alert.telegramChatId) {
+        await sendTelegramAlert({
+          chatId: alert.telegramChatId,
+          productName,
+          productUrl: productAffilUrl,
+          currentPrice,
+          thresholdLabel,
+          currency,
+        });
       }
 
       await db.update(alerts).set({ notifiedAt: new Date() }).where(eq(alerts.id, alert.id));
