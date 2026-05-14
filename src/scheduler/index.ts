@@ -462,12 +462,11 @@ async function ingestNewVariants(parentProductId: number, variantAsins: string[]
  * reanimate them on the next parent scrape (would otherwise be an infinite
  * churn loop). Blacklist TTLs at 30 days.
  */
-async function maybePurgeStaleUnavailable(productId: number, label: string): Promise<boolean> {
+async function maybePurgeOrphan(productId: number, label: string, reason: string): Promise<boolean> {
   const systemUserId = await getSystemUserId();
   const checkRows = await db.execute(sql`
     SELECT
       p.asin,
-      p.consecutive_unavailable AS cu,
       (SELECT COUNT(*) FROM alerts WHERE product_id = p.id) AS alerts_n,
       (SELECT COUNT(*) FROM user_products WHERE product_id = p.id
         AND ${systemUserId !== null ? sql`user_id != ${systemUserId}` : sql`TRUE`}) AS real_followers_n
@@ -476,23 +475,18 @@ async function maybePurgeStaleUnavailable(productId: number, label: string): Pro
   const r = checkRows.rows[0] as any;
   if (!r) return false;
   const asin    = String(r.asin);
-  const cu      = parseInt(r.cu ?? '0', 10);
   const alertsN = parseInt(r.alerts_n ?? '0', 10);
   const realN   = parseInt(r.real_followers_n ?? '0', 10);
 
-  // Only orphan system-discovered variants are eligible to auto-purge.
+  // Only orphans (no alerts, no real-user follow) are eligible.
   if (alertsN !== 0 || realN !== 0) return false;
-  // Aggressive: 1 strike is enough — variant churn is cheap to recover from
-  // (parent twister re-discovers when Amazon restocks) and the blacklist
-  // prevents loop reanimation in the meantime.
-  if (cu < 1) return false;
 
   await db.transaction(async (tx) => {
-    await tx.insert(purgedAsins).values({ asin, reason: 'auto-purge: orphan variant unavailable' })
-      .onConflictDoUpdate({ target: purgedAsins.asin, set: { purgedAt: new Date(), reason: 'auto-purge: orphan variant unavailable' } });
+    await tx.insert(purgedAsins).values({ asin, reason })
+      .onConflictDoUpdate({ target: purgedAsins.asin, set: { purgedAt: new Date(), reason } });
     await tx.delete(products).where(eq(products.id, productId));
   });
-  console.log(`[scheduler] ${label} → AUTO-PURGE (cu=${cu}, orphan variant, blacklisted)`);
+  console.log(`[scheduler] ${label} → AUTO-PURGE (${reason})`);
   return true;
 }
 
@@ -637,10 +631,9 @@ async function checkProduct(productId: number, url: string, label: string, timeo
           snippet: err.snippet,
         });
       }
-      // Auto-purge if this product has been unavailable enough times in a row,
-      // nobody has alerts on it, and no real user follows it. Variants
-      // discovered by the system that nobody adopted get cleaned up here.
-      await maybePurgeStaleUnavailable(productId, label);
+      // Orphan variants that go unavailable get an immediate purge (1 strike)
+      // because the parent twister will re-discover them when Amazon restocks.
+      await maybePurgeOrphan(productId, label, 'orphan variant unavailable');
     } else if (err instanceof CaptchaDetectedError) {
       // Pausa global por bloqueo Amazon — no penalizar el producto, abortar ciclo
       console.log(`[scheduler] ${label} → ${err.message}`);
@@ -652,6 +645,11 @@ async function checkProduct(productId: number, url: string, label: string, timeo
       const isFailed = newFailCount >= 3;
       if (isFailed) console.log(`[scheduler] ${label} → marked as failed after ${newFailCount} consecutive errors`);
       await db.update(products).set({ lastError: msg, consecutiveFailures: newFailCount, isFailed, totalFailures: sql`total_failures + 1` }).where(eq(products.id, productId));
+      // Orphan variants whose generic scrape errors hit 3-strike `is_failed`
+      // get the same fast purge — nothing useful in keeping them.
+      if (isFailed) {
+        await maybePurgeOrphan(productId, label, `orphan variant 3x scrape errors (${msg.slice(0, 60)})`);
+      }
     }
   }
 }
