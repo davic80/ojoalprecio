@@ -304,28 +304,9 @@ export async function persistScrapeResult(
   // re-render server-side fragments on their own.
   emitScrapeUpdate(result.asin);
 
-  // Cap the auto-featured pool to N best chollos. Pin'd products are not
-  // demoted (admin's explicit choice overrides). Runs after each scrape so
-  // the ranking stays fresh. Cheap: single SQL with a window function.
-  try {
-    const capRaw = await getSetting('featured_max_count', 100);
-    const cap    = Math.max(1, Math.min(500, Number(capRaw)));
-    const demoted = await db.execute(sql`
-      WITH ranked AS (
-        SELECT id, ROW_NUMBER() OVER (ORDER BY deal_score DESC NULLS LAST, featured_at DESC NULLS LAST) AS rnk
-        FROM products
-        WHERE is_active = TRUE AND is_public = TRUE AND feature_lock = 'auto'
-      )
-      UPDATE products SET is_public = FALSE, featured_at = NULL
-      WHERE id IN (SELECT id FROM ranked WHERE rnk > ${cap})
-      RETURNING id
-    `);
-    if (demoted.rows.length > 0 && opts.label) {
-      console.log(`[scheduler] cap enforcement: demoted ${demoted.rows.length} auto-featured products (cap=${cap})`);
-    }
-  } catch (err) {
-    console.error('[scheduler] featured cap enforcement failed:', err);
-  }
+  // (featured cap, anomaly TTL, blacklist TTL all run together in the
+  // hourly maintenance task — not here. Doing them per-scrape thrashed the
+  // window function across thousands of rows; once an hour is plenty.)
 
   // Variant auto-ingest + immediate scrape. For each twister sibling we don't
   // already have, insert it owned by the system user with the parent's
@@ -821,10 +802,76 @@ export function triggerScrape(): boolean {
   return true;
 }
 
+/**
+ * Hourly housekeeping. Three light maintenance tasks bundled so they share a
+ * single cron slot — runs at :15 every hour, deliberately offset from the
+ * main scrape cycle (:00) and the category-import (:10).
+ *
+ * 1. Featured cap — demote auto-featured products that fell out of the
+ *    top-N by deal_score. Used to run after every successful scrape, which
+ *    invoked a window function across the whole catalog hundreds of times
+ *    per cycle; once an hour is plenty.
+ * 2. Anomaly queue TTL — pending anomalies older than 60 days get deleted.
+ *    Reviewed (approved/denied) ones are already pruned at 30 days in the
+ *    /admin/anomalies route (lazy on each list load).
+ * 3. Purged-ASIN blacklist TTL — entries older than 30 days are removed.
+ *    The ingest filter already ignores them past 30 days; this just keeps
+ *    the table size in check.
+ */
+async function runHourlyMaintenance(): Promise<void> {
+  // 1. Featured cap
+  try {
+    const capRaw = await getSetting('featured_max_count', 100);
+    const cap    = Math.max(1, Math.min(500, Number(capRaw)));
+    const demoted = await db.execute(sql`
+      WITH ranked AS (
+        SELECT id, ROW_NUMBER() OVER (ORDER BY deal_score DESC NULLS LAST, featured_at DESC NULLS LAST) AS rnk
+        FROM products
+        WHERE is_active = TRUE AND is_public = TRUE AND feature_lock = 'auto'
+      )
+      UPDATE products SET is_public = FALSE, featured_at = NULL
+      WHERE id IN (SELECT id FROM ranked WHERE rnk > ${cap})
+      RETURNING id
+    `);
+    if (demoted.rows.length > 0) {
+      console.log(`[maintenance] cap: demoted ${demoted.rows.length} auto-featured (cap=${cap})`);
+    }
+  } catch (err) { console.error('[maintenance] featured cap failed:', err); }
+
+  // 2. Anomaly queue TTL — 60d for pending
+  try {
+    const dropped = await db.execute(sql`
+      DELETE FROM scrape_anomalies
+      WHERE status = 'pending' AND detected_at < NOW() - INTERVAL '60 days'
+      RETURNING id
+    `);
+    if (dropped.rows.length > 0) {
+      console.log(`[maintenance] anomalies: dropped ${dropped.rows.length} stale pending`);
+    }
+  } catch (err) { console.error('[maintenance] anomaly TTL failed:', err); }
+
+  // 3. Purged-ASIN blacklist TTL — 30d
+  try {
+    const dropped = await db.execute(sql`
+      DELETE FROM purged_asins WHERE purged_at < NOW() - INTERVAL '30 days' RETURNING asin
+    `);
+    if (dropped.rows.length > 0) {
+      console.log(`[maintenance] blacklist: pruned ${dropped.rows.length} entries`);
+    }
+  } catch (err) { console.error('[maintenance] blacklist TTL failed:', err); }
+}
+
 export function startScheduler(): void {
   console.log(`[scheduler] Starting with schedule: "${CHECK_INTERVAL}"`);
   checkAllProducts();
   cron.schedule(CHECK_INTERVAL, () => { checkAllProducts(); });
+
+  // Hourly housekeeping at :15 — between the main scrape (:00) and the
+  // category-import (:10).
+  cron.schedule('15 * * * *', () => {
+    runHourlyMaintenance().catch(err => console.error('[maintenance] failed:', err));
+  });
+  console.log('[maintenance] Housekeeping scheduled at :15 each hour (featured cap, anomaly TTL, blacklist TTL).');
 
   const { startCategoryImportScheduler } = require('./category-import');
   startCategoryImportScheduler();
