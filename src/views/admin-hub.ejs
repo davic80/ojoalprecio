@@ -16,8 +16,14 @@
     <span class="brand-name">OjoAlPrecio</span>
   </a>
   <div class="navbar-actions">
-    <a href="/" class="nav-link">Productos</a>
-    <a href="/admin" class="nav-link nav-link-active">Admin</a>
+    <a href="/admin/categories" class="nav-link">Categorías</a>
+    <a href="/admin/deals" class="nav-link">Chollos</a>
+    <a href="/admin/social" class="nav-link">Social</a>
+    <a href="/admin/stats" class="nav-link">Stats</a>
+    <a href="/admin/users" class="nav-link">Usuarios</a>
+    <a href="/admin/alerts" class="nav-link">Alertas</a>
+    <a href="/admin/anomalies" class="nav-link">Anomalías</a>
+    <a href="/admin/settings" class="nav-link">Ajustes</a>
     <span id="scrape-widget" style="position:relative;margin-right:4px"></span>
     <a href="/account" class="user-email user-email-link"><%= user.email %></a>
     <form action="/auth/logout" method="POST" style="display:inline">
@@ -30,11 +36,14 @@
 
   <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
     <div><h1 style="margin:0">Panel de admin</h1><p class="subtitle" style="margin:0">Todo en un sitio.</p></div>
-    <div style="display:flex;gap:8px">
-      <form action="/admin/scrape/trigger" method="POST" style="display:inline">
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <form action="/admin/scrape/trigger" method="POST" style="display:inline;margin:0">
         <button type="submit" class="btn btn-sm btn-outline" <%= scraperStatus.isRunning ? 'disabled' : '' %>>↺ Forzar ciclo</button>
       </form>
       <a href="/admin/import-url" class="btn btn-sm btn-outline">+ Importar URL</a>
+      <form hx-post="/admin/categories/auto-categorize-uncategorized" hx-confirm="Aplicar el diccionario de auto-categorización a todos los productos sin categoría. ¿Seguir?" style="display:inline;margin:0">
+        <button type="submit" class="btn btn-sm btn-outline" title="Recorre los uncategorized y aplica el diccionario de keywords. Lo no matcheable queda sin categoría.">🤖 Auto-categorizar</button>
+      </form>
     </div>
   </div>
 
@@ -244,18 +253,6 @@
     </form>
   </div>
 
-  <!-- Atajos a subpáginas (compacto) -->
-  <div class="card" style="display:flex;gap:8px;flex-wrap:wrap;padding:12px 16px">
-    <a href="/admin/categories" class="btn btn-sm btn-ghost">🗂️ Categorías</a>
-    <form hx-post="/admin/categories/auto-categorize-uncategorized" hx-confirm="Aplicar el diccionario de auto-categorización a todos los productos sin categoría. ¿Seguir?" style="display:inline;margin:0">
-      <button type="submit" class="btn btn-sm btn-ghost" title="Recorre los uncategorized y aplica el diccionario de keywords. Lo no matcheable queda sin categoría.">🤖 Auto-categorizar</button>
-    </form>
-    <a href="/admin/lists" class="btn btn-sm btn-ghost">📋 Listas</a>
-    <a href="/admin/stats" class="btn btn-sm btn-ghost">📊 Estadísticas</a>
-    <a href="/admin/import-url" class="btn btn-sm btn-ghost">🔗 Importar URL</a>
-    <a href="/admin/social" class="btn btn-sm btn-ghost">📢 Social</a>
-    <a href="/ofertas" class="btn btn-sm btn-ghost">🌐 Ver /ofertas</a>
-  </div>
 
 </main>
 
