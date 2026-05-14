@@ -44,6 +44,11 @@ export const passwordResets = pgTable('password_resets', {
 
 export const products = pgTable('products', {
   id: serial('id').primaryKey(),
+  // Legacy "creator/added_by" field. Used to drive ownership but the new
+  // model uses the `user_products` join table for that. Keep for audit
+  // (who first added this ASIN to the catalog) and as the FK that makes the
+  // ON DELETE CASCADE chain work. DO NOT use for access control — query
+  // user_products instead.
   userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   asin: varchar('asin', { length: 20 }).notNull(),
   url: text('url').notNull(),
