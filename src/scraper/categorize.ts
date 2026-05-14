@@ -32,11 +32,13 @@ const RULES: CategoryRule[] = [
       /camara fotografica/i, /\breflex\b/i, /\bmirrorless\b/i, /\bdslr\b/i,
       /objetivo (?:de\s+)?(?:focal|fija|teleobjetivo)/i, /\bsony alpha\b/i, /\bcanon eos\b/i, /\bnikon\b/i,
       /tripode.*camara/i,
+      /\binstax\b/i, /fujifilm.*instax/i, /camara instantanea/i,
     ] },
   { slug: 'audio',           patterns: [
       /\baltavoz/i, /\bsonos\b/i, /barra de sonido/i, /\bsoundbar\b/i,
       /\bairpods?\b/i, /auriculares/i, /\bcascos\b/i, /\bheadphones?\b/i, /earbuds?/i,
       /home theater/i, /amplificador.*audio/i,
+      /\bmarshall\b.*(?:auricular|cascos|headphones|wilburn|major|monitor)/i,
     ] },
   // ── Apple-product disambiguation BEFORE the generic informatica/electronica catch-alls
   { slug: 'informatica',     patterns: [/\bipad\b/i, /\bmacbook\b/i, /\bmagic trackpad\b/i, /\bmagic mouse\b/i, /\bmagic keyboard\b/i, /\bimac\b/i, /\bmac mini\b/i, /\bmac pro\b/i, /\bmac studio\b/i] },
@@ -56,11 +58,13 @@ const RULES: CategoryRule[] = [
       /cargador inalambrico/i, /power\s*bank/i, /\bcarplay\b/i, /\bandroid auto\b/i,
       /televisor/i, /smart tv/i, /\bqled\b/i, /\boled\b/i, /\bhdmi\b/i,
       /despertador/i, /radio digital/i, /\benchufe inteligente\b/i, /\bbombilla\b.*(?:wifi|smart)/i,
+      /google pixel\s?\d/i, /\bfitbit\b/i, /\btapo\b/i, /\bpulsera de actividad\b/i,
     ] },
   { slug: 'automocion',      patterns: [
       /\bcoche\b/i, /automovil/i, /parasol.*(?:coche|parabrisas)/i, /aspirador.*coche/i,
       /\bmoto\b(?!cicl)/i, /aceite motor/i, /neumatic/i, /\bllanta\b/i, /\bbujias\b/i,
       /\binflador\b.*(?:rueda|coche|moto)/i, /caja de herramientas.*coche/i,
+      /bombilla.*(?:coche|h[147]\b|h11|h13|led auto)/i, /\bmatricula\b/i, /\bvaleo\b/i,
     ] },
   { slug: 'hogar-y-cocina',  patterns: [
       /aspirador(?!.*coche)/i, /lavavajillas/i, /lavadora/i, /nevera/i, /frigorifico/i,
@@ -85,11 +89,13 @@ const RULES: CategoryRule[] = [
   { slug: 'jardin',          patterns: [
       /cesped/i, /cortacesped/i, /\bmaceta\b/i, /fertilizante/i, /\bsemillas?\b/i,
       /herbicida/i, /insecticida/i, /\bhormigas?\b/i, /cucaracha/i, /raticid/i, /\branas?\b.*plaga/i,
+      /\bsubstrato\b/i, /\bplagas\b/i, /\bcompo sana\b/i, /\bprotect home\b/i,
     ] },
   { slug: 'deporte',         patterns: [
       /zapatill.*(?:running|deportiv|trail)/i, /raqueta/i, /\bpelota\b/i, /\bbalon\b/i,
       /mancuern/i, /\bfitness\b/i, /\byoga\b/i, /esterilla/i, /bicicleta/i,
       /\brodillera\b/i, /tobillera/i, /coderas?/i, /trail.*running/i, /\bpadel\b/i,
+      /protector bucal/i, /\bvenum\b/i, /guantes (?:gimnasio|boxeo|mma|crossfit)/i,
     ] },
   { slug: 'alimentacion',    patterns: [
       /aceite oliva/i, /\bchocolate\b/i, /\bcafe\b/i, /\binfusion/i, /\bte\b\s+(?:verde|negro|rojo|matcha)/i,
