@@ -365,7 +365,7 @@ async function ingestNewVariants(parentProductId: number, variantAsins: string[]
   for (const asin of newAsins) {
     try {
       const [row] = await db.insert(products).values({
-        userId: systemUserId,
+        createdByUserId: systemUserId,
         asin,
         url: `https://www.amazon.es/dp/${asin}`,
         categoryId,

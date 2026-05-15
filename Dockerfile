@@ -3,6 +3,10 @@ FROM node:20-slim AS builder
 
 WORKDIR /app
 
+# Lockfile was generated with npm 11 (esbuild optionalDependencies layout
+# differs from npm 10). Bump npm before `npm ci` to keep parse compatible.
+RUN npm install -g npm@11
+
 COPY package*.json ./
 RUN npm ci
 
@@ -58,6 +62,9 @@ ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
     PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 
 WORKDIR /app
+
+# Same npm version bump as the build stage
+RUN npm install -g npm@11
 
 # Install only production dependencies
 COPY package*.json ./

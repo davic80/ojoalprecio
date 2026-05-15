@@ -79,7 +79,7 @@ async function importNextCategory(): Promise<void> {
     setTimeout(async () => {
       try {
         await db.insert(products).values({
-          userId: systemUserId,
+          createdByUserId: systemUserId,
           asin,
           url,
           categoryId: source.categoryId ?? null,

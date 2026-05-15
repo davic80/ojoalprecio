@@ -188,8 +188,8 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
   if (adminUser) {
     const [cats, ownerRows, viewRow] = await Promise.all([
       db.select().from(categories).orderBy(asc(categories.name)),
-      product.user_id
-        ? db.select({ id: users.id, email: users.email }).from(users).where(eq(users.id, product.user_id)).limit(1)
+      product.created_by_user_id
+        ? db.select({ id: users.id, email: users.email }).from(users).where(eq(users.id, product.created_by_user_id)).limit(1)
         : Promise.resolve([] as { id: number; email: string }[]),
       db.execute(sql`SELECT COALESCE(SUM(count),0) AS views FROM page_views WHERE path = ${'/p/' + product.asin}`),
     ]);

@@ -578,7 +578,7 @@ router.get('/admin/import-url/stream', requireAuth, requireAdmin, async (req: Re
 
       try {
         await db.insert(products).values({
-          userId: systemUserId,
+          createdByUserId: systemUserId,
           asin,
           url: normaliseAmazonUrl(asin),
           isPublic: false,

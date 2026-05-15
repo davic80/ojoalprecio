@@ -209,7 +209,7 @@ router.post(
       // Brand-new product — insert with this user as creator + immediate user_products row
       const [created] = await db
         .insert(products)
-        .values({ userId, asin, url: canonicalUrl })
+        .values({ createdByUserId: userId, asin, url: canonicalUrl })
         .returning();
       product = created;
       isNewProduct = true;
@@ -468,7 +468,7 @@ router.post('/products/import-wishlist', requireAuth, async (req: Request, res: 
       if (follow) { skipped++; continue; }
       await db.insert(userProducts).values({ userId, productId: product.id });
     } else {
-      const [created] = await db.insert(products).values({ userId, asin, url: canonicalUrl }).returning();
+      const [created] = await db.insert(products).values({ createdByUserId: userId, asin, url: canonicalUrl }).returning();
       product = created;
       isNewProduct = true;
       await db.insert(userProducts).values({ userId, productId: product.id });

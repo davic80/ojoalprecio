@@ -529,6 +529,12 @@ const MIGRATIONS = [
      'Tras cada scrape se demotan los productos auto-destacados con peor deal_score que caigan fuera del top N. Los pin manuales del admin no cuentan en el cap. Default 100.')
   ON CONFLICT (key) DO NOTHING;
   `,
+  // Migration 39: rename products.user_id → products.created_by_user_id. The
+  // field is purely an audit "who first added this ASIN" since user_products
+  // took over ownership/follow semantics. The old name kept making us reach
+  // for it as if it were an access-control key — explicit name kills the
+  // confusion. ON DELETE CASCADE behaviour preserved (not touched here).
+  `ALTER TABLE products RENAME COLUMN user_id TO created_by_user_id;`,
 ];
 
 export async function migrate(): Promise<void> {
