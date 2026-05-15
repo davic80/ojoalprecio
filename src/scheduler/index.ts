@@ -121,17 +121,10 @@ async function checkAllProducts(): Promise<void> {
   }
 }
 
-export interface SaleInfo { isOnSale: boolean; saleTier: string | null; dealScore: number | null; }
-
-export function calcSaleTier(currentPrice: number, reference: number): SaleInfo {
-  const pctOff = (reference - currentPrice) / reference * 100;
-  if (pctOff >= 67) return { isOnSale: true, saleTier: '67oferta',      dealScore: pctOff };
-  if (pctOff >= 50) return { isOnSale: true, saleTier: 'broooooferton', dealScore: pctOff };
-  if (pctOff >= 30) return { isOnSale: true, saleTier: 'mega-oferta',   dealScore: pctOff };
-  if (pctOff >= 15) return { isOnSale: true, saleTier: 'super-oferta',  dealScore: pctOff };
-  if (pctOff >= 7)  return { isOnSale: true, saleTier: 'oferta',        dealScore: pctOff };
-  return { isOnSale: false, saleTier: null, dealScore: null };
-}
+// Pure sale logic lives in ./sale-logic for unit testability without pulling
+// in db/playwright at module load. Re-exported here for backwards compat.
+export { calcSaleTier, evaluateAutoFeature, type SaleInfo } from './sale-logic';
+import { calcSaleTier, evaluateAutoFeature, type SaleInfo } from './sale-logic';
 
 /**
  * Compute sale info and persist a scrape result atomically.
@@ -147,44 +140,6 @@ export function calcSaleTier(currentPrice: number, reference: number): SaleInfo 
  *
  * Returns the computed SaleInfo so the caller can react (e.g. process alerts).
  */
-/**
- * Auto-curate /ofertas. Decide whether the product should appear in the
- * featured deals panel based on the freshly-computed sale tier + history
- * confidence. Only runs when the product is in `feature_lock = 'auto'`;
- * 'pin' / 'mute' are admin overrides that the scheduler must not touch.
- *
- * Entry  (currently NOT featured): is_on_sale AND deal_score ≥ minScore
- *        AND is_available AND scrape_count ≥ 5 AND days_span ≥ 2.
- * Exit   (currently featured)    : NOT on_sale OR deal_score < minScore-5
- *        OR NOT available OR featured > 14 days ago (deal fatigue).
- *
- * Hysteresis: 5-point gap between entry and exit thresholds avoids flip-flop
- * when a product oscillates around the boundary.
- */
-function evaluateAutoFeature(
-  current: { isPublic: boolean; isAvailable: boolean; featuredAt: Date | null },
-  saleInfo: SaleInfo,
-  scrapeCount: number,
-  daysSpan: number,
-  minScore: number,
-): { isPublic: boolean; featuredAt: Date | null } {
-  const exitScore = Math.max(5, minScore - 5);
-  const score     = saleInfo.dealScore ?? 0;
-  const fatigueMs = 14 * 24 * 60 * 60 * 1000;
-
-  if (current.isPublic) {
-    const aged = current.featuredAt && (Date.now() - current.featuredAt.getTime()) > fatigueMs;
-    if (!current.isAvailable || !saleInfo.isOnSale || score < exitScore || aged) {
-      return { isPublic: false, featuredAt: null };
-    }
-    return { isPublic: true, featuredAt: current.featuredAt ?? new Date() };
-  }
-  if (current.isAvailable && saleInfo.isOnSale && score >= minScore && scrapeCount >= 5 && daysSpan >= 2) {
-    return { isPublic: true, featuredAt: new Date() };
-  }
-  return { isPublic: false, featuredAt: null };
-}
-
 export async function persistScrapeResult(
   productId: number,
   result: ScrapeResult,

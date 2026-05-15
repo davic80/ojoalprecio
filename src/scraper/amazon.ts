@@ -65,47 +65,11 @@ function randomDelay(minMs: number, maxMs: number): Promise<void> {
   return new Promise((r) => setTimeout(r, minMs + Math.random() * (maxMs - minMs)));
 }
 
-export function extractAsin(url: string): string | null {
-  const patterns = [
-    /\/dp\/([A-Z0-9]{10})/i,
-    /\/gp\/product\/([A-Z0-9]{10})/i,
-    /\/exec\/obidos\/ASIN\/([A-Z0-9]{10})/i,
-    /\/product\/([A-Z0-9]{10})/i,
-  ];
-  for (const pattern of patterns) {
-    const match = url.match(pattern);
-    if (match) return match[1].toUpperCase();
-  }
-  return null;
-}
-
-export function normaliseAmazonUrl(asin: string): string {
-  return `https://www.amazon.es/dp/${asin}`;
-}
-
-const AFFILIATE_TAG = 'canidrone-21';
-
-export function affiliateUrl(url: string): string {
-  try {
-    const u = new URL(url);
-    u.searchParams.delete('tag');
-    u.searchParams.set('tag', AFFILIATE_TAG);
-    // Force Spanish on amazon.es. Without this, Amazon honours the visitor's
-    // browser Accept-Language / saved cookie and may serve the .es page in
-    // English to users coming from non-Spanish locales (e.g. expats, English
-    // browsers, or visitors who previously toggled language on amazon.com).
-    u.searchParams.set('language', 'es_ES');
-    return u.toString();
-  } catch {
-    return url;
-  }
-}
-
-function parseSpanishPrice(raw: string): number {
-  const cleaned = raw.replace(/[€$\s]/g, '').trim();
-  const normalised = cleaned.replace(/\./g, '').replace(',', '.');
-  return parseFloat(normalised);
-}
+// Pure helpers (extractAsin / normaliseAmazonUrl / affiliateUrl /
+// parseSpanishPrice) live in ./util for testability. Re-exported here so
+// all existing `from '../scraper/amazon'` imports keep working.
+export { extractAsin, normaliseAmazonUrl, affiliateUrl, parseSpanishPrice } from './util';
+import { extractAsin, normaliseAmazonUrl, parseSpanishPrice } from './util';
 
 // ── Configuración de Timeouts ────────────────────────────────────────────────
 // timeoutSeconds is passed per-call from the scheduler (reads app_settings DB).

@@ -60,6 +60,12 @@ const RULES: CategoryRule[] = [
       /despertador/i, /radio digital/i, /\benchufe inteligente\b/i, /\bbombilla\b.*(?:wifi|smart)/i,
       /google pixel\s?\d/i, /\bfitbit\b/i, /\btapo\b/i, /\bpulsera de actividad\b/i,
     ] },
+  // bebé goes BEFORE automoción because "silla coche bebé" / "maxi-cosi"
+  // products would otherwise be caught by the generic /\bcoche\b/ in automoción.
+  { slug: 'bebe',            patterns: [
+      /\bbebe\b/i, /\bcuna\b/i, /biberon/i, /chupete/i, /\bpanal\b/i, /carrito.*bebe/i,
+      /silla.*coche.*(?:nino|bebe)/i, /\btrona\b/i, /maxi-?cosi/i, /babyzen/i, /chicco\b/i,
+    ] },
   { slug: 'automocion',      patterns: [
       /\bcoche\b/i, /automovil/i, /parasol.*(?:coche|parabrisas)/i, /aspirador.*coche/i,
       /\bmoto\b(?!cicl)/i, /aceite motor/i, /neumatic/i, /\bllanta\b/i, /\bbujias\b/i,
@@ -72,10 +78,6 @@ const RULES: CategoryRule[] = [
       /cuchillo (?:cocina|jamonero)/i, /sabana/i, /edredon/i, /colchon/i, /almohada/i,
       /cuberteria/i, /vajilla/i, /\bcocina\b/i, /robot.*cocina/i, /batidora/i, /licuadora/i,
       /toalla.*(?:bano|playa|microfibra)/i,
-    ] },
-  { slug: 'bebe',            patterns: [
-      /\bbebe\b/i, /\bcuna\b/i, /biberon/i, /chupete/i, /\bpanal\b/i, /carrito.*bebe/i,
-      /silla.*coche.*(?:nino|bebe)/i, /\btrona\b/i, /maxi-?cosi/i, /babyzen/i, /chicco\b/i,
     ] },
   { slug: 'juguetes',        patterns: [
       /\blego\b/i, /\bplaymobil\b/i, /\bpeluche\b/i, /\bmuneca\b/i, /\bjuguete/i,
