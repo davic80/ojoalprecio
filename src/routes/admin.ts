@@ -819,7 +819,7 @@ router.get('/admin/users', requireAuth, requireAdmin, async (req: Request, res: 
         u.email_verified      AS "emailVerified",
         u.telegram_chat_id    AS "telegramChatId",
         u.created_at          AS "createdAt",
-        (SELECT COUNT(*) FROM products p WHERE p.user_id = u.id AND p.is_active = TRUE)  AS "productCount",
+        (SELECT COUNT(*) FROM products p WHERE p.created_by_user_id = u.id AND p.is_active = TRUE)  AS "productCount",
         (SELECT COUNT(*) FROM alerts   a WHERE a.user_id = u.id AND a.is_active = TRUE)  AS "activeAlertCount",
         (SELECT COUNT(*) FROM alerts   a WHERE a.user_id = u.id)                          AS "totalAlertCount",
         (SELECT COUNT(*) FROM alert_events ae WHERE ae.user_id = u.id)                   AS "alertEventCount"
