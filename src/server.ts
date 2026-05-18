@@ -117,16 +117,6 @@ export function createApp() {
     next();
   });
 
-  // Diagnostic: log every POST /products attempt at the express layer, before
-  // any middleware can short-circuit it. Will be removed once the
-  // "Error al añadir producto" bug is identified.
-  app.use((req, _res, next) => {
-    if (req.method === 'POST' && req.path === '/products') {
-      console.log(`[diag] POST /products from sid=${(req as any).sessionID?.slice(0,8)} user=${req.session?.userId ?? 'none'} verified=${req.session?.emailVerified ?? 'n/a'} hx=${!!req.headers['hx-request']} url-len=${(req.body?.url ?? '').length}`);
-    }
-    next();
-  });
-
   // ── Routes ───────────────────────────────────────────────────────────────────
   app.use('/auth', authRouter);
   app.use('/', accountRouter);

@@ -150,13 +150,11 @@ router.post(
     try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      console.warn(`[products POST] validation fail`, errors.array());
       return res.status(400).json({ error: errors.array()[0].msg });
     }
 
     const { url } = req.body as { url: string };
     const userId = req.session.userId!;
-    console.log(`[products POST] enter user=${userId} hx=${!!req.headers['hx-request']} accept="${(req.headers.accept ?? '').slice(0,40)}" intent="${req.body.intent ?? ''}" url="${String(url).slice(0,90)}"`);
 
     let asin = extractAsin(url);
     if (!asin && /amzn\.(eu|to)|a\.co/i.test(url)) {
@@ -177,10 +175,8 @@ router.post(
       } catch { /* ignore */ }
     }
     if (!asin) {
-      console.warn(`[products POST] no asin extracted from "${url}"`);
       return res.status(400).json({ error: 'No se pudo extraer el ASIN. ¿Es una URL válida de Amazon.es?' });
     }
-    console.log(`[products POST] asin=${asin}`);
 
     const canonicalUrl = normaliseAmazonUrl(asin);
 
@@ -202,7 +198,6 @@ router.post(
         .where(and(eq(userProducts.userId, userId), eq(userProducts.productId, product.id)))
         .limit(1);
       if (follow) {
-        console.log(`[products POST] asin=${asin} user=${userId} → already follows, returning ${req.headers['hx-request'] ? '200+HX-Redirect /' : '409 JSON'}`);
         if (req.headers['hx-request']) {
           res.setHeader('HX-Redirect', '/');
           return res.status(200).send('');
@@ -211,7 +206,6 @@ router.post(
       }
       // Attach the user
       await db.insert(userProducts).values({ userId, productId: product.id });
-      console.log(`[products POST] asin=${asin} → attached to product #${product.id}`);
     } else {
       // Brand-new product — insert with this user as creator + immediate user_products row
       const [created] = await db
@@ -263,15 +257,12 @@ router.post(
     const safeNext = nextUrl.startsWith('/') ? nextUrl : '/';
 
     if (req.headers['hx-request']) {
-      console.log(`[products POST] success asin=${asin} → HX-Redirect ${safeNext}`);
       res.setHeader('HX-Redirect', safeNext);
       return res.status(200).send('');
     }
     if (req.headers.accept?.includes('text/html')) {
-      console.log(`[products POST] success asin=${asin} → 302 redirect ${safeNext}`);
       return res.redirect(safeNext);
     }
-    console.log(`[products POST] success asin=${asin} → 201 JSON`);
     res.status(201).json({ success: true, productId: product.id });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

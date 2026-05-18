@@ -102,7 +102,8 @@ function trendBadge(current, previous) {
       hx-post="/products"
       hx-target="#product-list"
       hx-swap="beforeend"
-      hx-on::after-request="(function(e){if(e.detail.successful){this.reset();document.getElementById('add-error').textContent='';location.reload();}else{var err=document.getElementById('add-error');try{err.textContent=JSON.parse(e.detail.xhr.responseText).error||'Error al añadir el producto';}catch(x){err.textContent='Error al añadir el producto';}}})(event)"
+      hx-on::before-request="document.getElementById('add-error').textContent=''"
+      hx-on::after-request="(function(e){var x=e.detail.xhr;var ok=x.status>=200&&x.status<400;if(ok){this.reset();if(!x.getResponseHeader('HX-Redirect')){location.reload();}return;}var err=document.getElementById('add-error');try{err.textContent=JSON.parse(x.responseText).error||'Error al añadir el producto ('+x.status+')';}catch(_){err.textContent='Error al añadir el producto ('+x.status+')';}})(event)"
       class="add-form"
       id="add-form"
     >
