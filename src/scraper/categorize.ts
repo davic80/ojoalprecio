@@ -20,7 +20,7 @@ interface CategoryRule {
 const RULES: CategoryRule[] = [
   // ── Most specific dominions first ─────────────────────────────────────────
   { slug: 'kindle',          patterns: [/\bkindle\b/i, /paperwhite/i, /\bscribe\b/i, /\boasis\b.*lect/i] },
-  { slug: 'piscina',         patterns: [/piscin/i, /\bcloro\b/i, /hipoclorit/i, /\bskimmer\b/i, /\bph\b\s*\+?-?/i, /clarificante/i, /alguicida/i, /salinidad/i] },
+  { slug: 'piscina',         patterns: [/piscin/i, /\bcloro\b/i, /hipoclorit/i, /\bskimmer\b/i, /\bph\b\s*\+?-?/i, /clarificante/i, /alguicida/i, /salinidad/i, /\bintex\b.*(?:cepillo|skimmer|spa|filtro|manguera|limpiafondos)/i] },
   { slug: 'drones',          patterns: [/\bdron\b/i, /\bdrones?\b/i, /\bdji\s+(neo|mini|air|mavic|avata|spark|inspire|tello)/i, /quadricopter/i, /quadcopter/i] },
   { slug: 'videojuegos',     patterns: [
       /\bplaystation\b/i, /\bps[3-5]\b/i, /\bxbox\b/i, /\bnintendo\b/i, /\bswitch\s*2?\b/i,
@@ -38,7 +38,7 @@ const RULES: CategoryRule[] = [
       /\baltavoz/i, /\bsonos\b/i, /barra de sonido/i, /\bsoundbar\b/i,
       /\bairpods?\b/i, /auriculares/i, /\bcascos\b/i, /\bheadphones?\b/i, /earbuds?/i,
       /home theater/i, /amplificador.*audio/i,
-      /\bmarshall\b.*(?:auricular|cascos|headphones|wilburn|major|monitor)/i,
+      /\bmarshall\b.*(?:auricular|cascos|headphones|wilburn|willen|major|monitor|stockwell|kilburn|emberton|tufton|woburn|stanmore|acton|altavoz|altavoces)/i,
     ] },
   // ── Apple-product disambiguation BEFORE the generic informatica/electronica catch-alls
   { slug: 'informatica',     patterns: [/\bipad\b/i, /\bmacbook\b/i, /\bmagic trackpad\b/i, /\bmagic mouse\b/i, /\bmagic keyboard\b/i, /\bimac\b/i, /\bmac mini\b/i, /\bmac pro\b/i, /\bmac studio\b/i] },
@@ -98,6 +98,8 @@ const RULES: CategoryRule[] = [
       /mancuern/i, /\bfitness\b/i, /\byoga\b/i, /esterilla/i, /bicicleta/i,
       /\brodillera\b/i, /tobillera/i, /coderas?/i, /trail.*running/i, /\bpadel\b/i,
       /protector bucal/i, /\bvenum\b/i, /guantes (?:gimnasio|boxeo|mma|crossfit)/i,
+      /banco.*(?:musculacion|pesas|abdominales|multifunc)/i, /pedales (?:estaticos|fitness|cycle)/i,
+      /gafas de natacion/i, /\bspeedo\b/i, /\bcecotec\b.*(?:drumfit|fitness|cycle)/i,
     ] },
   { slug: 'alimentacion',    patterns: [
       /aceite oliva/i, /\bchocolate\b/i, /\bcafe\b/i, /\binfusion/i, /\bte\b\s+(?:verde|negro|rojo|matcha)/i,

@@ -116,10 +116,10 @@ export async function postDailyDeal(): Promise<void> {
   }
 }
 
-// Publica cada 2 h en el rango activo del día (08:00 → 00:00 hora Madrid).
-// 9 slots/día. La query `getBestUnpostedDeal` dedupe por 7 días, así que
-// hay variedad suficiente mientras haya >= 9 chollos destacados en el catálogo.
-export const POST_HOURS = [8, 10, 12, 14, 16, 18, 20, 22, 0];
+// Publica cada 3 h entre 9:00 y 21:00 hora Madrid (5 slots/día).
+// La query `getBestUnpostedDeal` dedupe por 7 días → con 5 posts/día y >35
+// destacados hay variedad cómoda.
+export const POST_HOURS = [9, 12, 15, 18, 21];
 
 export function startSocialScheduler(): void {
   // Telegram enablement is checked per-run from DB; always start the cron.

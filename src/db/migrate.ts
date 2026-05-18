@@ -535,6 +535,21 @@ const MIGRATIONS = [
   // for it as if it were an access-control key — explicit name kills the
   // confusion. ON DELETE CASCADE behaviour preserved (not touched here).
   `ALTER TABLE products RENAME COLUMN user_id TO created_by_user_id;`,
+  // Migration 40: soften CASCADE on the creator FK. With user_products tracking
+  // real follows, a product that one user added is often followed by many
+  // others; cascading the deletion when the creator's account vanishes would
+  // wipe out a product 50 other people still want. Drop NOT NULL and change
+  // the FK action to SET NULL: the product survives, just loses its creator
+  // attribution. App logic decides separately whether to delete it (only when
+  // no real follower remains, see purge logic).
+  `
+  ALTER TABLE products ALTER COLUMN created_by_user_id DROP NOT NULL;
+  ALTER TABLE products DROP CONSTRAINT IF EXISTS products_user_id_users_id_fk;
+  ALTER TABLE products DROP CONSTRAINT IF EXISTS products_created_by_user_id_users_id_fk;
+  ALTER TABLE products
+    ADD CONSTRAINT products_created_by_user_id_users_id_fk
+    FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE SET NULL;
+  `,
 ];
 
 export async function migrate(): Promise<void> {

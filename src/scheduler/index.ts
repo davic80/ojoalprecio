@@ -774,22 +774,47 @@ export function triggerScrape(): boolean {
  *    the table size in check.
  */
 async function runHourlyMaintenance(): Promise<void> {
-  // 1. Featured cap
+  // 1. Featured cap with freshness rotation. Composite score subtracts a
+  // 1.5-point penalty per day the product has been featured, so deals that
+  // have been on the panel for a while drop in ranking and let fresher
+  // discoveries take their place. A fresh product (featured_at NULL) starts
+  // with no penalty so it competes on raw deal_score.
+  //
+  // We also need to RE-PROMOTE qualifying auto products that the cap demoted
+  // previously but are now back in the top N (e.g. a stale product has
+  // accumulated enough penalty to fall behind a previously demoted one).
   try {
     const capRaw = await getSetting('featured_max_count', 100);
     const cap    = Math.max(1, Math.min(500, Number(capRaw)));
-    const demoted = await db.execute(sql`
-      WITH ranked AS (
-        SELECT id, ROW_NUMBER() OVER (ORDER BY deal_score DESC NULLS LAST, featured_at DESC NULLS LAST) AS rnk
+    const result = await db.execute(sql`
+      WITH eligible AS (
+        SELECT id, is_public,
+          deal_score::float
+            - GREATEST(0, EXTRACT(EPOCH FROM (NOW() - COALESCE(featured_at, NOW()))) / 86400.0) * 1.5
+            AS composite_score
         FROM products
-        WHERE is_active = TRUE AND is_public = TRUE AND feature_lock = 'auto'
+        WHERE is_active = TRUE AND feature_lock = 'auto' AND is_on_sale = TRUE AND is_available = TRUE
+      ),
+      ranked AS (
+        SELECT id, is_public, ROW_NUMBER() OVER (ORDER BY composite_score DESC NULLS LAST) AS rnk
+        FROM eligible
       )
-      UPDATE products SET is_public = FALSE, featured_at = NULL
-      WHERE id IN (SELECT id FROM ranked WHERE rnk > ${cap})
-      RETURNING id
+      UPDATE products SET
+        is_public   = (r.rnk <= ${cap}),
+        featured_at = CASE
+          WHEN r.rnk <= ${cap} AND products.featured_at IS NULL THEN NOW()
+          WHEN r.rnk  > ${cap}                                  THEN NULL
+          ELSE products.featured_at
+        END
+      FROM ranked r
+      WHERE products.id = r.id
+        AND ( (r.rnk <= ${cap}) != products.is_public )
+      RETURNING products.id, products.is_public
     `);
-    if (demoted.rows.length > 0) {
-      console.log(`[maintenance] cap: demoted ${demoted.rows.length} auto-featured (cap=${cap})`);
+    const promoted = result.rows.filter((r: any) => r.is_public).length;
+    const demoted  = result.rows.filter((r: any) => !r.is_public).length;
+    if (promoted + demoted > 0) {
+      console.log(`[maintenance] rotation: +${promoted} promoted, -${demoted} demoted (cap=${cap})`);
     }
   } catch (err) { console.error('[maintenance] featured cap failed:', err); }
 

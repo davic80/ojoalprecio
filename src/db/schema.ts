@@ -45,9 +45,11 @@ export const passwordResets = pgTable('password_resets', {
 export const products = pgTable('products', {
   id: serial('id').primaryKey(),
   // Audit-only: who first added this ASIN to the catalog. Ownership and
-  // follow semantics live in `user_products`. Renamed from the misleading
-  // `user_id` to `created_by_user_id` in migration 39.
-  createdByUserId: integer('created_by_user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  // follow semantics live in `user_products`. Nullable + ON DELETE SET NULL
+  // since migration 40 — when a creator deletes their account, the product
+  // survives for other followers (a real-user-follow check + alert check
+  // decides whether to also delete the product, in app-level logic).
+  createdByUserId: integer('created_by_user_id').references(() => users.id, { onDelete: 'set null' }),
   asin: varchar('asin', { length: 20 }).notNull(),
   url: text('url').notNull(),
   name: text('name'),
