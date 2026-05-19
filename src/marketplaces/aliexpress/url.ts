@@ -68,3 +68,59 @@ export function isAliExpressUrl(input: string | null | undefined): boolean {
 export function canonicalUrl(productId: string): string {
   return `https://es.aliexpress.com/item/${productId}.html`;
 }
+
+/**
+ * True if the input looks like one of AliExpress's short / affiliate URL
+ * shapes that resolve via HTTP redirect:
+ *   - s.click.aliexpress.com/e/_XXXXXXX   (affiliate share link)
+ *   - a.aliexpress.com/_XXXXXXX           (generic short link)
+ * These never contain the productId in the URL itself — you have to follow
+ * the 301/302 to the full /item/<id>.html target.
+ */
+const SHORT_URL_HOSTS = new Set(['s.click.aliexpress.com', 'a.aliexpress.com']);
+export function isShortUrl(input: string): boolean {
+  try {
+    const u = new URL(input);
+    return SHORT_URL_HOSTS.has(u.hostname.toLowerCase());
+  } catch { return false; }
+}
+
+/**
+ * Async productId resolver that handles short / affiliate URLs by following
+ * the HTTP redirect chain (up to `maxRedirects` hops) to the canonical
+ * `/item/<id>.html`. For inputs `parseProductId` can already handle
+ * synchronously (bare ids, long URLs), no network is touched.
+ *
+ * Use this on user-supplied input in the POST /products handler. The
+ * server-side redirect costs ~200-400ms typically; acceptable for a
+ * one-time "add product" action.
+ *
+ * Throws on network failure or if the redirect chain doesn't end at a
+ * URL that parseProductId can decode.
+ */
+export async function resolveAndParseProductId(input: string, maxRedirects = 5): Promise<string | null> {
+  const direct = parseProductId(input);
+  if (direct) return direct;
+
+  if (!isShortUrl(input)) return null;  // not a shape we can resolve
+
+  let current = input;
+  for (let hop = 0; hop < maxRedirects; hop++) {
+    // Use HEAD + manual redirect so we read the Location header without
+    // downloading the (often heavy) target page body.
+    const res = await fetch(current, { method: 'HEAD', redirect: 'manual' });
+    const next = res.headers.get('location');
+    if (!next) {
+      // Some short-link services return 200 with no Location and use
+      // client-side JS to redirect. Fall back to a GET to follow
+      // automatically and read the final URL from res.url.
+      const got = await fetch(current, { method: 'GET', redirect: 'follow' });
+      return parseProductId(got.url);
+    }
+    // Resolve relative URLs against current (rare for AE but defensive)
+    current = new URL(next, current).toString();
+    const found = parseProductId(current);
+    if (found) return found;
+  }
+  return null;
+}

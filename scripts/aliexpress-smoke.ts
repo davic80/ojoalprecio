@@ -16,19 +16,21 @@
  */
 import 'dotenv/config';
 import { AliExpressClient, AliExpressError, AliExpressPermissionError } from '../src/marketplaces/aliexpress/client';
-import { parseProductId } from '../src/marketplaces/aliexpress/url';
+import { resolveAndParseProductId } from '../src/marketplaces/aliexpress/url';
 
 async function main() {
   const raw = process.argv[2];
   if (!raw) {
-    console.error('Usage: tsx scripts/aliexpress-smoke.ts <productId | aliexpress URL>');
+    console.error('Usage: tsx scripts/aliexpress-smoke.ts <productId | aliexpress URL | short affiliate URL>');
     process.exit(2);
   }
-  const productId = parseProductId(raw);
+  console.log(`→ resolving "${raw}" …`);
+  const productId = await resolveAndParseProductId(raw);
   if (!productId) {
-    console.error(`Could not extract a productId from "${raw}"`);
+    console.error(`Could not extract a productId from "${raw}" (after following redirects)`);
     process.exit(2);
   }
+  console.log(`  resolved productId: ${productId}\n`);
 
   const { ALIEXPRESS_APP_KEY, ALIEXPRESS_APP_SECRET, ALIEXPRESS_TRACKING_ID } = process.env;
   if (!ALIEXPRESS_APP_KEY || !ALIEXPRESS_APP_SECRET || !ALIEXPRESS_TRACKING_ID) {

@@ -18,7 +18,10 @@ export interface AliExpressProduct {
   originalPrice:    number | null; // RRP / pre-discount price, if exposed
   discountPct:      number | null; // 0-100
   currency:         string;        // e.g. "EUR", "USD"
-  rating:           number | null; // 0-5
+  /** % positive feedback (0-100, e.g. 90.2). NOT a 0-5 score — that's an
+      Amazon convention. AE only exposes `evaluate_rate`, which is the
+      shop/seller satisfaction percentage. */
+  rating:           number | null;
   ordersCount:      number | null; // lifetime orders
   categoryId:       number | null;
   categoryName:     string | null;
