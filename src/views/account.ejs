@@ -61,7 +61,7 @@
       <p class="hint" style="margin-top:16px">No tienes alertas configuradas. Puedes crearlas desde la ficha de cada producto.</p>
     <% } else { %>
     <div class="table-wrap" style="margin-top:16px" id="alerts-list">
-      <table class="price-table">
+      <table class="price-table table-card-mobile">
         <thead>
           <tr>
             <th>Producto</th>
@@ -86,16 +86,16 @@
             }
           %>
           <tr id="alert-row-<%= a.id %>">
-            <td>
+            <td data-label="Producto">
               <a href="/p/<%= a.productAsin %>" style="font-weight:500; font-size:13px">
                 <%= a.productName ? (a.productName.length > 50 ? a.productName.slice(0,50) + '…' : a.productName) : a.productAsin %>
               </a>
             </td>
-            <td style="font-size:13px"><%= condition %></td>
-            <td style="font-size:12px; color:var(--gray-500)">
+            <td data-label="Condición" style="font-size:13px"><%= condition %></td>
+            <td data-label="Notificación" style="font-size:12px; color:var(--gray-500)">
               <%= a.notificationChannel === 'telegram' ? 'Telegram' : a.notificationChannel === 'both' ? 'Email + TG' : a.notificationEmail %>
             </td>
-            <td>
+            <td data-label="Estado">
               <% if (fired) { %>
                 <span class="alert-badge badge-triggered">Disparada</span>
               <% } else if (a.isActive) { %>

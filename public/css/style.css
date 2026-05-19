@@ -930,6 +930,66 @@ body:has(.bottom-nav) {
 
 
 /* ╔════════════════════════════════════════════════════════════════════════╗
+   ║  TABLE → CARD ON MOBILE — opt-in via `.table-card-mobile` on <table>   ║
+   ╚════════════════════════════════════════════════════════════════════════╝ */
+
+/* On viewports <640px, every <td> stacks vertically inside a "card" row
+   and shows its column header inline via `data-label` attribute. <thead>
+   is hidden because the per-cell labels carry the same info. Empty cells
+   (no data-label) collapse to nothing.
+
+   The wrapping <table-wrap> loses its horizontal scroll for these tables
+   since the layout no longer needs it.                                  */
+@media (max-width: 639px) {
+  .table-card-mobile,
+  .table-card-mobile thead,
+  .table-card-mobile tbody,
+  .table-card-mobile tr,
+  .table-card-mobile td {
+    display: block;
+    width: 100%;
+  }
+
+  .table-card-mobile thead { display: none; }
+
+  .table-card-mobile tr {
+    background: var(--white);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius);
+    padding: var(--sp-2) var(--sp-3);
+    margin-bottom: var(--sp-2);
+  }
+
+  .table-card-mobile td {
+    border: none !important;
+    padding: 4px 0 !important;
+    font-size: var(--fs-base);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--sp-3);
+    text-align: right;
+  }
+
+  .table-card-mobile td:empty { display: none; }
+
+  .table-card-mobile td[data-label]::before {
+    content: attr(data-label);
+    color: var(--gray-500);
+    font-weight: 600;
+    font-size: var(--fs-xs);
+    text-transform: uppercase;
+    letter-spacing: .4px;
+    flex-shrink: 0;
+    text-align: left;
+  }
+
+  /* The wrap-around table-wrap doesn't need horizontal scroll for these */
+  .table-wrap:has(.table-card-mobile) { overflow-x: visible; }
+}
+
+
+/* ╔════════════════════════════════════════════════════════════════════════╗
    ║  STICKY CTA — product page "Comprar en Amazon", mobile only            ║
    ╚════════════════════════════════════════════════════════════════════════╝ */
 
