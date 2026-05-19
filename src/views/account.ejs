@@ -10,18 +10,7 @@
 </head>
 <body>
 
-<nav class="navbar">
-  <a href="/" class="navbar-brand">
-    <span class="brand-icon">👁</span>
-    <span class="brand-name">OjoAlPrecio</span>
-  </a>
-  <div class="navbar-actions">
-    <a href="/account" class="user-email user-email-link nav-link-active"><%= user.email %></a>
-    <form action="/auth/logout" method="POST" style="display:inline">
-      <button type="submit" class="btn btn-ghost btn-sm">Salir</button>
-    </form>
-  </div>
-</nav>
+<%- include('partials/navbar', { variant: 'account', user }) %>
 
 <main class="container">
 
@@ -145,9 +134,7 @@
 
 </main>
 
-<footer class="footer">
-  <p>OjoAlPrecio v<%= process.env['APP_VERSION'] ?? 'dev' %> &nbsp;·&nbsp; <a href="/ofertas">Ver ofertas</a></p>
-</footer>
+<%- include('partials/footer', { middleHtml: '<a href="/ofertas">Ver ofertas</a>', showTelegram: false }) %>
 
 </body>
 </html>

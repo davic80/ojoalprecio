@@ -12,16 +12,7 @@
 </head>
 <body>
 
-<nav class="navbar">
-  <a href="/" class="navbar-brand">
-    <span class="brand-icon">👁</span>
-    <span class="brand-name">OjoAlPrecio</span>
-  </a>
-  <div class="navbar-actions">
-    <a href="/ofertas" class="nav-link">Ofertas</a>
-    <a href="/auth/login" class="btn btn-outline btn-sm">Entrar</a>
-  </div>
-</nav>
+<%- include('partials/navbar', { variant: 'anonymous' }) %>
 
 <main class="container-wide">
 
@@ -102,9 +93,7 @@
 
 </main>
 
-<footer class="footer">
-  <p>OjoAlPrecio v<%= process.env['APP_VERSION'] ?? 'dev' %> &nbsp;·&nbsp; <a href="/auth/login">Añade tus productos</a></p>
-</footer>
+<%- include('partials/footer', { middleHtml: '<a href="/auth/login">Añade tus productos</a>', showTelegram: false }) %>
 
 </body>
 </html>

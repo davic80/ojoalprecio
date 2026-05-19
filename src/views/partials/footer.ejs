@@ -1,0 +1,10 @@
+<%#
+  Main footer partial. Locals:
+    middleHtml   : raw HTML string for the middle segment (required)
+    showTelegram : boolean — show the Telegram link if env var present
+                   (optional, default true)
+%>
+<% const _tg = typeof showTelegram === 'undefined' ? true : showTelegram; -%>
+<footer class="footer">
+  <p>OjoAlPrecio v<%= process.env['APP_VERSION'] ?? 'dev' %> &nbsp;·&nbsp; <%- middleHtml %><% if (_tg && process.env.TELEGRAM_PUBLIC_CHANNEL) { %> &nbsp;·&nbsp; <a href="https://t.me/<%= process.env.TELEGRAM_PUBLIC_CHANNEL.replace('@','') %>" target="_blank" rel="noopener">📢 Telegram</a><% } %></p>
+</footer>
