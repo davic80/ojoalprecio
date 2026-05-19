@@ -461,6 +461,7 @@ async function checkProduct(productId: number, url: string, label: string, timeo
     isAvailable: products.isAvailable,
     consecutiveFailures: products.consecutiveFailures,
     consecutiveAnomalies: products.consecutiveAnomalies,
+    consecutiveUnavailable: products.consecutiveUnavailable,
     bypassAnomalyGuard: products.bypassAnomalyGuard,
   }).from(products).where(eq(products.id, productId)).limit(1);
   const wasUnavailable = current ? !current.isAvailable : false;
@@ -535,29 +536,50 @@ async function checkProduct(productId: number, url: string, label: string, timeo
     await processAlerts(productId, result.price, result.currency, label, result.imageUrl, url);
   } catch (err) {
     if (err instanceof ProductUnavailableError) {
-      console.log(`[scheduler] ${label} → No disponible${err.reason ? ` (${err.reason})` : ''}`);
-      // Same transaction: mark unavailable + bump consecutive_unavailable counter
-      // + auto-unfeature if it was in /ofertas via auto-curation. Pin/mute admin
-      // overrides are preserved as-is.
-      await db.execute(sql`
-        UPDATE products SET
-          is_available = FALSE,
-          last_error   = NULL,
-          is_on_sale   = FALSE,
-          sale_tier    = NULL,
-          deal_score   = NULL,
-          consecutive_unavailable = consecutive_unavailable + 1,
-          is_public    = CASE WHEN feature_lock = 'auto' THEN FALSE ELSE is_public END,
-          featured_at  = CASE WHEN feature_lock = 'auto' THEN NULL  ELSE featured_at END
-        WHERE id = ${productId}
-      `);
-      // Reset stock alerts so they fire again when the product comes back
-      await db.update(alerts).set({ notifiedAt: null })
-        .where(and(eq(alerts.productId, productId), eq(alerts.alertType, 'stock')));
+      // 'unqualified' is the transient kind: Amazon sometimes returns a product
+      // page with no qualified buybox for a few minutes then recovers. Mark
+      // unavailable only after 3 consecutive strikes so a single glitch doesn't
+      // bench a product visible to users. Other reasons (used, 404, "no
+      // disponible" page, non-physical Amazon surfaces) are explicit and
+      // definitive — mark immediately as before.
+      const prevCu = current?.consecutiveUnavailable ?? 0;
+      const newCu = prevCu + 1;
+      const transient = err.reason === 'unqualified';
+      const markUnavailable = !transient || newCu >= 3;
+      console.log(`[scheduler] ${label} → No disponible${err.reason ? ` (${err.reason})` : ''}${transient && !markUnavailable ? ` [transient ${newCu}/3, keeping available]` : ''}`);
+
+      if (markUnavailable) {
+        await db.execute(sql`
+          UPDATE products SET
+            is_available = FALSE,
+            last_error   = NULL,
+            is_on_sale   = FALSE,
+            sale_tier    = NULL,
+            deal_score   = NULL,
+            consecutive_unavailable = ${newCu},
+            is_public    = CASE WHEN feature_lock = 'auto' THEN FALSE ELSE is_public END,
+            featured_at  = CASE WHEN feature_lock = 'auto' THEN NULL  ELSE featured_at END
+          WHERE id = ${productId}
+        `);
+      } else {
+        await db.execute(sql`
+          UPDATE products SET
+            last_error = ${`Buybox no cualificado (${newCu}/3) — esperando confirmación`},
+            consecutive_unavailable = ${newCu}
+          WHERE id = ${productId}
+        `);
+      }
+      // Reset stock alerts (only relevant once we actually mark unavailable)
+      if (markUnavailable) {
+        await db.update(alerts).set({ notifiedAt: null })
+          .where(and(eq(alerts.productId, productId), eq(alerts.alertType, 'stock')));
+      }
       // Queue for admin review when the unavailability has a structured reason
       // (used buybox, unqualified buybox). Admin can confirm or recover the
-      // capture if our detection misclassified.
-      if (err.reason) {
+      // capture if our detection misclassified. Skipped for transient strikes
+      // 1 and 2 since most resolve on the next scrape and would just spam
+      // the queue.
+      if (err.reason && markUnavailable) {
         await enqueueAnomaly({
           productId,
           type: err.reason,
@@ -567,9 +589,11 @@ async function checkProduct(productId: number, url: string, label: string, timeo
           snippet: err.snippet,
         });
       }
-      // Orphan variants that go unavailable get an immediate purge (1 strike)
-      // because the parent twister will re-discover them when Amazon restocks.
-      await maybePurgeOrphan(productId, label, 'orphan variant unavailable');
+      // Orphan-variant purge only after we've confirmed unavailability —
+      // transient strikes shouldn't yank the product.
+      if (markUnavailable) {
+        await maybePurgeOrphan(productId, label, 'orphan variant unavailable');
+      }
     } else if (err instanceof CaptchaDetectedError) {
       // Pausa global por bloqueo Amazon — no penalizar el producto, abortar ciclo
       console.log(`[scheduler] ${label} → ${err.message}`);
@@ -818,7 +842,27 @@ async function runHourlyMaintenance(): Promise<void> {
     }
   } catch (err) { console.error('[maintenance] featured cap failed:', err); }
 
-  // 2. Anomaly queue TTL — 60d for pending
+  // 2a. Auto-approve unqualified anomalies whose product self-recovered.
+  // 'unqualified' captures a transient Amazon glitch (no qualified buybox at
+  // that exact moment). If a later successful scrape brought the product
+  // back to is_available = TRUE, the anomaly is moot — close it without
+  // bothering admin.
+  try {
+    const recovered = await db.execute(sql`
+      UPDATE scrape_anomalies SET
+        status = 'approved',
+        reviewed_at = NOW(),
+        scraper_message = COALESCE(scraper_message, '') || ' [auto-recovered: product re-available]'
+      WHERE status = 'pending' AND anomaly_type = 'unqualified'
+        AND product_id IN (SELECT id FROM products WHERE is_available = TRUE)
+      RETURNING id
+    `);
+    if (recovered.rows.length > 0) {
+      console.log(`[maintenance] anomalies: auto-recovered ${recovered.rows.length} unqualified (product now available)`);
+    }
+  } catch (err) { console.error('[maintenance] anomaly auto-recovery failed:', err); }
+
+  // 2b. Anomaly queue TTL — 60d for pending
   try {
     const dropped = await db.execute(sql`
       DELETE FROM scrape_anomalies
