@@ -881,3 +881,38 @@ body:has(.bottom-nav) {
   .bottom-nav { display: none; }
   body:has(.bottom-nav) { padding-bottom: 0; }
 }
+
+
+/* ╔════════════════════════════════════════════════════════════════════════╗
+   ║  STICKY CTA — product page "Comprar en Amazon", mobile only            ║
+   ╚════════════════════════════════════════════════════════════════════════╝ */
+
+/* On mobile we pin the CTA bar above the bottom-nav so the affiliate button
+   stays one tap away while users scroll through chart/history. On ≥640px
+   the bar stays in normal flow. */
+@media (max-width: 639px) {
+  .cta-bar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    /* Sit just above the bottom-nav + iPhone safe area */
+    bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px));
+    margin: 0;
+    padding: var(--sp-2) var(--sp-3);
+    background: var(--white);
+    border-top: 1px solid var(--gray-200);
+    box-shadow: 0 -1px 2px rgba(0,0,0,.04);
+    z-index: 95;  /* below bottom-nav (110), above page content */
+    gap: var(--sp-2);
+  }
+  .cta-bar .btn {
+    flex: 1;
+    min-width: 0;
+    min-height: 44px;
+    font-size: var(--fs-md);
+  }
+  /* Add extra bottom space on the product page so the last lines of
+     content aren't hidden behind the stacked sticky CTA + bottom-nav.
+     Roughly 60px CTA + bottom-nav-h already added by body:has(.bottom-nav). */
+  body:has(.cta-bar) { padding-bottom: calc(var(--bottom-nav-h) + 60px + env(safe-area-inset-bottom, 0px)); }
+}
