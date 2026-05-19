@@ -801,7 +801,7 @@ a.category-tag:hover { background: var(--green); color: #fff; border-color: var(
   .navbar          { padding: 0 var(--sp-5); height: 56px; }
   :root            { --header-h: 56px; }
   .page-header h1  { font-size: var(--fs-3xl); }
-  .product-grid    { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+  .product-grid    { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
   .product-header  { flex-direction: row; align-items: flex-start; gap: var(--sp-4); padding: var(--sp-5); }
   .product-detail-img { width: 120px; height: 120px; }
   .price-stats     { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
@@ -827,7 +827,19 @@ a.category-tag:hover { background: var(--green); color: #fff; border-color: var(
 
 /* ── 1280px+ : wide desktop ──────────────────────────────────────────────── */
 @media (min-width: 1280px) {
-  .container-wide  { padding-left: 100px; padding-right: 100px; }
+  .container-wide  { padding-left: var(--sp-8); padding-right: var(--sp-8); }
+}
+
+/* ── 1536px+ : 1080p-and-up monitors get more grid columns ──────────────── */
+/* The old cap of 1400px was leaving empty bands on the sides of 1080p+ and
+   capping the product grid at ~4 columns. Lift the cap so a 1080p screen
+   sees 6 columns, a 1440p screen sees 7-8, and a 4K screen sees ~9. */
+@media (min-width: 1536px) {
+  .container-wide  { max-width: 1760px; padding-left: var(--sp-8); padding-right: var(--sp-8); }
+}
+
+@media (min-width: 1920px) {
+  .container-wide  { max-width: 2200px; }
 }
 
 
