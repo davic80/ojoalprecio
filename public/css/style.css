@@ -13,9 +13,10 @@
   /* Palette — kept compatible with the previous values so the EJS class
      names continue to make sense. Slightly desaturated for the
      camelcamelcamel feel.                                              */
-  --red:        #c8202e;
-  --red-light:  #fdecee;
-  --red-border: #f4c5c9;
+  --red:        #b53847;   /* warm muted red — Amazon-ish without burning the retina */
+  --red-hover:  #95212f;   /* a touch darker for hover states */
+  --red-light:  #fbeef0;
+  --red-border: #ecc7cc;
   --green:      #198754;
   --gray-50:    #fafafa;
   --gray-100:   #f3f4f6;
@@ -180,7 +181,7 @@ a:hover { text-decoration: none; }
 }
 .btn:active { transform: scale(.97); }
 .btn-primary  { background: var(--red); color: var(--white); }
-.btn-primary:hover { background: #a51823; text-decoration: none; }
+.btn-primary:hover { background: var(--red-hover); text-decoration: none; }
 .btn-outline  { background: transparent; color: var(--gray-700); border: 1px solid var(--gray-300); }
 .btn-outline:hover { background: var(--gray-50); text-decoration: none; }
 .btn-ghost    { background: transparent; color: var(--gray-500); }
@@ -205,7 +206,7 @@ a:hover { text-decoration: none; }
 }
 .input:focus {
   border-color: var(--red);
-  box-shadow: 0 0 0 3px rgba(200,32,46,.12);
+  box-shadow: 0 0 0 3px rgba(181, 56, 71, .14);
 }
 .input-sm { padding: 6px 10px; font-size: var(--fs-base); }
 
@@ -542,6 +543,9 @@ body.auth-page {
 .trend-neutral { font-size: var(--fs-sm); color: var(--gray-400); }
 
 /* ── Product-card image badges (overlay) ─────────────────────────────────── */
+/* The "on sale" / tier badges stay vivid — they're the conversion signal.
+   The others (at-min, unavailable) drop to pastel so the offer markers
+   visually dominate.                                                      */
 .badge-low,
 .badge-sale,
 .badge-unavailable {
@@ -555,15 +559,28 @@ body.auth-page {
   letter-spacing: .3px;
   color: #fff;
 }
-.badge-low  { background: rgba(16, 185, 129, 0.88); }
-.badge-sale { background: rgba(200, 32, 46, 0.88); }
+/* Strong — these need to grab attention */
+.badge-sale               { background: rgba(181,  56,  71, 0.92); }
 .badge-tier-super-oferta  { background: rgba(202,  67,  26, 0.92); }
 .badge-tier-mega-oferta   { background: rgba(109,  40, 217, 0.90); }
 .badge-tier-broooooferton { background: rgba(157,  23,  77, 0.95); }
 .badge-tier-67oferta      { background: rgba(120,  53,  15, 0.95); }
 
+/* Pastel — informational, not a call to action */
+.badge-low         { background: rgba(167, 220, 196, 0.95); color: #14532d; }
+.badge-unavailable { background: rgba(203, 213, 225, 0.95); color: #475569; text-transform: uppercase; letter-spacing: .4px; }
+
 /* ── Public tag ──────────────────────────────────────────────────────────── */
-.public-tag { color: var(--green); font-size: var(--fs-xs); font-weight: 600; }
+.public-tag {
+  display: inline-block;
+  background: #ecfdf5;
+  color: #15803d;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 20px;
+  letter-spacing: .2px;
+}
 .public-toggle-wrap { display: flex; align-items: center; gap: var(--sp-2); margin: var(--sp-2) 0; flex-wrap: wrap; }
 .btn-active-green { border-color: var(--green); color: var(--green); }
 .hint-link { font-size: var(--fs-sm); color: var(--gray-500); }
@@ -745,7 +762,6 @@ a.category-tag:hover { background: var(--green); color: #fff; border-color: var(
   color: var(--gray-500);
   padding: 2px 0;
 }
-.badge-unavailable { background: rgba(107, 114, 128, 0.78); text-transform: uppercase; letter-spacing: .4px; }
 .stat-pill-gray {
   background: var(--gray-100);
   color: var(--gray-700);
@@ -773,8 +789,8 @@ a.category-tag:hover { background: var(--green); color: #fff; border-color: var(
 .row-min td { color: #166534; }
 .row-max { background: #fff7ed; }
 .row-max td { color: #9a3412; }
-.badge-min-inline { display: inline-block; margin-left: var(--sp-1); background: #22c55e; color: #fff; font-size: 9px; font-weight: 700; text-transform: uppercase; padding: 1px 5px; border-radius: 20px; letter-spacing: .4px; vertical-align: middle; }
-.badge-max-inline { display: inline-block; margin-left: var(--sp-1); background: #f97316; color: #fff; font-size: 9px; font-weight: 700; text-transform: uppercase; padding: 1px 5px; border-radius: 20px; letter-spacing: .4px; vertical-align: middle; }
+.badge-min-inline { display: inline-block; margin-left: var(--sp-1); background: #d1fae5; color: #166534; font-size: 9px; font-weight: 700; text-transform: uppercase; padding: 1px 5px; border-radius: 20px; letter-spacing: .4px; vertical-align: middle; }
+.badge-max-inline { display: inline-block; margin-left: var(--sp-1); background: #ffedd5; color: #9a3412; font-size: 9px; font-weight: 700; text-transform: uppercase; padding: 1px 5px; border-radius: 20px; letter-spacing: .4px; vertical-align: middle; }
 .delta-down { color: #16a34a; font-weight: 500; }
 .delta-up   { color: #dc2626; font-weight: 500; }
 .delta-flat { color: var(--gray-400); }
