@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Suite de tests de integración con Postgres real (testcontainers + `postgres:16-alpine`); contenedor compartido por toda la ejecución, migraciones aplicadas una sola vez
+- Primera batería: 3-strike para `unqualified` (strikes 1-2 mantienen disponible, strike 3 marca y encola anomalía; `used` marca al instante; scrape OK resetea el contador)
+- Auto-recuperación horaria de anomalías `unqualified` cuyo producto ya está disponible (no requiere acción del admin)
+- Script `test:unit` (sin Docker, ~0.8 s) vs `test:integration` (con contenedor, ~7 s)
+- Job `test` en CI con servicio Postgres — bloquea versionado y push de imagen si los tests fallan
+- `migrate()` acepta un `Pool` opcional para permitir migrar a una DB distinta del singleton (uso interno de los tests)
+
 ## [2.32.0] - 2026-05-07
 
 ### Added

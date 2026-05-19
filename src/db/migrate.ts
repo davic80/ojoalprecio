@@ -1,6 +1,7 @@
-import { pool } from './client';
+import type { Pool } from 'pg';
+import { pool as defaultPool } from './client';
 
-const MIGRATIONS = [
+export const MIGRATIONS: string[] = [
   `
   CREATE TABLE IF NOT EXISTS users (
     id            SERIAL PRIMARY KEY,
@@ -552,7 +553,7 @@ const MIGRATIONS = [
   `,
 ];
 
-export async function migrate(): Promise<void> {
+export async function migrate(pool: Pool = defaultPool): Promise<void> {
   const client = await pool.connect();
   try {
     console.log('[migrate] Running migrations…');

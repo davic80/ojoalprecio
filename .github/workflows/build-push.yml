@@ -11,10 +11,48 @@ env:
   IMAGE_NAME: davic80/ojoalprecio
 
 jobs:
+  # ── Job 0: Test suite (unit + DB integration) ───────────────────────────────
+  test:
+    name: Test suite
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER:     test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB:       ojoalprecio_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        env:
+          TEST_DATABASE_URL: postgres://test:test@localhost:5432/ojoalprecio_test
+        run: npm test
+
   # ── Job 1: Compute version and push semver tag ───────────────────────────────
   version:
     name: Bump version and tag
     runs-on: ubuntu-latest
+    needs: test
     permissions:
       contents: write
     outputs:
