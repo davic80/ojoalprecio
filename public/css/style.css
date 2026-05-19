@@ -542,23 +542,26 @@ body.auth-page {
 .trend-up   { font-size: var(--fs-sm); font-weight: 600; color: var(--red); }
 .trend-neutral { font-size: var(--fs-sm); color: var(--gray-400); }
 
-/* ── Product-card image badges (overlay) ─────────────────────────────────── */
-/* The "on sale" / tier badges stay vivid — they're the conversion signal.
-   The others (at-min, unavailable) drop to pastel so the offer markers
-   visually dominate.                                                      */
+/* ── Badges (sale tier / at-min / unavailable) ───────────────────────────── */
+/* Inline pill is the default: works in the price-stats card, history table
+   row, or anywhere else the badge appears as a tag rather than an image
+   overlay. The overlay treatment (full-width strip pinned to the bottom of
+   a product image) is opt-in via the `.product-img-wrap` ancestor.       */
 .badge-low,
 .badge-sale,
-.badge-unavailable {
-  position: absolute;
-  bottom: 0; left: 0; right: 0;
-  text-align: center;
-  font-size: 9px;
+.badge-unavailable,
+[class*="badge-tier-"] {
+  display: inline-block;
+  font-size: 10px;
   font-weight: 700;
-  padding: 3px 4px;
+  padding: 2px 7px;
+  border-radius: 20px;
   white-space: nowrap;
   letter-spacing: .3px;
   color: #fff;
+  vertical-align: middle;
 }
+
 /* Strong — these need to grab attention */
 .badge-sale               { background: rgba(181,  56,  71, 0.92); }
 .badge-tier-super-oferta  { background: rgba(202,  67,  26, 0.92); }
@@ -569,6 +572,21 @@ body.auth-page {
 /* Pastel — informational, not a call to action */
 .badge-low         { background: rgba(167, 220, 196, 0.95); color: #14532d; }
 .badge-unavailable { background: rgba(203, 213, 225, 0.95); color: #475569; text-transform: uppercase; letter-spacing: .4px; }
+
+/* Overlay variant — only inside the product card image wrap, where the
+   wrap is `position: relative` and the badge stretches across its bottom. */
+.product-img-wrap .badge-low,
+.product-img-wrap .badge-sale,
+.product-img-wrap .badge-unavailable,
+.product-img-wrap [class*="badge-tier-"] {
+  display: block;
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  border-radius: 0;
+  padding: 3px 4px;
+  font-size: 9px;
+  text-align: center;
+}
 
 /* ── Public tag ──────────────────────────────────────────────────────────── */
 .public-tag {
