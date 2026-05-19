@@ -38,6 +38,11 @@ services:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
       - TELEGRAM_PUBLIC_CHANNEL=${TELEGRAM_PUBLIC_CHANNEL}
+      # AliExpress Affiliate API (optional — when unset, AE features
+      # silently disable; the app keeps working for Amazon-only).
+      - ALIEXPRESS_APP_KEY=${ALIEXPRESS_APP_KEY}
+      - ALIEXPRESS_APP_SECRET=${ALIEXPRESS_APP_SECRET}
+      - ALIEXPRESS_TRACKING_ID=${ALIEXPRESS_TRACKING_ID}
       - NODE_ENV=production
     ports:
       - "${HOST_PORT:-8080}:3000"
