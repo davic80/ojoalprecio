@@ -1,0 +1,179 @@
+import { signRequest, systemParams } from './sign';
+import type { AliExpressProduct, AliExpressListResponse } from './types';
+import { canonicalUrl } from './url';
+
+/**
+ * Thin client for the AliExpress Affiliate Open Platform (TOP).
+ *
+ * Endpoint base:   https://api-sg.aliexpress.com/sync
+ * Auth:            HMAC-SHA256 signature over sorted params (see sign.ts)
+ * Permissions:
+ *   - productdetail.get / product.query : default — granted on app approval
+ *   - product.smartmatch / hotproduct.query : extra — requested separately,
+ *     1-3 day approval typically. Methods that need them throw
+ *     `AliExpressPermissionError` until the App has the perm.
+ */
+
+const ENDPOINT = 'https://api-sg.aliexpress.com/sync';
+
+export class AliExpressError extends Error {
+  code?: string;
+  raw?: unknown;
+  constructor(message: string, code?: string, raw?: unknown) {
+    super(message);
+    this.name = 'AliExpressError';
+    this.code = code;
+    this.raw = raw;
+  }
+}
+export class AliExpressPermissionError extends AliExpressError {
+  constructor(message: string, raw?: unknown) {
+    super(message, 'permission_denied', raw);
+    this.name = 'AliExpressPermissionError';
+  }
+}
+
+export interface AliExpressClientConfig {
+  appKey:      string;
+  appSecret:   string;
+  trackingId:  string;        // your affiliate Portal tracking id
+  targetCurrency?: string;    // ISO 4217, default 'EUR'
+  targetLanguage?: string;    // ISO 639-1, default 'ES'
+  shipToCountry?:  string;    // ISO 3166-1 alpha-2, default 'ES'
+}
+
+export class AliExpressClient {
+  constructor(private readonly cfg: AliExpressClientConfig) {
+    if (!cfg.appKey)     throw new Error('AliExpressClient: appKey required');
+    if (!cfg.appSecret)  throw new Error('AliExpressClient: appSecret required');
+    if (!cfg.trackingId) throw new Error('AliExpressClient: trackingId required');
+  }
+
+  private async call<T = unknown>(method: string, businessParams: Record<string, string | number | boolean>): Promise<T> {
+    const sys = systemParams(this.cfg.appKey, method);
+    const all = { ...sys, ...businessParams };
+    const sign = signRequest(all, this.cfg.appSecret);
+    const body = new URLSearchParams({ ...all, sign } as Record<string, string>).toString();
+
+    const res = await fetch(ENDPOINT, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+    });
+    if (!res.ok) throw new AliExpressError(`HTTP ${res.status} from ${method}`, String(res.status));
+
+    const json = await res.json() as Record<string, any>;
+
+    // TOP API wraps every response in <method-with-underscores>_response.
+    // Errors come back as { error_response: { code, msg, sub_msg } }.
+    if (json.error_response) {
+      const e = json.error_response;
+      const msg = `${e.msg ?? 'AliExpress error'}${e.sub_msg ? ' — ' + e.sub_msg : ''}`;
+      if (e.code === 25 || e.code === '25' || /permission/i.test(String(e.sub_code ?? ''))) {
+        throw new AliExpressPermissionError(msg, e);
+      }
+      throw new AliExpressError(msg, String(e.code ?? 'unknown'), e);
+    }
+
+    const wrapperKey = method.replace(/\./g, '_') + '_response';
+    const payload = json[wrapperKey];
+    if (!payload) throw new AliExpressError(`Missing ${wrapperKey} in response`, undefined, json);
+    return payload as T;
+  }
+
+  // ── Public methods ─────────────────────────────────────────────────────────
+
+  /** Detail for a single productId. Default permission. */
+  async productDetail(productId: string): Promise<AliExpressProduct | null> {
+    const r = await this.call<any>('aliexpress.affiliate.productdetail.get', {
+      product_ids:      productId,
+      tracking_id:      this.cfg.trackingId,
+      fields:           'product_id,product_title,product_main_image_url,product_video_url,product_detail_url,target_sale_price,target_sale_price_currency,target_original_price,discount,evaluate_rate,lastest_volume,first_level_category_id,first_level_category_name,shop_id,shop_url,promotion_link',
+      target_currency:  this.cfg.targetCurrency ?? 'EUR',
+      target_language:  this.cfg.targetLanguage ?? 'ES',
+      country:          this.cfg.shipToCountry ?? 'ES',
+    });
+    const list = r?.resp_result?.result?.products?.product ?? [];
+    return list[0] ? mapProduct(list[0]) : null;
+  }
+
+  /** Keyword search (strategy A: brand + model). Default permission. */
+  async productQuery(opts: {
+    keywords: string;
+    minSalePrice?: number;
+    maxSalePrice?: number;
+    pageNo?: number;
+    pageSize?: number;
+  }): Promise<AliExpressListResponse> {
+    const r = await this.call<any>('aliexpress.affiliate.product.query', {
+      keywords:         opts.keywords,
+      tracking_id:      this.cfg.trackingId,
+      ...(opts.minSalePrice != null ? { min_sale_price: opts.minSalePrice } : {}),
+      ...(opts.maxSalePrice != null ? { max_sale_price: opts.maxSalePrice } : {}),
+      page_no:          opts.pageNo   ?? 1,
+      page_size:        opts.pageSize ?? 20,
+      target_currency:  this.cfg.targetCurrency ?? 'EUR',
+      target_language:  this.cfg.targetLanguage ?? 'ES',
+      ship_to_country:  this.cfg.shipToCountry ?? 'ES',
+      sort:             'SALE_PRICE_ASC',
+    });
+    const items = r?.resp_result?.result?.products?.product ?? [];
+    return {
+      products:   items.map(mapProduct),
+      totalCount: Number(r?.resp_result?.result?.total_record_count ?? items.length),
+      pageNo:     Number(r?.resp_result?.result?.current_page_no ?? opts.pageNo ?? 1),
+      pageSize:   Number(r?.resp_result?.result?.page_size ?? opts.pageSize ?? 20),
+    };
+  }
+
+  /** "You may also like" given a productId (strategy C fallback). EXTRA permission. */
+  async smartMatch(productId: string, pageSize = 10): Promise<AliExpressProduct[]> {
+    const r = await this.call<any>('aliexpress.affiliate.product.smartmatch', {
+      product_id:       productId,
+      tracking_id:      this.cfg.trackingId,
+      page_size:        pageSize,
+      target_currency:  this.cfg.targetCurrency ?? 'EUR',
+      target_language:  this.cfg.targetLanguage ?? 'ES',
+      ship_to_country:  this.cfg.shipToCountry ?? 'ES',
+    });
+    const items = r?.resp_result?.result?.products?.product ?? [];
+    return items.map(mapProduct);
+  }
+}
+
+/** Map snake_case wire shape → camelCase domain type. Tolerant of missing fields. */
+function mapProduct(p: any): AliExpressProduct {
+  const productId = String(p.product_id ?? '');
+  return {
+    productId,
+    title:         String(p.product_title ?? ''),
+    imageUrl:      p.product_main_image_url ?? null,
+    productUrl:    p.product_detail_url ?? canonicalUrl(productId),
+    promotionUrl:  p.promotion_link ?? null,
+    salePrice:     toFloat(p.target_sale_price ?? p.sale_price ?? p.app_sale_price),
+    originalPrice: maybeFloat(p.target_original_price ?? p.original_price),
+    discountPct:   p.discount != null ? parseInt(String(p.discount).replace(/[^\d]/g, ''), 10) || null : null,
+    currency:      String(p.target_sale_price_currency ?? p.sale_price_currency ?? 'EUR'),
+    rating:        maybeFloat(p.evaluate_rate),
+    ordersCount:   maybeInt(p.lastest_volume ?? p.orders),
+    categoryId:    maybeInt(p.first_level_category_id),
+    categoryName:  p.first_level_category_name ?? null,
+    shopId:        maybeInt(p.shop_id),
+    shopName:      p.shop_name ?? null,
+  };
+}
+
+function toFloat(v: unknown): number {
+  const n = parseFloat(String(v ?? ''));
+  return Number.isFinite(n) ? n : 0;
+}
+function maybeFloat(v: unknown): number | null {
+  if (v == null || v === '') return null;
+  const n = parseFloat(String(v));
+  return Number.isFinite(n) ? n : null;
+}
+function maybeInt(v: unknown): number | null {
+  if (v == null || v === '') return null;
+  const n = parseInt(String(v), 10);
+  return Number.isFinite(n) ? n : null;
+}
