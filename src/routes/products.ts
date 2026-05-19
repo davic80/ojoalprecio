@@ -7,6 +7,12 @@ import { extractAsin, normaliseAmazonUrl, scrapeProduct, scrapeWishlist, affilia
 import { persistScrapeResult } from '../scheduler';
 import { requireAuth } from '../middleware/auth';
 import { isAdmin, requireAdmin } from '../middleware/admin';
+import {
+  resolveAndParseProductId as resolveAliExpressProductId,
+  getAliExpressClient,
+  ingestProduct as ingestAliExpressProduct,
+  AliExpressError,
+} from '../marketplaces/aliexpress';
 
 const router = Router();
 
@@ -155,6 +161,40 @@ router.post(
 
     const { url } = req.body as { url: string };
     const userId = req.session.userId!;
+
+    // ── AliExpress branch ─────────────────────────────────────────────────
+    // If the URL parses as an AE product (or short affiliate link), route
+    // to the AE ingest pipeline. resolveAndParseProductId follows redirects
+    // when needed, so `s.click.aliexpress.com/e/_X` is handled too. We only
+    // call it when the URL *looks* like AliExpress to avoid HEADing every
+    // Amazon link the user pastes.
+    if (/aliexpress\./i.test(url) || /s\.click\.aliexpress\.com/i.test(url) || /a\.aliexpress\.com/i.test(url)) {
+      const aeId = await resolveAliExpressProductId(url);
+      if (!aeId) {
+        return res.status(400).json({ error: 'No se pudo extraer el productId de AliExpress. ¿Es una URL válida?' });
+      }
+      const aeClient = getAliExpressClient();
+      if (!aeClient) {
+        return res.status(503).json({ error: 'La integración con AliExpress no está configurada en este servidor.' });
+      }
+      try {
+        await ingestAliExpressProduct({ client: aeClient, productId: aeId, userId });
+      } catch (err) {
+        if (err instanceof AliExpressError) {
+          return res.status(502).json({ error: `AliExpress API: ${err.message.slice(0, 200)}` });
+        }
+        throw err;
+      }
+      // TODO C3: redirect to `/ae/${aeId}` once that view exists. For now
+      // bounce back to the dashboard.
+      const next = `/ae/${aeId}`;
+      if (req.headers['hx-request']) {
+        res.setHeader('HX-Redirect', next);
+        return res.status(200).send('');
+      }
+      if (req.headers.accept?.includes('text/html')) return res.redirect(next);
+      return res.status(201).json({ success: true, marketplace: 'aliexpress', productId: aeId });
+    }
 
     let asin = extractAsin(url);
     if (!asin && /amzn\.(eu|to)|a\.co/i.test(url)) {

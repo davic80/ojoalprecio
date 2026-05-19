@@ -11,6 +11,7 @@ import publicRouter from './routes/public';
 import adminRouter from './routes/admin';
 import listsRouter from './routes/lists';
 import accountRouter from './routes/account';
+import aliexpressRouter from './routes/aliexpress';
 import './types/session';
 
 const PgSession = connectPgSimple(session);
@@ -126,6 +127,7 @@ export function createApp() {
   app.use('/', pricesRouter);
   app.use('/', alertsRouter);
   app.use('/', listsRouter);
+  app.use('/', aliexpressRouter);
 
   // ── 404 handler ──────────────────────────────────────────────────────────────
   app.use((req, res) => {

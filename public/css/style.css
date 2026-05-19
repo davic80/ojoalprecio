@@ -21,6 +21,10 @@
      so "go to Amazon" reads as a distinct, branded action. */
   --amazon:        #00a8e1;
   --amazon-hover:  #0088b8;
+  /* AliExpress brand orange — same purpose as --amazon, distinguishes
+     "go to AliExpress" buttons from internal red and Amazon blue. */
+  --aliexpress:        #e62e04;
+  --aliexpress-hover:  #c22504;
   --green:      #198754;
   --gray-50:    #fafafa;
   --gray-100:   #f3f4f6;
@@ -188,6 +192,20 @@ a:hover { text-decoration: none; }
 .btn-primary:hover { background: var(--red-hover); text-decoration: none; }
 .btn-amazon   { background: var(--amazon); color: var(--white); }
 .btn-amazon:hover { background: var(--amazon-hover); color: var(--white); text-decoration: none; }
+.btn-aliexpress { background: var(--aliexpress); color: var(--white); }
+.btn-aliexpress:hover { background: var(--aliexpress-hover); color: var(--white); text-decoration: none; }
+
+/* ── Marketplace tag (small pill, top of product pages) ─────────────────── */
+.marketplace-tag {
+  display: inline-block;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 20px;
+  letter-spacing: .2px;
+}
+.marketplace-tag-amazon     { background: #e0f4fb; color: var(--amazon-hover); }
+.marketplace-tag-aliexpress { background: #fde6e0; color: var(--aliexpress-hover); }
 .btn-outline  { background: transparent; color: var(--gray-700); border: 1px solid var(--gray-300); }
 .btn-outline:hover { background: var(--gray-50); text-decoration: none; }
 .btn-ghost    { background: transparent; color: var(--gray-500); }

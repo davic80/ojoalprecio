@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= product.title.slice(0, 60) %> — AliExpress · OjoAlPrecio</title>
+  <meta name="description" content="Sigue el precio de este producto AliExpress y descubre <%= similars.length %> alternativas más baratas en ojoalprecio.com">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<%# Using the 'deals'-style navbar (login-aware, no "next=" reference) since
+   the 'product' variant assumes Amazon's /p/:asin URL shape for its
+   post-login redirect. Cleaner than minting a fake ASIN. -%>
+<%- include('partials/navbar', {
+  variant: 'deals',
+  user: isLogged ? user : null,
+  isAdmin: adminMode,
+}) %>
+
+<main class="container">
+
+  <div class="back-link"><a href="/ofertas">← Volver</a></div>
+
+  <!-- Marketplace badge — explicit so users (and us) never confuse this with an Amazon listing -->
+  <div style="margin-bottom:var(--sp-2)">
+    <span class="marketplace-tag marketplace-tag-aliexpress">🛒 AliExpress</span>
+  </div>
+
+  <!-- Product header -->
+  <div class="product-header">
+    <% if (product.imageUrl) { %>
+      <a href="<%= product.promotionUrl || product.productUrl %>" target="_blank" rel="noopener sponsored" class="product-img-link">
+        <img src="<%= product.imageUrl %>" alt="<%= product.title %>" class="product-detail-img">
+      </a>
+    <% } %>
+    <div class="product-header-info">
+      <h1>
+        <a href="<%= product.promotionUrl || product.productUrl %>" target="_blank" rel="noopener sponsored" class="product-title-link">
+          <%= product.title %>
+        </a>
+      </h1>
+      <p class="product-asin">
+        ID: <strong><%= product.productId %></strong>
+        <% if (product.shopName) { %> · <span class="hint">por <%= product.shopName %></span><% } %>
+      </p>
+
+      <% if (product.rating !== null) { %>
+        <p class="hint" style="margin-top:4px">
+          <%= product.rating.toFixed(1) %>% positivo
+          <% if (product.ordersCount) { %> · <%= Number(product.ordersCount).toLocaleString('es-ES') %> pedidos<% } %>
+        </p>
+      <% } %>
+
+      <a href="<%= product.promotionUrl || product.productUrl %>" target="_blank" rel="noopener sponsored" class="amazon-link" style="color:var(--aliexpress)">
+        Ver en AliExpress ↗
+      </a>
+    </div>
+  </div>
+
+  <!-- Price stats: current, original (if any), rating, orders -->
+  <div class="card">
+    <div class="price-stats">
+      <a href="<%= product.promotionUrl || product.productUrl %>" target="_blank" rel="noopener sponsored" class="stat-box stat-current stat-box-link">
+        <div class="stat-label">Precio ↗</div>
+        <% if (product.originalPrice && product.discountPct) { %>
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
+            <span style="font-size:13px;text-decoration:line-through;color:var(--gray-400)"><%= product.originalPrice.toFixed(2) %> €</span>
+            <span style="font-size:12px;font-weight:700;background:var(--aliexpress);color:#fff;border-radius:4px;padding:1px 5px">-<%= product.discountPct %>%</span>
+          </div>
+        <% } %>
+        <div class="stat-value"><%= product.salePrice ? product.salePrice.toFixed(2) + ' €' : '—' %></div>
+      </a>
+      <% if (product.ordersCount) { %>
+      <div class="stat-box">
+        <div class="stat-label">Pedidos</div>
+        <div class="stat-value"><%= Number(product.ordersCount).toLocaleString('es-ES') %></div>
+      </div>
+      <% } %>
+      <% if (product.rating !== null) { %>
+      <div class="stat-box">
+        <div class="stat-label">Satisfacción</div>
+        <div class="stat-value"><%= product.rating.toFixed(1) %>%</div>
+      </div>
+      <% } %>
+    </div>
+  </div>
+
+  <!-- CTA bar — reuses .cta-bar so the mobile sticky-bottom rule kicks in.
+       The button uses .btn-aliexpress (orange) to distinguish from the
+       Amazon-blue affiliate button. -->
+  <div class="cta-bar">
+    <a href="<%= product.promotionUrl || product.productUrl %>" target="_blank" rel="noopener sponsored" class="btn btn-aliexpress">
+      Comprar en AliExpress — <%= product.salePrice ? product.salePrice.toFixed(2) + ' €' : 'Ver precio' %>
+    </a>
+    <% if (!isLogged) { %>
+      <a href="/auth/register?next=<%= encodeURIComponent('/ae/' + product.productId) %>" class="btn btn-outline">
+        Crear alerta gratis
+      </a>
+    <% } else if (!isTracking) { %>
+      <form method="POST" action="/products" style="display:inline">
+        <input type="hidden" name="url" value="https://es.aliexpress.com/item/<%= product.productId %>.html">
+        <input type="hidden" name="next" value="/ae/<%= product.productId %>">
+        <button type="submit" class="btn btn-outline">+ Seguir este producto</button>
+      </form>
+    <% } else { %>
+      <span class="btn btn-outline" style="cursor:default">✓ Siguiendo</span>
+    <% } %>
+  </div>
+
+  <!-- Similars -->
+  <% if (similars.length > 0) { %>
+    <div class="card">
+      <h2>Productos similares (<%= similars.length %>)</h2>
+      <p class="subtitle">Ordenados por mayor ahorro. Los porcentajes negativos indican el similar es más caro que el producto seguido.</p>
+
+      <div class="similars-list" style="margin-top:var(--sp-4); display:grid; gap:var(--sp-3)">
+        <% similars.forEach(function(s) { %>
+          <div class="similar-row" style="display:flex; gap:var(--sp-3); padding:var(--sp-3); border:1px solid var(--gray-200); border-radius:var(--radius); background:var(--white)">
+            <% if (s.imageUrl) { %>
+              <a href="/ae/<%= s.productId %>" style="flex-shrink:0">
+                <img src="<%= s.imageUrl %>" alt="" style="width:64px; height:64px; object-fit:contain; border-radius:var(--radius-sm); background:var(--gray-50)">
+              </a>
+            <% } %>
+            <div style="flex:1; min-width:0">
+              <a href="/ae/<%= s.productId %>" style="color:var(--gray-900); text-decoration:none; font-weight:500; font-size:var(--fs-base); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; line-height:1.35">
+                <%= s.title %>
+              </a>
+              <div style="margin-top:var(--sp-1); display:flex; align-items:baseline; gap:var(--sp-2); flex-wrap:wrap">
+                <span style="font-size:var(--fs-md); font-weight:700; color:var(--gray-900)">
+                  <%= s.salePrice ? s.salePrice.toFixed(2) + ' €' : '—' %>
+                </span>
+                <% if (s.pctCheaper > 0) { %>
+                  <span style="font-size:var(--fs-xs); font-weight:700; color:#15803d; background:#ecfdf5; padding:1px 6px; border-radius:20px">−<%= s.pctCheaper.toFixed(1) %>%</span>
+                <% } else if (s.pctCheaper < 0) { %>
+                  <span style="font-size:var(--fs-xs); color:var(--gray-400)">+<%= Math.abs(s.pctCheaper).toFixed(1) %>%</span>
+                <% } %>
+                <% if (s.shopName) { %><span class="hint" style="font-size:var(--fs-xs)"><%= s.shopName %></span><% } %>
+              </div>
+            </div>
+            <a href="<%= s.promotionUrl || s.productUrl %>" target="_blank" rel="noopener sponsored" class="btn btn-sm btn-aliexpress" style="flex-shrink:0; align-self:center">AliExpress ↗</a>
+          </div>
+        <% }); %>
+      </div>
+    </div>
+  <% } else { %>
+    <div class="card">
+      <p class="subtitle">Aún no se han encontrado similares para este producto. La búsqueda se reintentará automáticamente cada 8 horas.</p>
+    </div>
+  <% } %>
+
+  <p class="hint" style="text-align:center; margin-top:var(--sp-4); font-size:var(--fs-xs)">
+    Última actualización: <%= product.lastFetchedAt ? new Date(product.lastFetchedAt).toLocaleString('es-ES') : 'nunca' %>
+  </p>
+
+</main>
+
+<%- include('partials/footer', { middleHtml: 'Seguimiento de precios en AliExpress &nbsp;·&nbsp; <a href="/auth/register">Crea tu cuenta gratis</a>' }) %>
+
+<%- include('partials/bottom-nav', { user: isLogged ? user : null, activeNav: 'ofertas' }) %>
+
+</body>
+</html>
