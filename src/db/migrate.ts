@@ -621,6 +621,11 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX IF NOT EXISTS idx_aliexpress_price_history_product ON aliexpress_price_history(product_id);
   CREATE INDEX IF NOT EXISTS idx_aliexpress_price_history_scraped ON aliexpress_price_history(scraped_at DESC);
   `,
+  // Migration 42: widen aliexpress_products.rating. Original NUMERIC(3,2)
+  // was sized for 0-5 Amazon-style stars; AliExpress actually returns
+  // `evaluate_rate` as a 0-100 satisfaction percentage (e.g. 90.2),
+  // which overflows. NUMERIC(5,2) safely holds 0.00-999.99.
+  `ALTER TABLE aliexpress_products ALTER COLUMN rating TYPE NUMERIC(5,2);`,
 ];
 
 export async function migrate(pool: Pool = defaultPool): Promise<void> {

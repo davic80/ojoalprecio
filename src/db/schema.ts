@@ -193,7 +193,7 @@ export const aliexpressProducts = pgTable('aliexpress_products', {
   originalPrice:  numeric('original_price', { precision: 10, scale: 2 }),
   discountPct:    integer('discount_pct'),
   currency:       varchar('currency', { length: 5 }).default('EUR').notNull(),
-  rating:         numeric('rating', { precision: 3, scale: 2 }),
+  rating:         numeric('rating', { precision: 5, scale: 2 }),  // 0-100 % satisfaction
   ordersCount:    integer('orders_count'),
   categoryId:     integer('category_id'),
   categoryName:   text('category_name'),
