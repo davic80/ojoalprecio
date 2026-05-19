@@ -551,6 +551,76 @@ export const MIGRATIONS: string[] = [
     ADD CONSTRAINT products_created_by_user_id_users_id_fk
     FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE SET NULL;
   `,
+  // Migration 41: AliExpress tables (parallel namespace to Amazon — strategy
+  // (a) per the project decision log). Kept separate from `products` because
+  // AliExpress has concepts Amazon doesn't (multiple vendors per item,
+  // similars-graph, separate affiliate URL) and merging them would mean
+  // nullable cols + branchy CASE logic everywhere.
+  //
+  // - aliexpress_products      : catalog of fetched products (master + similars
+  //                              both live here; they're not distinguishable at
+  //                              this level)
+  // - aliexpress_user_tracks   : explicit user follows (composite PK)
+  // - aliexpress_similars      : master ↔ similar edges with provenance + score
+  // - aliexpress_price_history : append-only price log, mirrors price_history
+  //
+  // productId is the canonical numeric AliExpress id, stored as VARCHAR(20)
+  // to avoid bigint precision games and preserve any leading-zero edge case.
+  `
+  CREATE TABLE IF NOT EXISTS aliexpress_products (
+    product_id       VARCHAR(20) PRIMARY KEY,
+    title            TEXT NOT NULL,
+    image_url        TEXT,
+    product_url      TEXT NOT NULL,
+    promotion_url    TEXT,
+    sale_price       NUMERIC(10,2),
+    original_price   NUMERIC(10,2),
+    discount_pct     INTEGER,
+    currency         VARCHAR(5) DEFAULT 'EUR' NOT NULL,
+    rating           NUMERIC(3,2),
+    orders_count     INTEGER,
+    category_id      BIGINT,
+    category_name    TEXT,
+    shop_id          BIGINT,
+    shop_name        TEXT,
+    is_available     BOOLEAN DEFAULT TRUE NOT NULL,
+    last_fetched_at  TIMESTAMP,
+    created_at       TIMESTAMP DEFAULT NOW() NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS aliexpress_user_tracks (
+    user_id          INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    product_id       VARCHAR(20) NOT NULL REFERENCES aliexpress_products(product_id) ON DELETE CASCADE,
+    threshold_price  NUMERIC(10,2),
+    alert_enabled    BOOLEAN DEFAULT TRUE NOT NULL,
+    added_at         TIMESTAMP DEFAULT NOW() NOT NULL,
+    PRIMARY KEY (user_id, product_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_aliexpress_user_tracks_user ON aliexpress_user_tracks(user_id);
+
+  CREATE TABLE IF NOT EXISTS aliexpress_similars (
+    master_product_id   VARCHAR(20) NOT NULL REFERENCES aliexpress_products(product_id) ON DELETE CASCADE,
+    similar_product_id  VARCHAR(20) NOT NULL REFERENCES aliexpress_products(product_id) ON DELETE CASCADE,
+    source              VARCHAR(20) NOT NULL,
+    text_score          NUMERIC(3,2),
+    first_seen_at       TIMESTAMP DEFAULT NOW() NOT NULL,
+    last_seen_at        TIMESTAMP DEFAULT NOW() NOT NULL,
+    PRIMARY KEY (master_product_id, similar_product_id),
+    CHECK (master_product_id <> similar_product_id),
+    CHECK (source IN ('query', 'smartmatch'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_aliexpress_similars_master ON aliexpress_similars(master_product_id);
+
+  CREATE TABLE IF NOT EXISTS aliexpress_price_history (
+    id           SERIAL PRIMARY KEY,
+    product_id   VARCHAR(20) NOT NULL REFERENCES aliexpress_products(product_id) ON DELETE CASCADE,
+    price        NUMERIC(10,2) NOT NULL,
+    currency     VARCHAR(5) DEFAULT 'EUR' NOT NULL,
+    scraped_at   TIMESTAMP DEFAULT NOW() NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_aliexpress_price_history_product ON aliexpress_price_history(product_id);
+  CREATE INDEX IF NOT EXISTS idx_aliexpress_price_history_scraped ON aliexpress_price_history(scraped_at DESC);
+  `,
 ];
 
 export async function migrate(pool: Pool = defaultPool): Promise<void> {

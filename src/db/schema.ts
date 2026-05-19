@@ -177,6 +177,69 @@ export const alertEvents = pgTable('alert_events', {
 export type AlertEvent = typeof alertEvents.$inferSelect;
 export type NewAlertEvent = typeof alertEvents.$inferInsert;
 
+// ── AliExpress (parallel namespace — strategy "(a) separate tables") ─────────
+// AliExpress integration lives in its own table set because the data model
+// differs from Amazon (no stable ASIN, multiple vendors per item, similars
+// graph, separate affiliate URL). productId is the canonical AE numeric id
+// stored as VARCHAR(20) to avoid bigint precision issues.
+
+export const aliexpressProducts = pgTable('aliexpress_products', {
+  productId:      varchar('product_id', { length: 20 }).primaryKey(),
+  title:          text('title').notNull(),
+  imageUrl:       text('image_url'),
+  productUrl:     text('product_url').notNull(),
+  promotionUrl:   text('promotion_url'),
+  salePrice:      numeric('sale_price',     { precision: 10, scale: 2 }),
+  originalPrice:  numeric('original_price', { precision: 10, scale: 2 }),
+  discountPct:    integer('discount_pct'),
+  currency:       varchar('currency', { length: 5 }).default('EUR').notNull(),
+  rating:         numeric('rating', { precision: 3, scale: 2 }),
+  ordersCount:    integer('orders_count'),
+  categoryId:     integer('category_id'),
+  categoryName:   text('category_name'),
+  shopId:         integer('shop_id'),
+  shopName:       text('shop_name'),
+  isAvailable:    boolean('is_available').default(true).notNull(),
+  lastFetchedAt:  timestamp('last_fetched_at'),
+  createdAt:      timestamp('created_at').defaultNow().notNull(),
+});
+
+export const aliexpressUserTracks = pgTable('aliexpress_user_tracks', {
+  userId:         integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  productId:      varchar('product_id', { length: 20 }).notNull().references(() => aliexpressProducts.productId, { onDelete: 'cascade' }),
+  thresholdPrice: numeric('threshold_price', { precision: 10, scale: 2 }),
+  alertEnabled:   boolean('alert_enabled').default(true).notNull(),
+  addedAt:        timestamp('added_at').defaultNow().notNull(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.userId, t.productId] }),
+}));
+
+export const aliexpressSimilars = pgTable('aliexpress_similars', {
+  masterProductId:  varchar('master_product_id',  { length: 20 }).notNull().references(() => aliexpressProducts.productId, { onDelete: 'cascade' }),
+  similarProductId: varchar('similar_product_id', { length: 20 }).notNull().references(() => aliexpressProducts.productId, { onDelete: 'cascade' }),
+  source:           varchar('source', { length: 20 }).notNull(),  // 'query' | 'smartmatch'
+  textScore:        numeric('text_score', { precision: 3, scale: 2 }),
+  firstSeenAt:      timestamp('first_seen_at').defaultNow().notNull(),
+  lastSeenAt:       timestamp('last_seen_at').defaultNow().notNull(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.masterProductId, t.similarProductId] }),
+}));
+
+export const aliexpressPriceHistory = pgTable('aliexpress_price_history', {
+  id:         serial('id').primaryKey(),
+  productId:  varchar('product_id', { length: 20 }).notNull().references(() => aliexpressProducts.productId, { onDelete: 'cascade' }),
+  price:      numeric('price', { precision: 10, scale: 2 }).notNull(),
+  currency:   varchar('currency', { length: 5 }).default('EUR').notNull(),
+  scrapedAt:  timestamp('scraped_at').defaultNow().notNull(),
+});
+
+export type AliexpressProduct       = typeof aliexpressProducts.$inferSelect;
+export type NewAliexpressProduct    = typeof aliexpressProducts.$inferInsert;
+export type AliexpressUserTrack     = typeof aliexpressUserTracks.$inferSelect;
+export type NewAliexpressUserTrack  = typeof aliexpressUserTracks.$inferInsert;
+export type AliexpressSimilar       = typeof aliexpressSimilars.$inferSelect;
+export type NewAliexpressSimilar    = typeof aliexpressSimilars.$inferInsert;
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export type Category = typeof categories.$inferSelect;
