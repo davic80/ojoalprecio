@@ -47,7 +47,7 @@ function trendBadge(current, previous) {
 
   <div class="page-header">
     <h1>Mis productos</h1>
-    <p class="subtitle">Sigue el precio de tus artículos favoritos de Amazon.es</p>
+    <p class="subtitle">Sigue el precio de tus artículos favoritos de Amazon.es y AliExpress</p>
   </div>
 
   <% if (stats.total > 0) { %>
@@ -96,7 +96,7 @@ function trendBadge(current, previous) {
         <input
           type="text"
           name="url"
-          placeholder="https://www.amazon.es/dp/B0… o amzn.eu/…"
+          placeholder="URL de Amazon.es o AliExpress (también links cortos amzn.eu, s.click.aliexpress.com…)"
           required
           class="input"
           autocomplete="off"
@@ -105,7 +105,7 @@ function trendBadge(current, previous) {
         <button type="submit" class="btn btn-primary" id="add-btn">Añadir</button>
       </div>
       <p id="add-error" style="margin:6px 0 0;font-size:13px;color:var(--red,#dc2626)"></p>
-      <p class="hint" style="margin-top:4px">Pega la URL de cualquier artículo de Amazon.es (también links cortos amzn.eu)</p>
+      <p class="hint" style="margin-top:4px">Pega cualquier URL de Amazon.es o AliExpress. Acepta también links cortos (<code>amzn.eu</code>, <code>s.click.aliexpress.com</code>).</p>
     </form>
 
     <% if (typeof isAdmin !== 'undefined' && isAdmin) { %>
@@ -214,7 +214,7 @@ function trendBadge(current, previous) {
     <div class="empty-state">
       <div class="empty-icon">🛒</div>
       <h3>No hay productos todavía</h3>
-      <p>Añade la URL de un artículo de Amazon.es para empezar a hacer seguimiento de su precio.</p>
+      <p>Añade la URL de un artículo de Amazon.es o AliExpress para empezar a hacer seguimiento de su precio.</p>
     </div>
   <% } else { %>
     <% products.forEach(function(p) {
