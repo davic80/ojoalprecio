@@ -9,12 +9,7 @@
 </head>
 <body class="auth-page">
 
-<div class="auth-card">
-  <div class="auth-logo">
-    <span class="brand-icon-lg">👁</span>
-    <h1>OjoAlPrecio</h1>
-    <p>Nueva contraseña</p>
-  </div>
+<%- include('partials/auth-card-header', { tagline: 'Nueva contraseña' }) %>
 
   <% if (expired) { %>
     <div class="alert-box alert-error" style="margin-bottom:16px;"><%= error %></div>

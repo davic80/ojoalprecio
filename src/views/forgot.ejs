@@ -9,12 +9,7 @@
 </head>
 <body class="auth-page">
 
-<div class="auth-card">
-  <div class="auth-logo">
-    <span class="brand-icon-lg">👁</span>
-    <h1>OjoAlPrecio</h1>
-    <p>Recuperar contraseña</p>
-  </div>
+<%- include('partials/auth-card-header', { tagline: 'Recuperar contraseña' }) %>
 
   <% if (sent) { %>
     <div class="alert-box" style="background:var(--green-light,#f0fdf4); border:1px solid var(--green); color:#166534; margin-bottom:16px;">

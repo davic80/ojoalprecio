@@ -9,12 +9,7 @@
 </head>
 <body class="auth-page">
 
-<div class="auth-card">
-  <div class="auth-logo">
-    <span class="brand-icon-lg">👁</span>
-    <h1>OjoAlPrecio</h1>
-    <p>Crea tu cuenta</p>
-  </div>
+<%- include('partials/auth-card-header', { tagline: 'Crea tu cuenta' }) %>
 
   <% if (error) { %>
     <div class="alert-box alert-error"><%= error %></div>

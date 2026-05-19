@@ -1,0 +1,13 @@
+<%#
+  Auth-card opening wrapper + logo block (NOT a self-closing partial).
+  Each calling view must emit its own closing </div> after the form/body.
+
+  Locals:
+    tagline : string — short subtitle below the brand (required)
+%>
+<div class="auth-card">
+  <div class="auth-logo">
+    <span class="brand-icon-lg">👁</span>
+    <h1>OjoAlPrecio</h1>
+    <p><%= tagline %></p>
+  </div>
