@@ -95,5 +95,7 @@
 
 <%- include('partials/footer', { middleHtml: '<a href="/auth/login">Añade tus productos</a>', showTelegram: false }) %>
 
+<%- include('partials/bottom-nav', { user: typeof user !== 'undefined' ? user : null, activeNav: 'ofertas' }) %>
+
 </body>
 </html>

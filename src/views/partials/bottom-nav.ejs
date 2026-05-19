@@ -1,0 +1,24 @@
+<%#
+  Mobile-only persistent bottom navigation. CSS hides it on ≥640px.
+  Locals:
+    user        : (optional) — current user, drives logged vs anon links
+    activeNav   : 'ofertas' | 'panel' | 'cuenta' | undefined
+                  (controls aria-current + .bn-active styling)
+%>
+<% const _logged = typeof user !== 'undefined' && user; -%>
+<% const _active = typeof activeNav !== 'undefined' ? activeNav : null; -%>
+<% const _bn = (k) => 'bn-item' + (_active === k ? ' bn-active' : ''); -%>
+<nav class="bottom-nav" aria-label="Navegación principal móvil">
+  <a href="/ofertas" class="<%= _bn('ofertas') %>"<% if (_active === 'ofertas') { %> aria-current="page"<% } %>>
+    <span class="bn-icon" aria-hidden="true">🏷</span>
+    <span class="bn-label">Ofertas</span>
+  </a>
+  <a href="<%= _logged ? '/' : '/auth/login' %>" class="<%= _bn('panel') %>"<% if (_active === 'panel') { %> aria-current="page"<% } %>>
+    <span class="bn-icon" aria-hidden="true">📊</span>
+    <span class="bn-label">Mi panel</span>
+  </a>
+  <a href="<%= _logged ? '/account' : '/auth/login' %>" class="<%= _bn('cuenta') %>"<% if (_active === 'cuenta') { %> aria-current="page"<% } %>>
+    <span class="bn-icon" aria-hidden="true">👤</span>
+    <span class="bn-label">Cuenta</span>
+  </a>
+</nav>

@@ -158,5 +158,7 @@ function filterDeals(slug, btn) {
   });
 })();
 </script>
+<%- include('partials/bottom-nav', { user: typeof user !== 'undefined' ? user : null, activeNav: 'ofertas' }) %>
+
 </body>
 </html>

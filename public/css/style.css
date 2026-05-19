@@ -829,3 +829,55 @@ a.category-tag:hover { background: var(--green); color: #fff; border-color: var(
 @media (min-width: 1280px) {
   .container-wide  { padding-left: 100px; padding-right: 100px; }
 }
+
+
+/* ╔════════════════════════════════════════════════════════════════════════╗
+   ║  BOTTOM NAV — persistent app-style navigation, mobile only             ║
+   ╚════════════════════════════════════════════════════════════════════════╝ */
+
+/* Reserve space at the bottom of body content on mobile so sticky-positioned
+   page elements (and the very last line of content) don't sit underneath the
+   bar. Combined with `env(safe-area-inset-bottom)` for iPhone notch devices. */
+body:has(.bottom-nav) {
+  padding-bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px));
+}
+
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: var(--bottom-nav-h);
+  background: var(--white);
+  border-top: 1px solid var(--gray-200);
+  display: flex;
+  align-items: stretch;
+  justify-content: space-around;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  z-index: 110;
+  /* Subtle elevation — no heavy shadow per camelcamelcamel feel */
+  box-shadow: 0 -1px 2px rgba(0,0,0,.04);
+}
+
+.bn-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  font-size: var(--fs-xs);
+  color: var(--gray-500);
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.bn-item:hover { color: var(--gray-700); text-decoration: none; }
+.bn-active     { color: var(--red); }
+.bn-icon       { font-size: 20px; line-height: 1; }
+.bn-label      { font-weight: 500; letter-spacing: .1px; }
+
+/* Hide on tablets and up — desktop has the top navbar */
+@media (min-width: 640px) {
+  .bottom-nav { display: none; }
+  body:has(.bottom-nav) { padding-bottom: 0; }
+}
