@@ -1,0 +1,35 @@
+<%_
+  // Admin navbar partial. Locals:
+  //   user        : { email }                            (required)
+  //   activePage  : 'categories' | 'deals' | 'social'
+  //               | 'stats' | 'users' | 'alerts'
+  //               | 'anomalies' | 'settings'             (optional)
+  //   showHubLink : boolean — render leading "/admin"    (optional, anomalies)
+  const _ap = typeof activePage !== 'undefined' ? activePage : null;
+  const _ac = (p) => 'nav-link' + (_ap === p ? ' nav-link-active' : '');
+  const _showHub = typeof showHubLink !== 'undefined' && showHubLink;
+_%>
+<nav class="navbar">
+  <a href="/" class="navbar-brand">
+    <span class="brand-icon">👁</span>
+    <span class="brand-name">OjoAlPrecio</span>
+  </a>
+  <div class="navbar-actions">
+    <%_ if (_showHub) { _%>
+    <a href="/admin" class="nav-link">Admin</a>
+    <%_ } _%>
+    <a href="/admin/categories" class="<%= _ac('categories') %>">Categorías</a>
+    <a href="/admin/deals" class="<%= _ac('deals') %>">Chollos</a>
+    <a href="/admin/social" class="<%= _ac('social') %>">Social</a>
+    <a href="/admin/stats" class="<%= _ac('stats') %>">Stats</a>
+    <a href="/admin/users" class="<%= _ac('users') %>">Usuarios</a>
+    <a href="/admin/alerts" class="<%= _ac('alerts') %>">Alertas</a>
+    <a href="/admin/anomalies" class="<%= _ac('anomalies') %>">Anomalías</a>
+    <a href="/admin/settings" class="<%= _ac('settings') %>">Ajustes</a>
+    <span id="scrape-widget" style="position:relative;margin-right:4px"></span>
+    <a href="/account" class="user-email user-email-link"><%= user.email %></a>
+    <form action="/auth/logout" method="POST" style="display:inline">
+      <button type="submit" class="btn btn-ghost btn-sm">Salir</button>
+    </form>
+  </div>
+</nav>
