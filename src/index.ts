@@ -13,6 +13,7 @@ import { pool } from './db/client';
 import { migrate } from './db/migrate';
 import { startScheduler } from './scheduler';
 import { startSocialScheduler } from './scheduler/social';
+import { startAliExpressScheduler } from './scheduler/aliexpress';
 import { closeBrowser } from './scraper/amazon';
 
 // Kill any leftover Chromium processes from previous runs
@@ -55,6 +56,7 @@ async function main() {
 
   startScheduler();
   startSocialScheduler();
+  startAliExpressScheduler();
 }
 
 main().catch((err) => {

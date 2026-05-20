@@ -209,6 +209,7 @@ export const aliexpressUserTracks = pgTable('aliexpress_user_tracks', {
   productId:      varchar('product_id', { length: 20 }).notNull().references(() => aliexpressProducts.productId, { onDelete: 'cascade' }),
   thresholdPrice: numeric('threshold_price', { precision: 10, scale: 2 }),
   alertEnabled:   boolean('alert_enabled').default(true).notNull(),
+  notifiedAt:     timestamp('notified_at'),
   addedAt:        timestamp('added_at').defaultNow().notNull(),
 }, (t) => ({
   pk: primaryKey({ columns: [t.userId, t.productId] }),

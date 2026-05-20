@@ -626,6 +626,11 @@ export const MIGRATIONS: string[] = [
   // `evaluate_rate` as a 0-100 satisfaction percentage (e.g. 90.2),
   // which overflows. NUMERIC(5,2) safely holds 0.00-999.99.
   `ALTER TABLE aliexpress_products ALTER COLUMN rating TYPE NUMERIC(5,2);`,
+  // Migration 43: notified_at on AE user tracks — dedupe price-drop
+  // alerts so we don't email the same user every 8h while the price
+  // stays below their threshold. Reset to NULL on any subsequent
+  // *increase* above threshold so the next dip re-triggers cleanly.
+  `ALTER TABLE aliexpress_user_tracks ADD COLUMN IF NOT EXISTS notified_at TIMESTAMP;`,
 ];
 
 export async function migrate(pool: Pool = defaultPool): Promise<void> {
