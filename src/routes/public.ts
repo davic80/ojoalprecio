@@ -59,7 +59,7 @@ router.get('/search', async (req: Request, res: Response) => {
         p.sale_price::float   AS "currentPrice",
         p.discount_pct::float AS "dealScore",
         (p.discount_pct IS NOT NULL AND p.discount_pct > 0) AS "isOnSale",
-        NULL                  AS "saleTier",
+        p.sale_tier           AS "saleTier",
         '/ae/' || p.product_id AS "href"
       FROM aliexpress_products p
       WHERE p.is_available = TRUE

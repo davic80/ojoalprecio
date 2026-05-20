@@ -75,6 +75,29 @@ export function extractBrandModel(title: string, maxWords = 4): string {
 }
 
 /**
+ * Discount → sale-tier label, mirroring the Amazon-side calcSaleTier()
+ * ladder (src/scheduler/sale-logic.ts). Same string values feed the same
+ * `badge-tier-*` CSS classes, so AE products render the same overlays
+ * Amazon products already use across the site.
+ *
+ *   <7   → null (not a real sale)
+ *    7-14 → 'oferta'
+ *   15-29 → 'super-oferta'
+ *   30-49 → 'mega-oferta'
+ *   50-66 → 'broooooferton'
+ *    67+ → '67oferta'
+ */
+export function saleTierFromDiscountPct(pct: number | null | undefined): string | null {
+  if (pct == null || !Number.isFinite(pct)) return null;
+  if (pct >= 67) return '67oferta';
+  if (pct >= 50) return 'broooooferton';
+  if (pct >= 30) return 'mega-oferta';
+  if (pct >= 15) return 'super-oferta';
+  if (pct >=  7) return 'oferta';
+  return null;
+}
+
+/**
  * Jaccard similarity (intersection / union) over tokenised titles.
  * Returns a number in [0, 1]. Empty titles or no shared tokens → 0.
  */

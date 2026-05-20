@@ -156,6 +156,7 @@ router.get('/', (req: Request, res: Response, next) => {
       p.discount_pct         AS "discountPct",
       p.currency             AS currency,
       p.shop_name            AS "shopName",
+      p.sale_tier            AS "saleTier",
       p.is_available         AS "isAvailable",
       (SELECT COUNT(*)::int FROM aliexpress_similars s WHERE s.master_product_id = t.product_id) AS "similarsCount"
     FROM aliexpress_user_tracks t

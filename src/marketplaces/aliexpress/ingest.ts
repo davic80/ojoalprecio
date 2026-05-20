@@ -3,6 +3,7 @@ import { db } from '../../db/client';
 import type { AliExpressClient } from './client';
 import type { AliExpressProduct, SimilarCandidate, SimilarSource } from './types';
 import { extractBrandModel, textSimilarity } from './text';
+import { upsertAEProductSql } from './persist';
 
 /**
  * One-shot synchronous ingest for a single AliExpress product. Hard SLA
@@ -52,7 +53,7 @@ export async function ingestProduct(opts: {
 
   // 2) Persist master + 3) follow + 4) first price tick — atomic.
   await db.transaction(async (tx) => {
-    await tx.execute(upsertProductSql(master));
+    await tx.execute(upsertAEProductSql(master));
     await tx.execute(sql`
       INSERT INTO aliexpress_user_tracks (user_id, product_id, threshold_price, alert_enabled)
       VALUES (${userId}, ${master.productId}, ${opts.thresholdPrice ?? null}, TRUE)
@@ -71,7 +72,7 @@ export async function ingestProduct(opts: {
   if (similars.length > 0) {
     await db.transaction(async (tx) => {
       for (const cand of similars) {
-        await tx.execute(upsertProductSql(cand.product));
+        await tx.execute(upsertAEProductSql(cand.product));
         await tx.execute(sql`
           INSERT INTO aliexpress_similars (master_product_id, similar_product_id, source, text_score, last_seen_at)
           VALUES (${master.productId}, ${cand.product.productId}, ${cand.source}, ${cand.textScore.toFixed(2)}, NOW())
@@ -134,36 +135,3 @@ async function discoverSimilars(client: AliExpressClient, master: AliExpressProd
   return loose;
 }
 
-/** Reusable UPSERT — keeps the catalog row fresh on every ingest pass. */
-function upsertProductSql(p: AliExpressProduct) {
-  return sql`
-    INSERT INTO aliexpress_products (
-      product_id, title, image_url, product_url, promotion_url,
-      sale_price, original_price, discount_pct, currency,
-      rating, orders_count, category_id, category_name, shop_id, shop_name,
-      is_available, last_fetched_at
-    ) VALUES (
-      ${p.productId}, ${p.title}, ${p.imageUrl}, ${p.productUrl}, ${p.promotionUrl},
-      ${p.salePrice}, ${p.originalPrice}, ${p.discountPct}, ${p.currency},
-      ${p.rating}, ${p.ordersCount}, ${p.categoryId}, ${p.categoryName}, ${p.shopId}, ${p.shopName},
-      TRUE, NOW()
-    )
-    ON CONFLICT (product_id) DO UPDATE SET
-      title           = EXCLUDED.title,
-      image_url       = EXCLUDED.image_url,
-      product_url     = EXCLUDED.product_url,
-      promotion_url   = EXCLUDED.promotion_url,
-      sale_price      = EXCLUDED.sale_price,
-      original_price  = EXCLUDED.original_price,
-      discount_pct    = EXCLUDED.discount_pct,
-      currency        = EXCLUDED.currency,
-      rating          = EXCLUDED.rating,
-      orders_count    = EXCLUDED.orders_count,
-      category_id     = EXCLUDED.category_id,
-      category_name   = EXCLUDED.category_name,
-      shop_id         = EXCLUDED.shop_id,
-      shop_name       = EXCLUDED.shop_name,
-      is_available    = TRUE,
-      last_fetched_at = NOW()
-  `;
-}

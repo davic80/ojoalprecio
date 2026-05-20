@@ -199,6 +199,7 @@ export const aliexpressProducts = pgTable('aliexpress_products', {
   categoryName:   text('category_name'),
   shopId:         integer('shop_id'),
   shopName:       text('shop_name'),
+  saleTier:       varchar('sale_tier', { length: 20 }),
   isAvailable:    boolean('is_available').default(true).notNull(),
   lastFetchedAt:  timestamp('last_fetched_at'),
   createdAt:      timestamp('created_at').defaultNow().notNull(),

@@ -4,6 +4,7 @@ import type { AliExpressClient } from './client';
 import type { AliExpressProduct } from './types';
 import { extractBrandModel, textSimilarity } from './text';
 import { AliExpressError } from './client';
+import { upsertAEProductSql } from './persist';
 
 /**
  * Cross-marketplace discovery: given an Amazon product (title + current
@@ -137,7 +138,7 @@ export async function discoverAndPersistEquivalent(
 
   if (fresh.candidate) {
     // Mirror the catalog row so the FK holds + the banner has display data.
-    await upsertAECandidate(fresh.candidate);
+    await db.execute(upsertAEProductSql(fresh.candidate));
   }
 
   await db.execute(sql`
@@ -175,36 +176,10 @@ async function fetchCachedAEProduct(productId: string): Promise<AliExpressProduc
            rating::float AS rating, orders_count AS "ordersCount",
            category_id AS "categoryId", category_name AS "categoryName",
            shop_id AS "shopId", shop_name AS "shopName"
+           /* sale_tier not selected — banner derives it from discount_pct on render */
     FROM aliexpress_products WHERE product_id = ${productId}
   `);
   const p = r.rows[0] as any;
   return p ?? null;
 }
 
-async function upsertAECandidate(p: AliExpressProduct): Promise<void> {
-  await db.execute(sql`
-    INSERT INTO aliexpress_products (
-      product_id, title, image_url, product_url, promotion_url,
-      sale_price, original_price, discount_pct, currency,
-      rating, orders_count, category_id, category_name, shop_id, shop_name,
-      is_available, last_fetched_at
-    ) VALUES (
-      ${p.productId}, ${p.title}, ${p.imageUrl}, ${p.productUrl}, ${p.promotionUrl},
-      ${p.salePrice}, ${p.originalPrice}, ${p.discountPct}, ${p.currency},
-      ${p.rating}, ${p.ordersCount}, ${p.categoryId}, ${p.categoryName}, ${p.shopId}, ${p.shopName},
-      TRUE, NOW()
-    )
-    ON CONFLICT (product_id) DO UPDATE SET
-      title           = EXCLUDED.title,
-      image_url       = EXCLUDED.image_url,
-      product_url     = EXCLUDED.product_url,
-      promotion_url   = EXCLUDED.promotion_url,
-      sale_price      = EXCLUDED.sale_price,
-      original_price  = EXCLUDED.original_price,
-      discount_pct    = EXCLUDED.discount_pct,
-      currency        = EXCLUDED.currency,
-      rating          = EXCLUDED.rating,
-      orders_count    = EXCLUDED.orders_count,
-      last_fetched_at = NOW()
-  `);
-}

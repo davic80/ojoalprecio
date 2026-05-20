@@ -138,6 +138,7 @@ router.get('/ae/:productId', async (req: Request, res: Response) => {
       orders_count      AS "ordersCount",
       category_name     AS "categoryName",
       shop_name         AS "shopName",
+      sale_tier         AS "saleTier",
       is_available      AS "isAvailable",
       last_fetched_at   AS "lastFetchedAt"
     FROM aliexpress_products
@@ -180,6 +181,7 @@ router.get('/ae/:productId', async (req: Request, res: Response) => {
       p.rating::float       AS rating,
       p.orders_count        AS "ordersCount",
       p.shop_name           AS "shopName",
+      p.sale_tier           AS "saleTier",
       ROUND(
         CASE
           WHEN ${master.salePrice}::numeric > 0

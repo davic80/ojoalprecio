@@ -668,6 +668,25 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX IF NOT EXISTS idx_ae_nudge_clicks_amazon  ON ae_nudge_clicks(amazon_product_id);
   CREATE INDEX IF NOT EXISTS idx_ae_nudge_clicks_clicked ON ae_nudge_clicks(clicked_at DESC);
   `,
+  // Migration 46: sale_tier on aliexpress_products, mirroring the
+  // Amazon-side ladder. Derived from discount_pct at ingest/refresh
+  // time via the shared saleTierFromDiscountPct helper, so the same
+  // `oferta` / `super-oferta` / `mega-oferta` / `broooooferton` /
+  // `67oferta` strings render the same `badge-tier-*` overlays.
+  // Backfills existing rows in-place so the dashboard badges appear
+  // without waiting for the next 8h refresh.
+  `
+  ALTER TABLE aliexpress_products ADD COLUMN IF NOT EXISTS sale_tier VARCHAR(20);
+  UPDATE aliexpress_products SET sale_tier = CASE
+    WHEN discount_pct >= 67 THEN '67oferta'
+    WHEN discount_pct >= 50 THEN 'broooooferton'
+    WHEN discount_pct >= 30 THEN 'mega-oferta'
+    WHEN discount_pct >= 15 THEN 'super-oferta'
+    WHEN discount_pct >=  7 THEN 'oferta'
+    ELSE NULL
+  END
+  WHERE sale_tier IS NULL AND discount_pct IS NOT NULL;
+  `,
 ];
 
 export async function migrate(pool: Pool = defaultPool): Promise<void> {

@@ -75,6 +75,11 @@
           </div>
         <% } %>
         <div class="stat-value"><%= product.salePrice ? product.salePrice.toFixed(2) + ' €' : '—' %></div>
+        <% if (product.saleTier) {
+            const tierLabels = { 'oferta':'Oferta','super-oferta':'Super Oferta','mega-oferta':'Mega Oferta','broooooferton':'Brooooofertón','67oferta':'67% oferta' };
+        %>
+          <div style="margin-top:4px"><span class="badge-tier-<%= product.saleTier %>"><%= tierLabels[product.saleTier] %></span></div>
+        <% } %>
       </a>
       <% if (product.ordersCount) { %>
       <div class="stat-box">

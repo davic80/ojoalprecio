@@ -354,8 +354,11 @@ function trendBadge(current, previous) {
                 <% } %>
                 <% if (!t.isAvailable) { %>
                   <span class="badge-unavailable">Sin stock</span>
+                <% } else if (t.saleTier) { %>
+                  <%# Same tier ladder as Amazon — picks the right colour automatically. %>
+                  <span class="badge-tier-<%= t.saleTier %>">−<%= t.discountPct %>%</span>
                 <% } else if (t.discountPct && t.discountPct >= 7) { %>
-                  <span class="badge-sale">-<%= t.discountPct %>%</span>
+                  <span class="badge-sale">−<%= t.discountPct %>%</span>
                 <% } %>
               </div>
               <div class="product-info">

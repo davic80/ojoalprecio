@@ -13,6 +13,7 @@ import type { AliExpressProduct, SimilarSource } from '../marketplaces/aliexpres
 import { sendPriceAlert } from '../mailer';
 import { sendTelegramAlert } from '../mailer/telegram';
 import { discoverAndPersistEquivalent } from '../marketplaces/aliexpress/equivalents';
+import { upsertAEProductSql } from '../marketplaces/aliexpress/persist';
 
 /**
  * 8-hour refresh job for tracked AliExpress products.
@@ -56,7 +57,7 @@ export async function refreshAEProduct(client: AliExpressClient, productId: stri
   if (!fresh) return null;
 
   await db.transaction(async (tx) => {
-    await tx.execute(upsertProductSql(fresh));
+    await tx.execute(upsertAEProductSql(fresh));
     await tx.execute(sql`
       INSERT INTO aliexpress_price_history (product_id, price, currency)
       VALUES (${fresh.productId}, ${fresh.salePrice}, ${fresh.currency})
@@ -96,7 +97,7 @@ export async function refreshSimilars(client: AliExpressClient, master: AliExpre
 
   await db.transaction(async (tx) => {
     for (const cand of kept) {
-      await tx.execute(upsertProductSql(cand.product));
+      await tx.execute(upsertAEProductSql(cand.product));
       await tx.execute(sql`
         INSERT INTO aliexpress_similars (master_product_id, similar_product_id, source, text_score, last_seen_at)
         VALUES (${master.productId}, ${cand.product.productId}, ${cand.source}, ${cand.textScore.toFixed(2)}, NOW())
@@ -342,36 +343,3 @@ export function startAliExpressScheduler(): void {
   console.log('[ae-scheduler] AliExpress 8h refresh activated (every 8h at :05 Europe/Madrid).');
 }
 
-/** Reused upsert — same shape the ingest module uses. */
-function upsertProductSql(p: AliExpressProduct) {
-  return sql`
-    INSERT INTO aliexpress_products (
-      product_id, title, image_url, product_url, promotion_url,
-      sale_price, original_price, discount_pct, currency,
-      rating, orders_count, category_id, category_name, shop_id, shop_name,
-      is_available, last_fetched_at
-    ) VALUES (
-      ${p.productId}, ${p.title}, ${p.imageUrl}, ${p.productUrl}, ${p.promotionUrl},
-      ${p.salePrice}, ${p.originalPrice}, ${p.discountPct}, ${p.currency},
-      ${p.rating}, ${p.ordersCount}, ${p.categoryId}, ${p.categoryName}, ${p.shopId}, ${p.shopName},
-      TRUE, NOW()
-    )
-    ON CONFLICT (product_id) DO UPDATE SET
-      title           = EXCLUDED.title,
-      image_url       = EXCLUDED.image_url,
-      product_url     = EXCLUDED.product_url,
-      promotion_url   = EXCLUDED.promotion_url,
-      sale_price      = EXCLUDED.sale_price,
-      original_price  = EXCLUDED.original_price,
-      discount_pct    = EXCLUDED.discount_pct,
-      currency        = EXCLUDED.currency,
-      rating          = EXCLUDED.rating,
-      orders_count    = EXCLUDED.orders_count,
-      category_id     = EXCLUDED.category_id,
-      category_name   = EXCLUDED.category_name,
-      shop_id         = EXCLUDED.shop_id,
-      shop_name       = EXCLUDED.shop_name,
-      is_available    = TRUE,
-      last_fetched_at = NOW()
-  `;
-}
