@@ -115,6 +115,18 @@ router.get('/ae/:productId', async (req: Request, res: Response) => {
     });
   }
 
+  // Price history — newest first, capped at the latest 200 ticks so the
+  // chart stays snappy on long-tracked products (8h cadence × 200 = ~66 days
+  // of data, which is plenty for the typical use case).
+  const historyRows = await db.execute(sql`
+    SELECT id, price::float AS price, currency, scraped_at AS "scrapedAt"
+    FROM aliexpress_price_history
+    WHERE product_id = ${productId}
+    ORDER BY scraped_at DESC
+    LIMIT 200
+  `);
+  const history = historyRows.rows as Array<{ id: number; price: number; currency: string; scrapedAt: Date }>;
+
   // Similars — JOIN to bring in title/price for display, sort by %-cheaper desc
   // so the most compelling alternatives surface first.
   const similarsRows = await db.execute(sql`
@@ -163,6 +175,7 @@ router.get('/ae/:productId', async (req: Request, res: Response) => {
     adminMode:  isAdmin(req),
     product:    master,
     similars:   similarsRows.rows,
+    history,
     isTracking,
   });
 });

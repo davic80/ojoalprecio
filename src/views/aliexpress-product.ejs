@@ -7,6 +7,10 @@
   <meta name="description" content="Sigue el precio de este producto AliExpress y descubre <%= similars.length %> alternativas más baratas en ojoalprecio.com">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
   <link rel="stylesheet" href="/css/style.css">
+  <% if (typeof history !== 'undefined' && history.length > 0) { %>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <% } %>
 </head>
 <body>
 
@@ -148,6 +152,93 @@
     <div class="card">
       <p class="subtitle">Aún no se han encontrado similares para este producto. La búsqueda se reintentará automáticamente cada 8 horas.</p>
     </div>
+  <% } %>
+
+  <%# Price history — only renders if we've recorded at least 2 ticks so the
+     chart isn't a single dot. With the 8h cadence, the second tick lands
+     ~8h after the user first added the product. -%>
+  <% if (typeof history !== 'undefined' && history.length >= 2) { %>
+    <div class="card chart-card">
+      <h2>Historial de precios</h2>
+      <p class="subtitle">Actualizado cada 8 horas mediante la API de AliExpress (afiliados).</p>
+      <div class="chart-wrap" style="margin-top:var(--sp-3)">
+        <canvas id="aePriceChart"></canvas>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Últimos registros</h2>
+      <div class="table-wrap">
+        <table class="price-table table-card-mobile">
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Precio</th>
+              <th>Variación</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% history.slice(0, 50).forEach(function(h, i, arr) {
+              const prev = arr[i + 1];
+              const diff = prev ? h.price - prev.price : null;
+              const pct  = (prev && prev.price !== 0) ? diff / prev.price * 100 : null;
+            %>
+              <tr>
+                <td data-label="Fecha"><%= new Date(h.scrapedAt).toLocaleString('es-ES') %></td>
+                <td data-label="Precio" class="price-cell"><%= h.price.toFixed(2) %> €</td>
+                <td data-label="Variación" class="price-cell">
+                  <% if (diff !== null && Math.abs(pct) >= 0.1) { %>
+                    <span class="<%= diff < 0 ? 'trend-down' : 'trend-up' %>">
+                      <%= diff >= 0 ? '+' : '−' %><%= Math.abs(diff).toFixed(2) %> € (<%= diff >= 0 ? '+' : '−' %><%= Math.abs(pct).toFixed(1) %>%)
+                    </span>
+                  <% } else { %>—<% } %>
+                </td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <script>
+      const chartData = <%- JSON.stringify(
+        history.slice().reverse().map(h => ({ x: new Date(h.scrapedAt).toISOString(), y: h.price }))
+      ) %>;
+      document.addEventListener('DOMContentLoaded', () => {
+        const ctx = document.getElementById('aePriceChart').getContext('2d');
+        new Chart(ctx, {
+          type: 'line',
+          data: { datasets: [{
+            label: 'Precio (€)', data: chartData,
+            borderColor: '#e62e04', backgroundColor: 'rgba(230,46,4,0.08)',
+            borderWidth: 2, pointRadius: chartData.length > 100 ? 0 : 3,
+            pointHoverRadius: 5, tension: 0.2, fill: true,
+          }]},
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { intersect: false, mode: 'index' },
+            plugins: {
+              legend: { display: false },
+              tooltip: { callbacks: { label: ctx => {
+                const price = ctx.parsed.y.toFixed(2) + ' €';
+                const idx = ctx.dataIndex;
+                if (idx === 0) return price;
+                const prev = chartData[idx - 1].y;
+                const diff = ctx.parsed.y - prev;
+                const pct = (diff / prev * 100);
+                if (Math.abs(pct) < 0.1) return price;
+                const sign = diff >= 0 ? '+' : '−';
+                return price + '   ' + sign + Math.abs(diff).toFixed(2) + ' € (' + sign + Math.abs(pct).toFixed(1) + '%)';
+              }}}
+            },
+            scales: {
+              x: { type: 'time', time: { tooltipFormat: 'dd/MM/yyyy HH:mm', displayFormats: { hour: 'dd/MM HH:mm', day: 'dd/MM', month: 'MMM yyyy' } }, ticks: { maxTicksLimit: 6, autoSkip: true, maxRotation: 0 }, grid: { color: 'rgba(0,0,0,0.05)' } },
+              y: { ticks: { callback: v => v.toFixed(2) + ' €' }, grid: { color: 'rgba(0,0,0,0.05)' } }
+            }
+          }
+        });
+      });
+    </script>
   <% } %>
 
   <p class="hint" style="text-align:center; margin-top:var(--sp-4); font-size:var(--fs-xs)">
