@@ -49,11 +49,22 @@ export class AliExpressClient {
     if (!cfg.trackingId) throw new Error('AliExpressClient: trackingId required');
   }
 
-  private async call<T = unknown>(method: string, businessParams: Record<string, string | number | boolean>): Promise<T> {
+  private async call<T = unknown>(method: string, businessParams: Record<string, string | number | boolean | null | undefined>): Promise<T> {
     const sys = systemParams(this.cfg.appKey, method);
-    const all = { ...sys, ...businessParams };
+    // Defensive filter: any null / undefined / NaN value would otherwise
+    // become the literal string "null" / "undefined" / "NaN" in URLSearchParams,
+    // and the AE API rejects those as "<value>#<param> not valid" errors.
+    // Conditional spreads at the call sites SHOULD prevent leaks, but the
+    // filter here makes the client robust against any future caller
+    // forgetting that pattern.
+    const all: Record<string, string> = {};
+    for (const [k, v] of Object.entries({ ...sys, ...businessParams })) {
+      if (v == null) continue;
+      if (typeof v === 'number' && !Number.isFinite(v)) continue;
+      all[k] = String(v);
+    }
     const sign = signRequest(all, this.cfg.appSecret);
-    const body = new URLSearchParams({ ...all, sign } as Record<string, string>).toString();
+    const body = new URLSearchParams({ ...all, sign }).toString();
 
     const res = await fetch(ENDPOINT, {
       method:  'POST',

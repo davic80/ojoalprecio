@@ -739,6 +739,13 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX IF NOT EXISTS idx_amazon_affiliate_stats_day  ON amazon_affiliate_stats(day DESC);
   CREATE INDEX IF NOT EXISTS idx_amazon_affiliate_stats_asin ON amazon_affiliate_stats(asin) WHERE asin <> '*';
   `,
+  // Migration 50: convert amazon_affiliate_stats.day from DATE to TEXT.
+  // The schema (Drizzle) was declared as text + all the report queries
+  // compare with TO_CHAR(...) which returns text → Postgres bailed with
+  // "operator does not exist: date >= text" on /admin/affiliates. Aligns
+  // with the page_views / ae_nudge_views convention of storing ISO
+  // 'YYYY-MM-DD' strings.
+  `ALTER TABLE amazon_affiliate_stats ALTER COLUMN day TYPE TEXT USING TO_CHAR(day, 'YYYY-MM-DD');`,
 ];
 
 export async function migrate(pool: Pool = defaultPool): Promise<void> {
