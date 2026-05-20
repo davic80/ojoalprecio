@@ -132,6 +132,80 @@
     <% } %>
   </div>
 
+  <%# AliExpress alerts — only shown when the user follows at least one AE
+     product. Threshold edit is inline per row, POSTing to the same endpoint
+     /ae/:productId/threshold used on the product page. Empty value clears
+     the threshold and disables the alert. -%>
+  <% if (typeof aliexpressTracks !== 'undefined' && aliexpressTracks.length > 0) { %>
+    <div class="card">
+      <h2>Alertas AliExpress
+        <span class="marketplace-tag marketplace-tag-aliexpress" style="margin-left:var(--sp-2);font-size:var(--fs-xs)">🛒 <%= aliexpressTracks.length %></span>
+      </h2>
+      <p class="subtitle">Fija un umbral en cada producto seguido y te avisaremos cuando el precio caiga por debajo.</p>
+
+      <div class="table-wrap" style="margin-top:var(--sp-3)">
+        <table class="price-table table-card-mobile">
+          <thead>
+            <tr>
+              <th>Producto</th>
+              <th>Precio actual</th>
+              <th>Umbral</th>
+              <th>Estado</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% aliexpressTracks.forEach(function(t) { %>
+              <tr>
+                <td data-label="Producto">
+                  <a href="/ae/<%= t.productId %>" style="font-weight:500;font-size:13px">
+                    <%= t.title.length > 60 ? t.title.slice(0, 60) + '…' : t.title %>
+                  </a>
+                </td>
+                <td data-label="Precio actual" style="font-size:13px;font-variant-numeric:tabular-nums">
+                  <%= t.salePrice ? t.salePrice.toFixed(2) + ' €' : '—' %>
+                </td>
+                <td data-label="Umbral">
+                  <form method="POST" action="/ae/<%= t.productId %>/threshold" style="display:flex;gap:var(--sp-1);align-items:center">
+                    <input
+                      type="text"
+                      name="threshold"
+                      inputmode="decimal"
+                      value="<%= t.thresholdPrice !== null ? t.thresholdPrice.toFixed(2) : '' %>"
+                      placeholder="<%= t.salePrice ? (t.salePrice * 0.9).toFixed(2) : '—' %>"
+                      class="input input-sm"
+                      style="width:90px;font-variant-numeric:tabular-nums"
+                      aria-label="Umbral en euros"
+                    >
+                    <button type="submit" class="btn btn-sm btn-outline" title="Guardar umbral">✓</button>
+                  </form>
+                </td>
+                <td data-label="Estado">
+                  <% if (!t.isAvailable) { %>
+                    <span class="alert-badge badge-triggered">Sin stock</span>
+                  <% } else if (t.thresholdPrice === null) { %>
+                    <span class="alert-badge badge-triggered">Sin alerta</span>
+                  <% } else if (t.notifiedAt !== null) { %>
+                    <span class="alert-badge badge-triggered">Disparada</span>
+                  <% } else { %>
+                    <span class="alert-badge badge-active">Activa</span>
+                  <% } %>
+                </td>
+                <td>
+                  <a href="/ae/<%= t.productId %>" class="btn btn-sm btn-ghost" title="Ver producto">→</a>
+                </td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="hint" style="margin-top:var(--sp-3)">
+        Deja un umbral vacío y pulsa <strong>✓</strong> para desactivar esa alerta.
+      </p>
+    </div>
+  <% } %>
+
 </main>
 
 <%- include('partials/footer', { middleHtml: '<a href="/ofertas">Ver ofertas</a>', showTelegram: false }) %>
