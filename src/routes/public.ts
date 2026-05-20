@@ -5,6 +5,7 @@ import { eq, desc, sql, and, asc, inArray } from 'drizzle-orm';
 import { affiliateUrl } from '../scraper/amazon';
 import { isAdmin } from '../middleware/admin';
 import { onScrapeUpdate } from '../lib/product-events';
+import { getAliExpressClient, discoverAndPersistEquivalent } from '../marketplaces/aliexpress';
 
 const router = Router();
 
@@ -239,6 +240,58 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
     }
   } catch { /* malformed JSON — ignore */ }
 
+  // ── Cross-marketplace banner (Amazon → AliExpress equivalent) ──────────
+  // Cheap query against the cache. If there's a recent eligible match,
+  // pass it down so the view can render "X € más barato en AliExpress".
+  // Stale or missing entries trigger a fire-and-forget discovery so the
+  // banner appears on the NEXT visit — never blocks the current render.
+  let aeEquivalent: {
+    productId: string; title: string; imageUrl: string | null;
+    promotionUrl: string | null; productUrl: string;
+    salePrice: number; currency: string; pctCheaper: number; saving: number;
+  } | null = null;
+
+  const eqRows = await db.execute(sql`
+    SELECT e.ae_product_id AS "aeProductId", e.pct_cheaper::float AS "pctCheaper",
+           e.ae_price_snapshot::float AS "aePrice", e.is_eligible AS "isEligible",
+           e.checked_at AS "checkedAt",
+           p.title, p.image_url AS "imageUrl", p.promotion_url AS "promotionUrl",
+           p.product_url AS "productUrl", p.currency
+    FROM amazon_ae_equivalents e
+    LEFT JOIN aliexpress_products p ON p.product_id = e.ae_product_id
+    WHERE e.amazon_product_id = ${productView.id}
+  `);
+  const aeEqRow = eqRows.rows[0] as any;
+  const ageMs = aeEqRow ? (Date.now() - new Date(aeEqRow.checkedAt).getTime()) : Infinity;
+  const TTL_MS = 24 * 60 * 60 * 1000;
+
+  if (aeEqRow?.isEligible && aeEqRow.aeProductId && currentPrice) {
+    aeEquivalent = {
+      productId:    aeEqRow.aeProductId,
+      title:        aeEqRow.title,
+      imageUrl:     aeEqRow.imageUrl,
+      promotionUrl: aeEqRow.promotionUrl,
+      productUrl:   aeEqRow.productUrl,
+      salePrice:    Number(aeEqRow.aePrice),
+      currency:     aeEqRow.currency,
+      pctCheaper:   Number(aeEqRow.pctCheaper),
+      saving:       Number(currentPrice) - Number(aeEqRow.aePrice),
+    };
+  }
+
+  // Fire-and-forget discovery when missing or stale. We only run it once
+  // a candidate price exists (otherwise pct_cheaper is meaningless), and
+  // only when an AE client is configured.
+  if (currentPrice && (!aeEqRow || ageMs > TTL_MS) && productView.name) {
+    const aeClient = getAliExpressClient();
+    if (aeClient) {
+      void discoverAndPersistEquivalent(aeClient, productView.id, {
+        title: productView.name,
+        price: Number(currentPrice),
+      }).catch((err: unknown) => console.warn(`[ae-equivalent] background lookup for product ${productView.id} failed: ${(err as Error).message}`));
+    }
+  }
+
   res.render('public-product', {
     product: productView,
     history,
@@ -254,6 +307,7 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
     productOwner,
     viewCount,
     variants: variantsView,
+    aeEquivalent,
   });
 });
 

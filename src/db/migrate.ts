@@ -631,6 +631,25 @@ export const MIGRATIONS: string[] = [
   // stays below their threshold. Reset to NULL on any subsequent
   // *increase* above threshold so the next dip re-triggers cleanly.
   `ALTER TABLE aliexpress_user_tracks ADD COLUMN IF NOT EXISTS notified_at TIMESTAMP;`,
+  // Migration 44: cross-marketplace equivalents (Amazon → AliExpress).
+  // One row per Amazon product. ae_product_id NULL means "we looked but
+  // didn't find a good match" — distinct from "we never checked" so we
+  // can cache the negative result and not re-query every page load.
+  // Eligibility flag is denormalised at write time so the /p/:asin
+  // route doesn't have to recompute the rule on every render.
+  `
+  CREATE TABLE IF NOT EXISTS amazon_ae_equivalents (
+    amazon_product_id    INTEGER PRIMARY KEY REFERENCES products(id) ON DELETE CASCADE,
+    ae_product_id        VARCHAR(20) REFERENCES aliexpress_products(product_id) ON DELETE SET NULL,
+    text_score           NUMERIC(3,2),
+    ae_price_snapshot    NUMERIC(10,2),
+    amazon_price_snapshot NUMERIC(10,2),
+    pct_cheaper          NUMERIC(5,2),
+    is_eligible          BOOLEAN DEFAULT FALSE NOT NULL,
+    checked_at           TIMESTAMP DEFAULT NOW() NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_amazon_ae_equivalents_checked ON amazon_ae_equivalents(checked_at);
+  `,
 ];
 
 export async function migrate(pool: Pool = defaultPool): Promise<void> {

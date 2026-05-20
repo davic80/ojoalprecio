@@ -64,6 +64,33 @@
     </div>
   </div>
 
+  <%# Cross-marketplace nudge: this same product is cheaper on AliExpress.
+      Renders only when the cached lookup found an eligible match. Sits
+      above the CTA bar so it shows up before "Comprar en Amazon" and
+      gives the user a clear reason to consider the alternative. -%>
+  <% if (typeof aeEquivalent !== 'undefined' && aeEquivalent) { %>
+    <a href="<%= aeEquivalent.promotionUrl || aeEquivalent.productUrl %>"
+       target="_blank" rel="noopener sponsored"
+       class="ae-nudge"
+       title="Ver en AliExpress">
+      <% if (aeEquivalent.imageUrl) { %>
+        <img src="<%= aeEquivalent.imageUrl %>" alt="" class="ae-nudge-img">
+      <% } %>
+      <div class="ae-nudge-body">
+        <div class="ae-nudge-headline">
+          <span class="marketplace-tag marketplace-tag-aliexpress">🛒 AliExpress</span>
+          <span class="ae-nudge-saving">−<%= aeEquivalent.pctCheaper.toFixed(1) %>%</span>
+        </div>
+        <div class="ae-nudge-title"><%= aeEquivalent.title.length > 80 ? aeEquivalent.title.slice(0, 80) + '…' : aeEquivalent.title %></div>
+        <div class="ae-nudge-prices">
+          <strong><%= aeEquivalent.salePrice.toFixed(2) %> €</strong>
+          <span class="ae-nudge-saving-amount">ahorras <%= aeEquivalent.saving.toFixed(2) %> €</span>
+        </div>
+      </div>
+      <div class="ae-nudge-arrow">→</div>
+    </a>
+  <% } %>
+
   <!-- CTA bar -->
   <div class="cta-bar">
     <a href="<%= product.amazonUrl %>" target="_blank" rel="noopener sponsored" class="btn btn-amazon">

@@ -9,6 +9,7 @@ export * from './types';
 export * from './url';
 export * from './text';
 export * from './ingest';
+export * from './equivalents';
 export { AliExpressClient, AliExpressError, AliExpressPermissionError } from './client';
 
 /**

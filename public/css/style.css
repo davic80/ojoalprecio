@@ -206,6 +206,74 @@ a:hover { text-decoration: none; }
 }
 .marketplace-tag-amazon     { background: #e0f4fb; color: var(--amazon-hover); }
 .marketplace-tag-aliexpress { background: #fde6e0; color: var(--aliexpress-hover); }
+
+/* ── Cross-marketplace nudge banner (Amazon page → AE equivalent) ─────── */
+.ae-nudge {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  margin: var(--sp-4) 0 var(--sp-2);
+  background: var(--white);
+  border: 1px solid var(--aliexpress);
+  border-radius: var(--radius);
+  text-decoration: none;
+  color: var(--gray-900);
+  transition: background .15s, border-color .15s;
+}
+.ae-nudge:hover {
+  background: #fff7f5;
+  border-color: var(--aliexpress-hover);
+  text-decoration: none;
+}
+.ae-nudge-img {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  flex-shrink: 0;
+  background: var(--gray-50);
+  border-radius: var(--radius-sm);
+}
+.ae-nudge-body { flex: 1; min-width: 0; }
+.ae-nudge-headline {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: 2px;
+}
+.ae-nudge-saving {
+  font-size: var(--fs-md);
+  font-weight: 700;
+  color: var(--aliexpress);
+}
+.ae-nudge-title {
+  font-size: var(--fs-base);
+  color: var(--gray-700);
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ae-nudge-prices {
+  margin-top: 2px;
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+.ae-nudge-prices strong {
+  font-size: var(--fs-lg);
+  color: var(--gray-900);
+}
+.ae-nudge-saving-amount {
+  font-size: var(--fs-xs);
+  color: var(--gray-500);
+}
+.ae-nudge-arrow {
+  flex-shrink: 0;
+  font-size: var(--fs-xl);
+  color: var(--aliexpress);
+}
 .btn-outline  { background: transparent; color: var(--gray-700); border: 1px solid var(--gray-300); }
 .btn-outline:hover { background: var(--gray-50); text-decoration: none; }
 .btn-ghost    { background: transparent; color: var(--gray-500); }

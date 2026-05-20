@@ -241,6 +241,22 @@ export type NewAliexpressUserTrack  = typeof aliexpressUserTracks.$inferInsert;
 export type AliexpressSimilar       = typeof aliexpressSimilars.$inferSelect;
 export type NewAliexpressSimilar    = typeof aliexpressSimilars.$inferInsert;
 
+// Cross-marketplace: one Amazon product → at most one AliExpress equivalent.
+// ae_product_id is nullable to record negative-cache ("checked, no match")
+// so we don't re-query the API on every product-page view.
+export const amazonAeEquivalents = pgTable('amazon_ae_equivalents', {
+  amazonProductId:     integer('amazon_product_id').primaryKey().references(() => products.id, { onDelete: 'cascade' }),
+  aeProductId:         varchar('ae_product_id', { length: 20 }).references(() => aliexpressProducts.productId, { onDelete: 'set null' }),
+  textScore:           numeric('text_score', { precision: 3, scale: 2 }),
+  aePriceSnapshot:     numeric('ae_price_snapshot',     { precision: 10, scale: 2 }),
+  amazonPriceSnapshot: numeric('amazon_price_snapshot', { precision: 10, scale: 2 }),
+  pctCheaper:          numeric('pct_cheaper', { precision: 5, scale: 2 }),
+  isEligible:          boolean('is_eligible').default(false).notNull(),
+  checkedAt:           timestamp('checked_at').defaultNow().notNull(),
+});
+export type AmazonAeEquivalent    = typeof amazonAeEquivalents.$inferSelect;
+export type NewAmazonAeEquivalent = typeof amazonAeEquivalents.$inferInsert;
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export type Category = typeof categories.$inferSelect;
