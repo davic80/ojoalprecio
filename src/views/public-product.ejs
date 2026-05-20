@@ -69,7 +69,10 @@
       above the CTA bar so it shows up before "Comprar en Amazon" and
       gives the user a clear reason to consider the alternative. -%>
   <% if (typeof aeEquivalent !== 'undefined' && aeEquivalent) { %>
-    <a href="<%= aeEquivalent.promotionUrl || aeEquivalent.productUrl %>"
+    <%# Goes through /ae/r/:amazonId so we log the click before 302-ing
+       to AliExpress. The endpoint itself adds the affiliate tracking_id
+       (it's already in promotion_url stored at ingest time). -%>
+    <a href="/ae/r/<%= product.id %>"
        target="_blank" rel="noopener sponsored"
        class="ae-nudge"
        title="Ver en AliExpress">

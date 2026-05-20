@@ -650,6 +650,24 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX IF NOT EXISTS idx_amazon_ae_equivalents_checked ON amazon_ae_equivalents(checked_at);
   `,
+  // Migration 45: log clicks on the cross-marketplace nudge banner.
+  // The .ae-nudge on /p/:asin now points at /ae/r/:amazonId which 302s
+  // to the AE promotion_url after writing a row here. ae_product_id is
+  // a snapshot, not a FK, because the equivalent can change later — we
+  // want the click record to remain even if the AE listing disappears.
+  `
+  CREATE TABLE IF NOT EXISTS ae_nudge_clicks (
+    id                SERIAL PRIMARY KEY,
+    amazon_product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
+    ae_product_id     VARCHAR(20),
+    user_id           INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    user_agent        TEXT,
+    referer           TEXT,
+    clicked_at        TIMESTAMP DEFAULT NOW() NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_ae_nudge_clicks_amazon  ON ae_nudge_clicks(amazon_product_id);
+  CREATE INDEX IF NOT EXISTS idx_ae_nudge_clicks_clicked ON ae_nudge_clicks(clicked_at DESC);
+  `,
 ];
 
 export async function migrate(pool: Pool = defaultPool): Promise<void> {

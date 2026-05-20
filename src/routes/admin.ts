@@ -1018,9 +1018,13 @@ router.get('/admin/aliexpress', requireAuth, requireAdmin, async (req: Request, 
       (SELECT COUNT(*)::int FROM aliexpress_similars)                                    AS "totalSimilarEdges",
       (SELECT COUNT(*)::int FROM amazon_ae_equivalents)                                  AS "totalEquivalentsChecked",
       (SELECT COUNT(*)::int FROM amazon_ae_equivalents WHERE is_eligible = TRUE)         AS "totalEligibleEquivalents",
+      (SELECT COUNT(*)::int FROM ae_nudge_clicks)                                        AS "totalNudgeClicks",
+      (SELECT COUNT(*)::int FROM ae_nudge_clicks WHERE clicked_at >= NOW() - INTERVAL '7 days')  AS "nudgeClicks7d",
+      (SELECT COUNT(*)::int FROM ae_nudge_clicks WHERE clicked_at >= NOW() - INTERVAL '1 day')   AS "nudgeClicks24h",
       (SELECT MAX(last_fetched_at) FROM aliexpress_products)                             AS "lastAEFetch",
       (SELECT MAX(checked_at)      FROM amazon_ae_equivalents)                           AS "lastEquivalentCheck",
-      (SELECT MAX(scraped_at)      FROM aliexpress_price_history)                        AS "lastPriceTick"
+      (SELECT MAX(scraped_at)      FROM aliexpress_price_history)                        AS "lastPriceTick",
+      (SELECT MAX(clicked_at)      FROM ae_nudge_clicks)                                 AS "lastNudgeClick"
   `);
   const row = stats.rows[0] as any;
 
@@ -1045,12 +1049,33 @@ router.get('/admin/aliexpress', requireAuth, requireAdmin, async (req: Request, 
     LIMIT 20
   `);
 
+  // Most-clicked equivalents in the last 7 days — feedback for "is the
+  // nudge actually working?". JOIN reaches into the equivalents table to
+  // pull the current pct_cheaper so we can sort by impact-per-click later.
+  const topClickedRes = await db.execute(sql`
+    SELECT
+      c.amazon_product_id   AS "amazonId",
+      p.asin                AS "amazonAsin",
+      p.name                AS "amazonName",
+      COUNT(*)::int         AS "clicks",
+      MAX(c.clicked_at)     AS "lastClickedAt",
+      e.pct_cheaper::float  AS "pctCheaper"
+    FROM ae_nudge_clicks c
+    LEFT JOIN products p ON p.id = c.amazon_product_id
+    LEFT JOIN amazon_ae_equivalents e ON e.amazon_product_id = c.amazon_product_id
+    WHERE c.clicked_at >= NOW() - INTERVAL '7 days'
+    GROUP BY c.amazon_product_id, p.asin, p.name, e.pct_cheaper
+    ORDER BY clicks DESC
+    LIMIT 10
+  `);
+
   const aeConfigured = getAliExpressClient() !== null;
 
   res.render('admin-aliexpress', {
     user: { email: req.session.userEmail },
     stats: row,
     topEquivalents: topEquivalentsRes.rows,
+    topClicked: topClickedRes.rows,
     aeConfigured,
   });
 });

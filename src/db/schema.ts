@@ -257,6 +257,21 @@ export const amazonAeEquivalents = pgTable('amazon_ae_equivalents', {
 export type AmazonAeEquivalent    = typeof amazonAeEquivalents.$inferSelect;
 export type NewAmazonAeEquivalent = typeof amazonAeEquivalents.$inferInsert;
 
+// Click log for the cross-marketplace nudge banner. Insert-only, never
+// mutated. ae_product_id is stored as a plain string (no FK) on purpose
+// so the click record outlives any AE catalog cleanup.
+export const aeNudgeClicks = pgTable('ae_nudge_clicks', {
+  id:               serial('id').primaryKey(),
+  amazonProductId:  integer('amazon_product_id').references(() => products.id, { onDelete: 'cascade' }),
+  aeProductId:      varchar('ae_product_id', { length: 20 }),
+  userId:           integer('user_id').references(() => users.id, { onDelete: 'set null' }),
+  userAgent:        text('user_agent'),
+  referer:          text('referer'),
+  clickedAt:        timestamp('clicked_at').defaultNow().notNull(),
+});
+export type AeNudgeClick    = typeof aeNudgeClicks.$inferSelect;
+export type NewAeNudgeClick = typeof aeNudgeClicks.$inferInsert;
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export type Category = typeof categories.$inferSelect;

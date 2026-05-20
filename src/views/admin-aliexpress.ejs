@@ -84,6 +84,61 @@
     </p>
   </div>
 
+  <!-- Clicks tracking -->
+  <div class="card">
+    <h2>Clicks en el banner cross-marketplace</h2>
+    <p class="subtitle">Cada click en "AliExpress −X%" desde una página de producto Amazon pasa por <code>/ae/r/:id</code> y se registra antes del 302.</p>
+
+    <div class="stats-bar" style="margin-top:var(--sp-3)">
+      <div class="stat-pill">
+        <span class="stat-pill-value"><%= stats.totalNudgeClicks %></span>
+        <span class="stat-pill-label">clicks totales</span>
+      </div>
+      <div class="stat-pill stat-pill-green">
+        <span class="stat-pill-value"><%= stats.nudgeClicks7d %></span>
+        <span class="stat-pill-label">últimos 7 días</span>
+      </div>
+      <div class="stat-pill">
+        <span class="stat-pill-value"><%= stats.nudgeClicks24h %></span>
+        <span class="stat-pill-label">últimas 24 h</span>
+      </div>
+    </div>
+
+    <% if (stats.lastNudgeClick) { %>
+      <p class="hint" style="margin-top:var(--sp-3)">Último click: <strong><%= new Date(stats.lastNudgeClick).toLocaleString('es-ES') %></strong></p>
+    <% } else { %>
+      <p class="hint" style="margin-top:var(--sp-3)">Aún no se ha registrado ningún click.</p>
+    <% } %>
+  </div>
+
+  <% if (topClicked.length > 0) { %>
+    <div class="card">
+      <h2>Más clicados — últimos 7 días</h2>
+      <div class="table-wrap">
+        <table class="price-table table-card-mobile">
+          <thead>
+            <tr>
+              <th>Producto Amazon</th>
+              <th style="text-align:right">Clicks</th>
+              <th style="text-align:right">% más barato (AE)</th>
+              <th style="text-align:right">Último click</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% topClicked.forEach(function(c) { %>
+              <tr>
+                <td data-label="Producto"><a href="/p/<%= c.amazonAsin %>" style="font-size:13px"><%= (c.amazonName || '').slice(0, 60) %><%= (c.amazonName || '').length > 60 ? '…' : '' %></a></td>
+                <td data-label="Clicks" style="text-align:right;font-weight:600;font-variant-numeric:tabular-nums"><%= c.clicks %></td>
+                <td data-label="% barato" style="text-align:right;color:var(--aliexpress);font-variant-numeric:tabular-nums"><%= c.pctCheaper !== null ? c.pctCheaper.toFixed(1) + '%' : '—' %></td>
+                <td data-label="Último click" style="text-align:right;font-size:12px;color:var(--gray-500)"><%= c.lastClickedAt ? new Date(c.lastClickedAt).toLocaleString('es-ES') : '—' %></td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  <% } %>
+
   <!-- Top equivalents -->
   <% if (topEquivalents.length > 0) { %>
     <div class="card">

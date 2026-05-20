@@ -6,6 +6,53 @@ import { requireAuth } from '../middleware/auth';
 
 const router = Router();
 
+// ── GET /ae/r/:amazonProductId — tracked redirect to the AE equivalent ──────
+// The .ae-nudge banner on /p/:asin links here. We look up the current
+// eligible equivalent, log a click row (best-effort, never blocks the
+// redirect), then 302 to the AE promotion_url so the affiliate cookie
+// drops. Cache headers prevent browsers/CDNs from caching the 302 — we
+// need every click to register.
+router.get('/ae/r/:amazonProductId', async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params.amazonProductId), 10);
+  if (!Number.isFinite(id) || id < 1) {
+    return res.status(404).render('404', {
+      user: req.session.userId ? { email: req.session.userEmail } : null,
+    });
+  }
+
+  const rows = await db.execute(sql`
+    SELECT e.ae_product_id AS "aeProductId",
+           p.promotion_url AS "promotionUrl",
+           p.product_url   AS "productUrl"
+    FROM amazon_ae_equivalents e
+    LEFT JOIN aliexpress_products p ON p.product_id = e.ae_product_id
+    WHERE e.amazon_product_id = ${id} AND e.is_eligible = TRUE
+  `);
+  const eq = rows.rows[0] as any;
+  const target: string | null = eq?.promotionUrl || eq?.productUrl || null;
+  if (!target) {
+    return res.status(404).render('404', {
+      user: req.session.userId ? { email: req.session.userEmail } : null,
+    });
+  }
+
+  // Fire-and-forget click log. Failures here never block the redirect —
+  // the affiliate cookie is the priority; metrics are nice-to-have.
+  void db.execute(sql`
+    INSERT INTO ae_nudge_clicks (amazon_product_id, ae_product_id, user_id, user_agent, referer)
+    VALUES (
+      ${id},
+      ${eq.aeProductId ?? null},
+      ${req.session.userId ?? null},
+      ${(req.headers['user-agent'] as string) ?? null},
+      ${(req.headers['referer']    as string) ?? null}
+    )
+  `).catch((err: unknown) => console.warn(`[ae-nudge-click] log failed: ${(err as Error).message}`));
+
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  return res.redirect(302, target);
+});
+
 // ── DELETE /ae/:productId/track — stop following an AliExpress product ───────
 // User-scoped: removes ONLY this user's track row. The catalog entry
 // (aliexpress_products), price history and similars all survive for any
