@@ -15,6 +15,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Job `test` en CI con servicio Postgres — bloquea versionado y push de imagen si los tests fallan
 - `migrate()` acepta un `Pool` opcional para permitir migrar a una DB distinta del singleton (uso interno de los tests)
 
+## [3.0.0]
+
+### Added
+- **Integración completa con AliExpress** — segunda marketplace soportada end-to-end:
+  - Pega cualquier URL de AliExpress (long, mobile, o short `s.click.aliexpress.com/e/_X`) en el formulario "Añadir producto" y el sistema la trackea automáticamente.
+  - Página `/ae/:productId` con header del producto + similares ordenados por % más barato.
+  - Sección "Mis productos AliExpress" en el dashboard con quitar-de-seguimiento HTMX.
+  - Cron de refresco cada 8 horas (Europe/Madrid, offset a `:05`) que re-fetcha el master + re-descubre similares con TTL de 7 días.
+  - Alertas de bajada de precio por email + Telegram con re-arm (hysteresis 5%) y dedupe via `notified_at`.
+  - Estrategia de "similares": A (match estricto brand+model con Jaccard ≥0.30) + fallback C cuando A devuelve <3.
+- CSS: `--amazon` (azul Prime) y `--aliexpress` (naranja AE) — botones de afiliación con colores de marca propios.
+- Mobile-first redesign completo: tokens type-scale/spacing, breakpoints 640/1024/1280, bottom nav persistente móvil, CTA sticky en producto, tablas → cards en `<640px`, badges pastelizados.
+- Partials extraídos: navbar/footer/auth-card (24 vistas, −447 / +168 líneas).
+
+### Changed
+- API de `sendPriceAlert` y `sendTelegramAlert`: aceptan `marketplace?: 'amazon' | 'aliexpress'` y `historyUrl?` para que las alertas digan "Ver en AliExpress" donde corresponda. Default sigue siendo `'amazon'` (backwards-compatible para todos los call-sites existentes).
+- Botones "Comprar en Amazon": ahora usan `.btn-amazon` (azul Prime) en lugar del genérico `.btn-primary` (rojo), distinguiéndolos visualmente de las acciones internas.
+
+### Migration notes
+- Migraciones 41-43 crean las tablas `aliexpress_*`. No requieren intervención manual — `migrate()` las aplica al arrancar.
+- Variables nuevas en `.env` (todas opcionales, sin ellas las features AE se desactivan limpiamente): `ALIEXPRESS_APP_KEY`, `ALIEXPRESS_APP_SECRET`, `ALIEXPRESS_TRACKING_ID`. Hay que añadirlas también al bloque `environment:` de `docker-compose.yml` (ya viene en el repo).
+
 ## [2.32.0] - 2026-05-07
 
 ### Added

@@ -1,9 +1,16 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { resetDb } from '../helpers/db';
 import { pool } from '../../src/db/client';
-import { refreshAEProduct, refreshSimilars, refreshAllAETracks } from '../../src/scheduler/aliexpress';
+import { refreshAEProduct, refreshSimilars, refreshAllAETracks, processAEPriceAlerts } from '../../src/scheduler/aliexpress';
 import type { AliExpressClient } from '../../src/marketplaces/aliexpress/client';
 import type { AliExpressProduct } from '../../src/marketplaces/aliexpress/types';
+
+// Stub out the alert senders globally so processAEPriceAlerts tests can run
+// without SMTP / Telegram setup. We assert on send-count via the mocks.
+vi.mock('../../src/mailer',          () => ({ sendPriceAlert: vi.fn().mockResolvedValue(undefined) }));
+vi.mock('../../src/mailer/telegram', () => ({ sendTelegramAlert: vi.fn().mockResolvedValue(undefined) }));
+const { sendPriceAlert }    = await import('../../src/mailer');
+const { sendTelegramAlert } = await import('../../src/mailer/telegram');
 
 function productStub(id: string, title: string, salePrice: number): AliExpressProduct {
   return {
@@ -91,6 +98,98 @@ describe('AE refreshSimilars', () => {
     const edges = await pool.query(`SELECT similar_product_id FROM aliexpress_similars WHERE master_product_id = $1 ORDER BY similar_product_id`, [master.productId]);
     expect(edges.rows.length).toBe(1);
     expect(edges.rows[0].similar_product_id).toBe(fresh.productId);  // stale pruned, fresh kept
+  });
+});
+
+describe('AE processAEPriceAlerts', () => {
+  beforeEach(async () => {
+    await resetDb();
+    vi.mocked(sendPriceAlert).mockClear();
+    vi.mocked(sendTelegramAlert).mockClear();
+  });
+
+  async function setupTrack(threshold: number, opts: { withTg?: boolean } = {}) {
+    const u = await pool.query(
+      `INSERT INTO users (email, password_hash, telegram_chat_id) VALUES ('a@x.local', 'x', $1) RETURNING id`,
+      [opts.withTg ? '123456' : null],
+    );
+    const userId = u.rows[0].id as number;
+    await seedProduct(productStub('1005000000000001', 'Baofeng walkie', 20.0));
+    await pool.query(
+      `INSERT INTO aliexpress_user_tracks (user_id, product_id, threshold_price, alert_enabled)
+       VALUES ($1, '1005000000000001', $2, TRUE)`,
+      [userId, threshold],
+    );
+    return userId;
+  }
+
+  it('fires both email and Telegram when price <= threshold and not yet notified', async () => {
+    const userId = await setupTrack(18.0, { withTg: true });
+    const sent = await processAEPriceAlerts('1005000000000001', 16.5);
+    expect(sent).toBe(1);
+    expect(sendPriceAlert).toHaveBeenCalledTimes(1);
+    expect(sendTelegramAlert).toHaveBeenCalledTimes(1);
+
+    const notif = await pool.query(`SELECT notified_at FROM aliexpress_user_tracks WHERE user_id = $1`, [userId]);
+    expect(notif.rows[0].notified_at).not.toBeNull();
+  });
+
+  it('is idempotent — re-running with same price does not re-notify', async () => {
+    await setupTrack(18.0);
+    await processAEPriceAlerts('1005000000000001', 16.5);
+    vi.mocked(sendPriceAlert).mockClear();
+    const sent = await processAEPriceAlerts('1005000000000001', 16.5);
+    expect(sent).toBe(0);
+    expect(sendPriceAlert).not.toHaveBeenCalled();
+  });
+
+  it('does not notify when price > threshold', async () => {
+    await setupTrack(15.0);
+    const sent = await processAEPriceAlerts('1005000000000001', 19.99);
+    expect(sent).toBe(0);
+    expect(sendPriceAlert).not.toHaveBeenCalled();
+  });
+
+  it('re-arms (clears notified_at) once price climbs back ≥ threshold × 1.05', async () => {
+    const userId = await setupTrack(20.0);
+    // First dip fires + sets notified_at
+    await processAEPriceAlerts('1005000000000001', 18.0);
+    // Tiny rebound — still under the 1.05 buffer (20 × 1.05 = 21) — stays armed
+    vi.mocked(sendPriceAlert).mockClear();
+    await processAEPriceAlerts('1005000000000001', 20.5);
+    let n = await pool.query(`SELECT notified_at FROM aliexpress_user_tracks WHERE user_id = $1`, [userId]);
+    expect(n.rows[0].notified_at).not.toBeNull();  // still deduped
+    // Real rebound above the buffer → reset
+    await processAEPriceAlerts('1005000000000001', 22.0);
+    n = await pool.query(`SELECT notified_at FROM aliexpress_user_tracks WHERE user_id = $1`, [userId]);
+    expect(n.rows[0].notified_at).toBeNull();
+    // And the NEXT dip alerts again
+    const sent = await processAEPriceAlerts('1005000000000001', 17.0);
+    expect(sent).toBe(1);
+  });
+
+  it('skips tracks where alert_enabled = FALSE', async () => {
+    const u = await pool.query(`INSERT INTO users (email, password_hash) VALUES ('b@x', 'x') RETURNING id`);
+    await seedProduct(productStub('1005000000000001', 'Baofeng', 20));
+    await pool.query(
+      `INSERT INTO aliexpress_user_tracks (user_id, product_id, threshold_price, alert_enabled)
+       VALUES ($1, '1005000000000001', 18, FALSE)`,
+      [u.rows[0].id],
+    );
+    const sent = await processAEPriceAlerts('1005000000000001', 10);
+    expect(sent).toBe(0);
+  });
+
+  it('skips tracks with threshold_price IS NULL', async () => {
+    const u = await pool.query(`INSERT INTO users (email, password_hash) VALUES ('c@x', 'x') RETURNING id`);
+    await seedProduct(productStub('1005000000000001', 'Baofeng', 20));
+    await pool.query(
+      `INSERT INTO aliexpress_user_tracks (user_id, product_id, threshold_price, alert_enabled)
+       VALUES ($1, '1005000000000001', NULL, TRUE)`,
+      [u.rows[0].id],
+    );
+    const sent = await processAEPriceAlerts('1005000000000001', 5);
+    expect(sent).toBe(0);
   });
 });
 

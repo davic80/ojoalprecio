@@ -47,6 +47,10 @@ export interface TelegramAlertOptions {
   thresholdLabel: string;
   currency?: string;
   siteUrl?: string;
+  /** Marketplace label in the "Ver en …" link. Default 'amazon'. */
+  marketplace?: 'amazon' | 'aliexpress';
+  /** Optional in-app link for "Ver historial" — defaults to siteUrl root. */
+  historyUrl?: string;
 }
 
 export async function sendTelegramAlert(opts: TelegramAlertOptions): Promise<void> {
@@ -58,6 +62,8 @@ export async function sendTelegramAlert(opts: TelegramAlertOptions): Promise<voi
 
   const cur = `${opts.currentPrice.toFixed(2)} ${opts.currency === 'EUR' ? '€' : (opts.currency ?? '€')}`;
   const siteUrl = opts.siteUrl ?? process.env.SITE_URL ?? 'http://localhost:3000';
+  const marketplaceLabel = opts.marketplace === 'aliexpress' ? 'Ver en AliExpress' : 'Ver en Amazon.es';
+  const historyUrl = opts.historyUrl ?? `${siteUrl}?utm_source=telegram`;
 
   const text = [
     '🔔 <b>OjoAlPrecio — Alerta de precio</b>',
@@ -66,7 +72,7 @@ export async function sendTelegramAlert(opts: TelegramAlertOptions): Promise<voi
     `💰 Precio actual: <b>${cur}</b>`,
     `🎯 Umbral: ${opts.thresholdLabel}`,
     '',
-    `<a href="${opts.productUrl}">Ver en Amazon.es</a> · <a href="${siteUrl}?utm_source=telegram">Ver historial</a>`,
+    `<a href="${opts.productUrl}">${marketplaceLabel}</a> · <a href="${historyUrl}">Ver historial</a>`,
   ].join('\n');
 
   const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {

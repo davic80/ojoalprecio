@@ -10,6 +10,8 @@ import {
   textSimilarity,
 } from '../marketplaces/aliexpress';
 import type { AliExpressProduct, SimilarSource } from '../marketplaces/aliexpress/types';
+import { sendPriceAlert } from '../mailer';
+import { sendTelegramAlert } from '../mailer/telegram';
 
 /**
  * 8-hour refresh job for tracked AliExpress products.
@@ -116,23 +118,122 @@ export async function refreshSimilars(client: AliExpressClient, master: AliExpre
 }
 
 /**
+ * Hysteresis buffer for re-arming alerts: once notified, we only reset
+ * notified_at when the price climbs back to ≥ threshold × this factor.
+ * Prevents flapping when the price oscillates around the threshold.
+ */
+const ALERT_REARM_FACTOR = 1.05;
+
+/** Price-drop alert pass for one product. Reads track + user, sends email and/or
+ *  Telegram, updates notified_at. Idempotent — re-running with the same price
+ *  is a no-op thanks to the notified_at dedupe.
+ */
+export async function processAEPriceAlerts(productId: string, currentPrice: number): Promise<number> {
+  const rows = await db.execute(sql`
+    SELECT
+      t.user_id          AS "userId",
+      t.threshold_price::float AS "thresholdPrice",
+      t.notified_at      AS "notifiedAt",
+      u.email            AS "email",
+      u.telegram_chat_id AS "telegramChatId",
+      p.title            AS "title",
+      p.promotion_url    AS "promotionUrl",
+      p.product_url      AS "productUrl",
+      p.image_url        AS "imageUrl",
+      p.currency         AS "currency"
+    FROM aliexpress_user_tracks t
+    JOIN users u ON u.id = t.user_id
+    JOIN aliexpress_products p ON p.product_id = t.product_id
+    WHERE t.product_id = ${productId}
+      AND t.alert_enabled = TRUE
+      AND t.threshold_price IS NOT NULL
+  `);
+
+  const siteUrl = process.env.SITE_URL ?? 'http://localhost:3000';
+  let sent = 0;
+
+  for (const r of rows.rows as any[]) {
+    const threshold = Number(r.thresholdPrice);
+    const already   = r.notifiedAt !== null;
+
+    // Re-arm path: price climbed back above the threshold (with buffer).
+    // Reset the dedupe so the next dip alerts again.
+    if (already && currentPrice >= threshold * ALERT_REARM_FACTOR) {
+      await db.execute(sql`
+        UPDATE aliexpress_user_tracks
+        SET notified_at = NULL
+        WHERE user_id = ${r.userId} AND product_id = ${productId}
+      `);
+      continue;
+    }
+
+    if (already || currentPrice > threshold) continue;
+
+    // ── Alert fires ──────────────────────────────────────────────────────
+    const targetUrl  = r.promotionUrl || r.productUrl;
+    const historyUrl = `${siteUrl}/ae/${productId}`;
+
+    if (r.email) {
+      try {
+        await sendPriceAlert({
+          to:               r.email,
+          productName:      r.title,
+          productUrl:       targetUrl,
+          imageUrl:         r.imageUrl,
+          currentPrice,
+          thresholdPrice:   threshold,
+          currency:         r.currency,
+          marketplace:      'aliexpress',
+          historyUrl,
+        });
+      } catch (e) { console.error(`[ae-alert] email failed for user ${r.userId}: ${(e as Error).message}`); }
+    }
+
+    if (r.telegramChatId) {
+      try {
+        await sendTelegramAlert({
+          chatId:         r.telegramChatId,
+          productName:    r.title,
+          productUrl:     targetUrl,
+          currentPrice,
+          thresholdLabel: `< ${threshold.toFixed(2)} ${r.currency === 'EUR' ? '€' : r.currency}`,
+          currency:       r.currency,
+          marketplace:    'aliexpress',
+          historyUrl,
+        });
+      } catch (e) { console.error(`[ae-alert] telegram failed for user ${r.userId}: ${(e as Error).message}`); }
+    }
+
+    await db.execute(sql`
+      UPDATE aliexpress_user_tracks
+      SET notified_at = NOW()
+      WHERE user_id = ${r.userId} AND product_id = ${productId}
+    `);
+    sent++;
+  }
+
+  return sent;
+}
+
+/**
  * Refresh every distinct tracked AE product. Sequential to respect the
  * per-app rate limit. Returns a summary for logging.
  */
 export async function refreshAllAETracks(client: AliExpressClient): Promise<{
-  totalProducts: number; refreshed: number; failed: number; skippedSimilars: number;
+  totalProducts: number; refreshed: number; failed: number; skippedSimilars: number; alertsSent: number;
 }> {
   const productIds = await db.execute(sql`
     SELECT DISTINCT product_id FROM aliexpress_user_tracks
   `);
   const ids = (productIds.rows as Array<{ product_id: string }>).map(r => r.product_id);
 
-  let refreshed = 0, failed = 0, skippedSimilars = 0;
+  let refreshed = 0, failed = 0, skippedSimilars = 0, alertsSent = 0;
   for (const productId of ids) {
     try {
       const master = await refreshAEProduct(client, productId);
       if (!master) { failed++; continue; }
       refreshed++;
+      alertsSent += await processAEPriceAlerts(productId, master.salePrice);
       await sleep(PER_REQUEST_SLEEP_MS);
       const n = await refreshSimilars(client, master);
       if (n === 0) skippedSimilars++;
@@ -141,9 +242,6 @@ export async function refreshAllAETracks(client: AliExpressClient): Promise<{
       failed++;
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[ae-refresh] product ${productId} failed: ${msg}`);
-      // Permission errors mean smartmatch/hotproduct perms not granted yet.
-      // Stop the loop only on a permission error so we don't spam the same
-      // failure for every tracked product.
       if (err instanceof AliExpressPermissionError) {
         console.warn('[ae-refresh] permission error — aborting batch');
         break;
@@ -151,7 +249,7 @@ export async function refreshAllAETracks(client: AliExpressClient): Promise<{
     }
   }
 
-  return { totalProducts: ids.length, refreshed, failed, skippedSimilars };
+  return { totalProducts: ids.length, refreshed, failed, skippedSimilars, alertsSent };
 }
 
 /** Wire the 8h cron. Skips entirely when no AE client is configured. */

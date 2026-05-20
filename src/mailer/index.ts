@@ -38,6 +38,11 @@ export interface PriceAlertOptions {
   thresholdPrice: number;
   imageUrl?: string | null;
   currency?: string;
+  /** Marketplace label on the CTA button. Default 'amazon'. */
+  marketplace?: 'amazon' | 'aliexpress';
+  /** Override the in-app "Ver historial" URL — used by AE since it uses
+      /ae/:productId instead of /products/:numericId. */
+  historyUrl?: string;
 }
 
 export async function sendPriceAlert(opts: PriceAlertOptions): Promise<void> {
@@ -50,8 +55,13 @@ export async function sendPriceAlert(opts: PriceAlertOptions): Promise<void> {
   const transporter = createTransporter();
   const currencySymbol = opts.currency === 'EUR' ? '€' : opts.currency ?? '€';
   const siteUrl = process.env.SITE_URL ?? 'http://localhost:3000';
-  const historyUrl = opts.productId ? `${siteUrl}/products/${opts.productId}?utm_source=email` : `${siteUrl}?utm_source=email`;
+  const historyUrl = opts.historyUrl
+    ? `${opts.historyUrl}${opts.historyUrl.includes('?') ? '&' : '?'}utm_source=email`
+    : opts.productId
+      ? `${siteUrl}/products/${opts.productId}?utm_source=email`
+      : `${siteUrl}?utm_source=email`;
   const accountUrl = `${siteUrl}/account?utm_source=email`;
+  const ctaLabel = opts.marketplace === 'aliexpress' ? 'Ver producto en AliExpress ↗' : 'Ver producto en Amazon ↗';
 
   const hasDrop = !!opts.previousPrice && opts.previousPrice > opts.currentPrice;
   const absDrop = hasDrop ? opts.previousPrice! - opts.currentPrice : 0;
@@ -106,8 +116,8 @@ export async function sendPriceAlert(opts: PriceAlertOptions): Promise<void> {
       </div>
 
       <a href="${opts.productUrl}"
-         style="display:block; background:#e63946; color:#fff; text-decoration:none; text-align:center; padding:14px 24px; border-radius:8px; font-weight:600; font-size:15px; margin-bottom:12px;">
-        Ver producto en Amazon ↗
+         style="display:block; background:${opts.marketplace === 'aliexpress' ? '#e62e04' : '#00a8e1'}; color:#fff; text-decoration:none; text-align:center; padding:14px 24px; border-radius:8px; font-weight:600; font-size:15px; margin-bottom:12px;">
+        ${ctaLabel}
       </a>
 
       <a href="${historyUrl}"
