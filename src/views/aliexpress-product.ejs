@@ -101,7 +101,7 @@
        Amazon-blue affiliate button. -->
   <div class="cta-bar">
     <a href="<%= product.promotionUrl || product.productUrl %>" target="_blank" rel="noopener sponsored" class="btn btn-aliexpress">
-      Comprar en AliExpress — <%= product.salePrice ? product.salePrice.toFixed(2) + ' €' : 'Ver precio' %>
+      Comprar en AliExpress<span class="cta-price"> — <%= product.salePrice ? product.salePrice.toFixed(2) + ' €' : 'Ver precio' %></span>
     </a>
     <% if (!isLogged) { %>
       <a href="/auth/register?next=<%= encodeURIComponent('/ae/' + product.productId) %>" class="btn btn-outline">

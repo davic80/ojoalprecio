@@ -1113,16 +1113,20 @@ body:has(.bottom-nav) {
     flex: 1;
     min-width: 0;
     min-height: 44px;
-    /* Override the global .btn `white-space: nowrap` so long labels like
-       "Comprar en Amazon.es — 329.99 €" can break onto a second line
-       inside a 175 px flex slot instead of being clipped on both sides.
-       line-height tightened so the two-row case still looks compact. */
+    /* Defensive: even with .cta-price hidden, allow wrap so a long
+       label in a future change can't clip again. line-height tight
+       so the two-row case (if it ever happens) stays compact. */
     white-space: normal;
     line-height: 1.15;
-    font-size: var(--fs-base);
-    padding: 6px 10px;
+    font-size: var(--fs-md);
+    padding: 8px 10px;
     text-align: center;
   }
+  /* Price segment of the CTA — already shown prominently in the
+     "Precio actual" card above. Hide it on phones so the button
+     label stays one line ("Comprar en Amazon.es") instead of being
+     truncated mid-word in a 175 px flex slot. */
+  .cta-bar .cta-price { display: none; }
   /* Add extra bottom space on the product page so the last lines of
      content aren't hidden behind the stacked sticky CTA + bottom-nav.
      Roughly 60px CTA + bottom-nav-h already added by body:has(.bottom-nav). */

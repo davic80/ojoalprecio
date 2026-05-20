@@ -97,7 +97,7 @@
   <!-- CTA bar -->
   <div class="cta-bar">
     <a href="<%= product.amazonUrl %>" target="_blank" rel="noopener sponsored" class="btn btn-amazon">
-      Comprar en Amazon.es — <%= currentPrice ? currentPrice.toFixed(2) + ' €' : 'Ver precio' %>
+      Comprar en Amazon.es<span class="cta-price"> — <%= currentPrice ? currentPrice.toFixed(2) + ' €' : 'Ver precio' %></span>
     </a>
     <% if (!isLogged) { %>
       <a href="/auth/register?next=<%= encodeURIComponent('/p/' + product.asin) %>&intent=alert" class="btn btn-outline">
