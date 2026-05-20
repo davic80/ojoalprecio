@@ -113,6 +113,21 @@
     <% } %>
   </div>
 
+  <%# Manual cross-marketplace search. Always visible (independent of the
+     auto-banner above) so users have agency even when discovery hasn't
+     run yet or eligibility didn't clear. Uses the existing /search
+     endpoint with the AE-only filter; brand+model is extracted server-
+     side with the same heuristic the auto-discovery uses, so results
+     are tightly scoped. -%>
+  <% if (typeof aeSearchKeywords !== 'undefined' && aeSearchKeywords) { %>
+    <a href="/search?q=<%= encodeURIComponent(aeSearchKeywords) %>&marketplace=aliexpress"
+       class="btn btn-outline ae-search-cta"
+       style="margin:0 0 var(--sp-4); width:100%; gap:var(--sp-2)">
+      <span style="font-size:18px">🔍</span>
+      Buscar este producto en AliExpress
+    </a>
+  <% } %>
+
   <!-- Otras variantes (twister) -->
   <% if (typeof variants !== 'undefined' && variants && variants.length) { %>
     <div class="card" style="margin-top:20px">

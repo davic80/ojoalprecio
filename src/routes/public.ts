@@ -5,7 +5,7 @@ import { eq, desc, sql, and, asc, inArray } from 'drizzle-orm';
 import { affiliateUrl } from '../scraper/amazon';
 import { isAdmin } from '../middleware/admin';
 import { onScrapeUpdate } from '../lib/product-events';
-import { getAliExpressClient, discoverAndPersistEquivalent } from '../marketplaces/aliexpress';
+import { getAliExpressClient, discoverAndPersistEquivalent, extractBrandModel } from '../marketplaces/aliexpress';
 
 const router = Router();
 
@@ -16,19 +16,21 @@ const router = Router();
 // discovery. Empty query renders the input but no results.
 router.get('/search', async (req: Request, res: Response) => {
   const q       = String(req.query.q ?? '').trim();
+  const mp      = String(req.query.marketplace ?? '').toLowerCase();
+  const marketplace: 'amazon' | 'aliexpress' | 'all' =
+    mp === 'amazon' || mp === 'aliexpress' ? mp : 'all';
   const page    = Math.max(1, parseInt(String(req.query.page ?? '1'), 10));
   const perPage = 24;
   const offset  = (page - 1) * perPage;
 
   let amazonRows: any[] = [];
   let aeRows: any[]     = [];
-  let totalCount        = 0;
 
   if (q.length >= 2) {
     const pattern = '%' + q.replace(/[%_]/g, m => '\\' + m) + '%';
     // Amazon side: only public-eligible products (is_active + is_available)
     // so we never surface stale / blacklisted catalog entries to anons.
-    const az = await db.execute(sql`
+    const az = marketplace === 'aliexpress' ? { rows: [] } : await db.execute(sql`
       SELECT
         'amazon'              AS marketplace,
         p.id::text            AS "id",
@@ -47,7 +49,7 @@ router.get('/search', async (req: Request, res: Response) => {
     `);
     amazonRows = az.rows as any[];
 
-    const ae = await db.execute(sql`
+    const ae = marketplace === 'amazon' ? { rows: [] } : await db.execute(sql`
       SELECT
         'aliexpress'          AS marketplace,
         p.product_id          AS "id",
@@ -64,8 +66,6 @@ router.get('/search', async (req: Request, res: Response) => {
         AND p.title ILIKE ${pattern} ESCAPE '\\'
     `);
     aeRows = ae.rows as any[];
-
-    totalCount = amazonRows.length + aeRows.length;
   }
 
   // Merge + sort: deal_score / discount_pct desc, NULL last, then alpha.
@@ -83,6 +83,7 @@ router.get('/search', async (req: Request, res: Response) => {
     user:       req.session.userId ? { email: req.session.userEmail } : null,
     isAdmin:    isAdmin(req),
     q,
+    marketplace,
     results:    paged,
     page,
     totalPages,
@@ -389,6 +390,7 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
     viewCount,
     variants: variantsView,
     aeEquivalent,
+    aeSearchKeywords: productView.name ? extractBrandModel(productView.name) : '',
   });
 });
 
