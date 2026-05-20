@@ -82,23 +82,49 @@ describe('Amazon affiliates CSV parser', () => {
     expect(rows.length).toBe(1);
   });
 
-  it('skips rows missing date or tracking and reports them', () => {
+  it('skips only rows missing the required date; tracking defaults to "default"', () => {
     const csv = [
       'Date,Tracking ID,Earnings',
-      ',canidrone-21,1.00',           // missing date
-      '2026-05-20,,1.00',              // missing tracking
+      ',canidrone-21,1.00',           // missing date → skipped
+      '2026-05-20,,1.00',              // missing tracking → goes through as 'default'
       '2026-05-20,canidrone-21,1.00',  // good
     ].join('\n');
     const { rows, errors } = parseAmazonCsv(csv);
-    expect(rows.length).toBe(1);
-    expect(errors.length).toBe(2);
+    expect(rows.length).toBe(2);  // 1 missing-date skipped, 2 kept
+    expect(errors.length).toBe(1);
+    const fallback = rows.find(r => r.trackingId === 'default');
+    expect(fallback).toBeDefined();
   });
 
-  it('returns a helpful error when the minimum columns are missing', () => {
+  it('returns a helpful error when no date column is found', () => {
     const csv = 'foo,bar\nx,y';
     const { rows, errors } = parseAmazonCsv(csv);
     expect(rows.length).toBe(0);
-    expect(errors[0]).toMatch(/columnas mínimas/);
+    expect(errors[0]).toMatch(/columna de fecha/);
+  });
+
+  it('falls back trackingId to "default" when the column is missing', () => {
+    // Amazon "Linked Products" / "Categories" reports omit Tracking ID
+    // when the account has a single tracking — every row attributes to the
+    // same default tracking.
+    const csv = [
+      'Date,Category,Product Title,Asin,Clicks,Items Ordered,Total Earnings',
+      '2026-05-19,others,others,others,230,13,884.13',
+      '2026-05-19,electronics,Sony WH-1000XM5,B09Y2KZP1G,40,2,12.50',
+    ].join('\n');
+    const { rows, errors } = parseAmazonCsv(csv);
+    expect(errors).toEqual([]);
+    expect(rows.length).toBe(2);
+    // The aggregate "others" row maps to '*' sentinel + default tracking
+    expect(rows[0].trackingId).toBe('default');
+    expect(rows[0].asin).toBe('*');
+    expect(rows[0].clicks).toBe(230);
+    expect(rows[0].itemsOrdered).toBe(13);
+    expect(rows[0].earnings).toBe(884.13);
+    // The real ASIN row goes through unchanged with default tracking
+    expect(rows[1].trackingId).toBe('default');
+    expect(rows[1].asin).toBe('B09Y2KZP1G');
+    expect(rows[1].earnings).toBe(12.5);
   });
 
   it('handles negative earnings (returns/adjustments)', () => {

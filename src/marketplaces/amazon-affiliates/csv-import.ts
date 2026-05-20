@@ -187,11 +187,17 @@ export function parseAmazonCsv(csv: string): { rows: ParsedRow[]; errors: string
   if (records.length === 0) return { rows: [], errors: ['CSV vacío o cabecera no detectada.'], headerMap: {} };
 
   const headerMap = buildHeaderMap(Object.keys(records[0]));
-  if (!Object.values(headerMap).includes('day') || !Object.values(headerMap).includes('trackingId')) {
+  // Tracking ID is OPTIONAL — Amazon omits the column on single-tracking
+  // exports (and on aggregate reports like Categories or Linked-Product
+  // totals). When missing we attribute everything to a 'default' sentinel
+  // so the composite PK still bites and re-uploads UPSERT correctly.
+  // Date is the only truly required column — without it nothing can be
+  // keyed.
+  if (!Object.values(headerMap).includes('day')) {
     return {
       rows: [],
       errors: [
-        `No encuentro las columnas mínimas (Date + Tracking ID). Cabeceras detectadas: ${Object.keys(records[0]).join(' | ')}`,
+        `No encuentro la columna de fecha (Date / Fecha / Día). Cabeceras detectadas: ${Object.keys(records[0]).join(' | ')}`,
       ],
       headerMap,
     };
@@ -210,13 +216,19 @@ export function parseAmazonCsv(csv: string): { rows: ParsedRow[]; errors: string
     };
 
     const day = parseDate(get('day') ?? '');
-    const trackingId = String(get('trackingId') ?? '').trim();
-    if (!day || !trackingId) {
-      if (errors.length < 5) errors.push(`Fila ${i + 2}: falta fecha o tracking id (${JSON.stringify(r).slice(0, 100)}…)`);
+    if (!day) {
+      if (errors.length < 5) errors.push(`Fila ${i + 2}: falta fecha (${JSON.stringify(r).slice(0, 100)}…)`);
       continue;
     }
+    // Tracking ID falls back to 'default' when missing — see header check above.
+    const trackingId = String(get('trackingId') ?? '').trim() || 'default';
 
-    const asin = String(get('asin') ?? '').trim().toUpperCase() || '*';
+    // Amazon's Linked-Product Total row uses the string 'others' as a
+    // placeholder in the ASIN column for the aggregate sum line. Map it
+    // to our '*' sentinel so the PK stays distinct from real ASINs.
+    let asinRaw = String(get('asin') ?? '').trim().toUpperCase();
+    if (!asinRaw || asinRaw === 'OTHERS' || asinRaw === 'OTROS' || asinRaw === '-') asinRaw = '*';
+    const asin = asinRaw;
 
     rows.push({
       trackingId,
