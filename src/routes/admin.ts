@@ -8,6 +8,8 @@ import { requireAdmin } from '../middleware/admin';
 import { scrapeUrlForAsins, extractAsin, normaliseAmazonUrl } from '../scraper/amazon';
 import { getScraperStatus, triggerScrape } from '../scheduler';
 import { getBestUnpostedDeal, postDailyDeal, POST_HOURS } from '../scheduler/social';
+import { refreshAllAETracks, refreshAEEquivalents } from '../scheduler/aliexpress';
+import { getAliExpressClient } from '../marketplaces/aliexpress';
 import { getAllSettings, setSetting } from '../db/settings';
 
 const SYSTEM_EMAIL = 'system@ojoalprecio.local';
@@ -1004,6 +1006,87 @@ router.post('/admin/settings/:key', requireAuth, requireAdmin, async (req: Reque
     return res.send(`<span class="setting-saved" id="saved-${key}">✓ Guardado</span>`);
   }
   res.redirect('/admin/settings');
+});
+
+// ── GET /admin/aliexpress — AliExpress integration dashboard ─────────────────
+router.get('/admin/aliexpress', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const stats = await db.execute(sql`
+    SELECT
+      (SELECT COUNT(*)::int FROM aliexpress_products)                                    AS "totalAEProducts",
+      (SELECT COUNT(*)::int FROM aliexpress_user_tracks)                                 AS "totalAETracks",
+      (SELECT COUNT(DISTINCT product_id)::int FROM aliexpress_user_tracks)               AS "trackedUniqueProducts",
+      (SELECT COUNT(*)::int FROM aliexpress_similars)                                    AS "totalSimilarEdges",
+      (SELECT COUNT(*)::int FROM amazon_ae_equivalents)                                  AS "totalEquivalentsChecked",
+      (SELECT COUNT(*)::int FROM amazon_ae_equivalents WHERE is_eligible = TRUE)         AS "totalEligibleEquivalents",
+      (SELECT MAX(last_fetched_at) FROM aliexpress_products)                             AS "lastAEFetch",
+      (SELECT MAX(checked_at)      FROM amazon_ae_equivalents)                           AS "lastEquivalentCheck",
+      (SELECT MAX(scraped_at)      FROM aliexpress_price_history)                        AS "lastPriceTick"
+  `);
+  const row = stats.rows[0] as any;
+
+  // Top equivalents currently surfaced as banners — sanity-check what users actually see
+  const topEquivalentsRes = await db.execute(sql`
+    SELECT
+      e.amazon_product_id        AS "amazonId",
+      p.asin                     AS "amazonAsin",
+      p.name                     AS "amazonName",
+      e.amazon_price_snapshot::float AS "amazonPrice",
+      e.ae_product_id            AS "aeId",
+      ae.title                   AS "aeTitle",
+      e.ae_price_snapshot::float AS "aePrice",
+      e.pct_cheaper::float       AS "pctCheaper",
+      e.text_score::float        AS "textScore",
+      e.checked_at               AS "checkedAt"
+    FROM amazon_ae_equivalents e
+    JOIN products p ON p.id = e.amazon_product_id
+    LEFT JOIN aliexpress_products ae ON ae.product_id = e.ae_product_id
+    WHERE e.is_eligible = TRUE
+    ORDER BY e.pct_cheaper DESC NULLS LAST
+    LIMIT 20
+  `);
+
+  const aeConfigured = getAliExpressClient() !== null;
+
+  res.render('admin-aliexpress', {
+    user: { email: req.session.userEmail },
+    stats: row,
+    topEquivalents: topEquivalentsRes.rows,
+    aeConfigured,
+  });
+});
+
+// ── POST /admin/aliexpress/refresh-now — manual cron trigger ─────────────────
+// Skips the wait for the next 8h tick. Fires-and-logs in the background so
+// the request returns immediately — refresh of the full catalog can take
+// minutes.
+router.post('/admin/aliexpress/refresh-now', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const client = getAliExpressClient();
+  if (!client) {
+    return res.status(503).json({ error: 'La integración con AliExpress no está configurada.' });
+  }
+  // Fire-and-forget; admin can refresh the dashboard to see updated stats.
+  void (async () => {
+    const started = Date.now();
+    console.log('[ae-admin] manual refresh triggered');
+    try {
+      const t = await refreshAllAETracks(client);
+      const e = await refreshAEEquivalents(client);
+      const ms = Date.now() - started;
+      console.log(
+        `[ae-admin] manual refresh done in ${(ms / 1000).toFixed(1)}s — ` +
+        `tracks: ${t.refreshed}/${t.totalProducts} (${t.alertsSent} alerts); ` +
+        `equivalents: ${e.updated}/${e.candidates} (${e.eligible} eligible).`
+      );
+    } catch (err) {
+      console.error('[ae-admin] manual refresh failed:', err);
+    }
+  })();
+
+  if (req.headers['hx-request']) {
+    res.setHeader('HX-Redirect', '/admin/aliexpress?refresh=started');
+    return res.status(200).send('');
+  }
+  res.redirect('/admin/aliexpress?refresh=started');
 });
 
 export default router;

@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AliExpress — Admin OjoAlPrecio</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<%- include('partials/navbar-admin', { user, activePage: 'aliexpress' }) %>
+
+<main class="container">
+
+  <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);flex-wrap:wrap">
+    <div>
+      <h1>AliExpress</h1>
+      <p class="subtitle">
+        Integración con la API de afiliados. Refresco automático cada 8h (Madrid TZ, a las :05).
+        <% if (!aeConfigured) { %>
+          <strong style="color:var(--red)">⚠ Sin configurar — ALIEXPRESS_APP_KEY / _SECRET / _TRACKING_ID faltan en el entorno.</strong>
+        <% } %>
+      </p>
+    </div>
+    <% if (aeConfigured) { %>
+      <form method="POST" action="/admin/aliexpress/refresh-now">
+        <button type="submit" class="btn btn-outline" onclick="return confirm('Disparar refresh ahora? Puede tardar varios minutos.')">↻ Refrescar ahora</button>
+      </form>
+    <% } %>
+  </div>
+
+  <% if (typeof refresh !== 'undefined' || (typeof url !== 'undefined' && /refresh=started/.test(url))) { /* ignore — placeholder */ } %>
+  <% if (typeof query !== 'undefined') { /* no-op */ } %>
+
+  <!-- Stats overview -->
+  <div class="stats-bar" style="margin-bottom:var(--sp-4)">
+    <div class="stat-pill">
+      <span class="stat-pill-value"><%= stats.totalAEProducts %></span>
+      <span class="stat-pill-label">productos AE en catálogo</span>
+    </div>
+    <div class="stat-pill stat-pill-green">
+      <span class="stat-pill-value"><%= stats.totalAETracks %></span>
+      <span class="stat-pill-label">follows de usuario</span>
+    </div>
+    <div class="stat-pill">
+      <span class="stat-pill-value"><%= stats.trackedUniqueProducts %></span>
+      <span class="stat-pill-label">productos únicos seguidos</span>
+    </div>
+    <div class="stat-pill">
+      <span class="stat-pill-value"><%= stats.totalSimilarEdges %></span>
+      <span class="stat-pill-label">edges de similares</span>
+    </div>
+  </div>
+
+  <!-- Cross-marketplace -->
+  <div class="card">
+    <h2>Cross-marketplace (Amazon → AliExpress)</h2>
+    <p class="subtitle">Cuando un usuario visita <code>/p/:asin</code> de Amazon mostramos un banner con el equivalente AE si pasa los gates (texto ≥0.4, ≥10% más barato).</p>
+
+    <div class="stats-bar" style="margin-top:var(--sp-3)">
+      <div class="stat-pill">
+        <span class="stat-pill-value"><%= stats.totalEquivalentsChecked %></span>
+        <span class="stat-pill-label">productos Amazon revisados</span>
+      </div>
+      <div class="stat-pill stat-pill-green">
+        <span class="stat-pill-value"><%= stats.totalEligibleEquivalents %></span>
+        <span class="stat-pill-label">con equivalente elegible</span>
+      </div>
+      <% const matchRate = stats.totalEquivalentsChecked > 0
+           ? (stats.totalEligibleEquivalents / stats.totalEquivalentsChecked * 100)
+           : 0; %>
+      <div class="stat-pill <%= matchRate >= 25 ? 'stat-pill-green' : 'stat-pill-warn' %>">
+        <span class="stat-pill-value"><%= matchRate.toFixed(1) %>%</span>
+        <span class="stat-pill-label">match rate</span>
+      </div>
+    </div>
+
+    <p class="hint" style="margin-top:var(--sp-3)">
+      Último refresh de equivalentes:
+      <strong><%= stats.lastEquivalentCheck ? new Date(stats.lastEquivalentCheck).toLocaleString('es-ES') : 'nunca' %></strong>
+      &nbsp;·&nbsp; Último fetch de producto AE:
+      <strong><%= stats.lastAEFetch ? new Date(stats.lastAEFetch).toLocaleString('es-ES') : 'nunca' %></strong>
+    </p>
+  </div>
+
+  <!-- Top equivalents -->
+  <% if (topEquivalents.length > 0) { %>
+    <div class="card">
+      <h2>Top equivalentes elegibles (por % más barato)</h2>
+      <div class="table-wrap">
+        <table class="price-table table-card-mobile">
+          <thead>
+            <tr>
+              <th>Producto Amazon</th>
+              <th>Equivalente AliExpress</th>
+              <th style="text-align:right">Amazon</th>
+              <th style="text-align:right">AliExpress</th>
+              <th style="text-align:right">% más barato</th>
+              <th style="text-align:right">Score</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% topEquivalents.forEach(function(e) { %>
+              <tr>
+                <td data-label="Amazon">
+                  <a href="/p/<%= e.amazonAsin %>" style="font-size:13px"><%= (e.amazonName || '').slice(0, 50) %><%= (e.amazonName || '').length > 50 ? '…' : '' %></a>
+                </td>
+                <td data-label="AliExpress">
+                  <a href="/ae/<%= e.aeId %>" style="font-size:13px"><%= (e.aeTitle || '').slice(0, 50) %><%= (e.aeTitle || '').length > 50 ? '…' : '' %></a>
+                </td>
+                <td data-label="Amazon precio" style="text-align:right;font-variant-numeric:tabular-nums"><%= e.amazonPrice ? e.amazonPrice.toFixed(2) + ' €' : '—' %></td>
+                <td data-label="AliExpress precio" style="text-align:right;font-variant-numeric:tabular-nums"><%= e.aePrice ? e.aePrice.toFixed(2) + ' €' : '—' %></td>
+                <td data-label="% barato" style="text-align:right;color:var(--aliexpress);font-weight:600;font-variant-numeric:tabular-nums"><%= e.pctCheaper !== null ? e.pctCheaper.toFixed(1) + '%' : '—' %></td>
+                <td data-label="Score" style="text-align:right;color:var(--gray-500);font-variant-numeric:tabular-nums"><%= e.textScore !== null ? e.textScore.toFixed(2) : '—' %></td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  <% } %>
+
+</main>
+
+<%- include('partials/footer-admin') %>
+
+</body>
+</html>

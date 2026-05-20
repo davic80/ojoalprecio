@@ -12,6 +12,7 @@ import {
 import type { AliExpressProduct, SimilarSource } from '../marketplaces/aliexpress/types';
 import { sendPriceAlert } from '../mailer';
 import { sendTelegramAlert } from '../mailer/telegram';
+import { discoverAndPersistEquivalent } from '../marketplaces/aliexpress/equivalents';
 
 /**
  * 8-hour refresh job for tracked AliExpress products.
@@ -252,6 +253,67 @@ export async function refreshAllAETracks(client: AliExpressClient): Promise<{
   return { totalProducts: ids.length, refreshed, failed, skippedSimilars, alertsSent };
 }
 
+/**
+ * Background refresh of cross-marketplace equivalents (Amazon → AE).
+ *
+ * Candidate selection: only Amazon products that are "interesting" enough
+ * to warrant API budget — i.e. someone follows them OR they were viewed
+ * in the last 7 days. We further filter to entries whose cached
+ * equivalent is missing or stale (>24h). Capped per cycle to respect
+ * AE's per-app rate limit; with 250ms pacing the cap × 0.25 s ≈ 12.5 s
+ * of API time per run, well inside the 8-h cron budget.
+ */
+const EQUIVALENTS_BATCH_CAP = 50;
+
+export async function refreshAEEquivalents(client: AliExpressClient): Promise<{
+  candidates: number; updated: number; eligible: number; failed: number;
+}> {
+  const rows = await db.execute(sql`
+    WITH popular AS (
+      SELECT DISTINCT
+        p.id,
+        p.name,
+        (SELECT ph.price::float FROM price_history ph
+          WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1) AS current_price
+      FROM products p
+      WHERE p.is_active = TRUE
+        AND p.is_available = TRUE
+        AND p.name IS NOT NULL
+        AND (
+          EXISTS (SELECT 1 FROM user_products up WHERE up.product_id = p.id)
+          OR EXISTS (
+            SELECT 1 FROM page_views pv
+            WHERE pv.path = '/p/' || p.asin
+              AND pv.day >= TO_CHAR(NOW() - INTERVAL '7 days', 'YYYY-MM-DD')
+          )
+        )
+    )
+    SELECT pop.id, pop.name, pop.current_price AS "currentPrice"
+    FROM popular pop
+    LEFT JOIN amazon_ae_equivalents e ON e.amazon_product_id = pop.id
+    WHERE pop.current_price IS NOT NULL
+      AND (e.checked_at IS NULL OR e.checked_at < NOW() - INTERVAL '24 hours')
+    ORDER BY e.checked_at NULLS FIRST   -- never-checked first, then oldest
+    LIMIT ${EQUIVALENTS_BATCH_CAP}
+  `);
+
+  const candidates = rows.rows as Array<{ id: number; name: string; currentPrice: number }>;
+  let updated = 0, eligible = 0, failed = 0;
+  for (const c of candidates) {
+    try {
+      const r = await discoverAndPersistEquivalent(client, c.id, { title: c.name, price: Number(c.currentPrice) });
+      updated++;
+      if (r?.isEligible) eligible++;
+      await sleep(PER_REQUEST_SLEEP_MS);
+    } catch (err) {
+      failed++;
+      console.error(`[ae-equivalents] product ${c.id} failed: ${(err as Error).message}`);
+      if (err instanceof AliExpressPermissionError) break;
+    }
+  }
+  return { candidates: candidates.length, updated, eligible, failed };
+}
+
 /** Wire the 8h cron. Skips entirely when no AE client is configured. */
 export function startAliExpressScheduler(): void {
   const client = getAliExpressClient();
@@ -265,9 +327,14 @@ export function startAliExpressScheduler(): void {
     const started = Date.now();
     console.log('[ae-scheduler] starting 8h refresh…');
     try {
-      const r = await refreshAllAETracks(client);
+      const tracksResult = await refreshAllAETracks(client);
+      const eqResult     = await refreshAEEquivalents(client);
       const ms = Date.now() - started;
-      console.log(`[ae-scheduler] done in ${(ms / 1000).toFixed(1)}s — ${r.refreshed}/${r.totalProducts} refreshed, ${r.failed} failed, similars skipped on ${r.skippedSimilars}.`);
+      console.log(
+        `[ae-scheduler] done in ${(ms / 1000).toFixed(1)}s — ` +
+        `tracks: ${tracksResult.refreshed}/${tracksResult.totalProducts} refreshed, ${tracksResult.failed} failed, ${tracksResult.alertsSent} alerts; ` +
+        `equivalents: ${eqResult.updated}/${eqResult.candidates} updated (${eqResult.eligible} eligible, ${eqResult.failed} failed).`
+      );
     } catch (err) {
       console.error('[ae-scheduler] uncaught:', err);
     }

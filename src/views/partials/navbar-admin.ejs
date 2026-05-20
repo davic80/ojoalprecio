@@ -3,7 +3,8 @@
   //   user        : { email }                            (required)
   //   activePage  : 'categories' | 'deals' | 'social'
   //               | 'stats' | 'users' | 'alerts'
-  //               | 'anomalies' | 'settings'             (optional)
+  //               | 'anomalies' | 'aliexpress'
+  //               | 'settings'                           (optional)
   //   showHubLink : boolean — render leading "/admin"    (optional, anomalies)
   const _ap = typeof activePage !== 'undefined' ? activePage : null;
   const _ac = (p) => 'nav-link' + (_ap === p ? ' nav-link-active' : '');
@@ -25,6 +26,7 @@ _%>
     <a href="/admin/users" class="<%= _ac('users') %>">Usuarios</a>
     <a href="/admin/alerts" class="<%= _ac('alerts') %>">Alertas</a>
     <a href="/admin/anomalies" class="<%= _ac('anomalies') %>">Anomalías</a>
+    <a href="/admin/aliexpress" class="<%= _ac('aliexpress') %>">AliExpress</a>
     <a href="/admin/settings" class="<%= _ac('settings') %>">Ajustes</a>
     <span id="scrape-widget" style="position:relative;margin-right:4px"></span>
     <a href="/account" class="user-email user-email-link"><%= user.email %></a>
