@@ -140,3 +140,62 @@ describe('GET /ae/r/:amazonProductId — nudge click tracking', () => {
     } finally { await close(); }
   });
 });
+
+describe('GET /ae/s/:amazonProductId — manual search click tracking', () => {
+  beforeEach(resetDb);
+
+  it('302s to /search with extracted keywords and logs a search-source click', async () => {
+    // Title that should yield "Baofeng BF-88E walkie talkie" as keywords
+    // via extractBrandModel.
+    await pool.query(`INSERT INTO users (email, password_hash) VALUES ('owner@x.local', 'x') ON CONFLICT DO NOTHING`);
+    const u = await pool.query(`SELECT id FROM users WHERE email = 'owner@x.local'`);
+    await pool.query(
+      `INSERT INTO products (id, created_by_user_id, asin, url, name) VALUES (100, $1, 'B00SRC0001', 'https://amazon.es/dp/X', 'Baofeng BF-88E Pro walkie talkie UHF 400-470MHz') ON CONFLICT DO NOTHING`,
+      [u.rows[0].id],
+    );
+
+    const { url, close } = await listen(buildTestApp(null));
+    try {
+      const res = await fetch(`${url}/ae/s/100`, { redirect: 'manual', headers: { 'User-Agent': 'SearchAgent/1.0' } });
+      expect(res.status).toBe(302);
+      const loc = res.headers.get('location') ?? '';
+      expect(loc).toContain('/search?');
+      expect(loc).toContain('marketplace=aliexpress');
+      // "Pro" is stripped as an AE stopword, so we expect Baofeng/BF-88E/walkie/talkie
+      expect(decodeURIComponent(loc)).toMatch(/Baofeng/i);
+      expect(decodeURIComponent(loc)).toMatch(/BF-88E/i);
+    } finally { await close(); }
+
+    await new Promise(r => setTimeout(r, 50));
+    const click = await pool.query(`SELECT source, ae_product_id, user_agent FROM ae_nudge_clicks WHERE amazon_product_id = 100`);
+    expect(click.rows.length).toBe(1);
+    expect(click.rows[0].source).toBe('search');
+    expect(click.rows[0].ae_product_id).toBeNull();   // no specific AE candidate
+    expect(click.rows[0].user_agent).toBe('SearchAgent/1.0');
+  });
+
+  it('404s when the Amazon product does not exist', async () => {
+    const { url, close } = await listen(buildTestApp(null));
+    try {
+      const res = await fetch(`${url}/ae/s/999999`, { redirect: 'manual' });
+      expect(res.status).toBe(404);
+    } finally { await close(); }
+  });
+
+  it('falls back to bare /search?marketplace=aliexpress when title yields no keywords', async () => {
+    // Title made entirely of single-char tokens — extractBrandModel returns ""
+    await pool.query(`INSERT INTO users (email, password_hash) VALUES ('o2@x.local', 'x') ON CONFLICT DO NOTHING`);
+    const u = await pool.query(`SELECT id FROM users WHERE email = 'o2@x.local'`);
+    await pool.query(
+      `INSERT INTO products (id, created_by_user_id, asin, url, name) VALUES (101, $1, 'B00SRC0002', 'https://amazon.es/dp/X', 'a b c d') ON CONFLICT DO NOTHING`,
+      [u.rows[0].id],
+    );
+
+    const { url, close } = await listen(buildTestApp(null));
+    try {
+      const res = await fetch(`${url}/ae/s/101`, { redirect: 'manual' });
+      expect(res.status).toBe(302);
+      expect(res.headers.get('location')).toBe('/search?marketplace=aliexpress');
+    } finally { await close(); }
+  });
+});

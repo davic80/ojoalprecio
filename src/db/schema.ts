@@ -282,6 +282,9 @@ export const aeNudgeClicks = pgTable('ae_nudge_clicks', {
   userId:           integer('user_id').references(() => users.id, { onDelete: 'set null' }),
   userAgent:        text('user_agent'),
   referer:          text('referer'),
+  // 'banner'  : auto-nudge on /p/:asin (curated equivalent shown)
+  // 'search'  : manual "Buscar en AliExpress" button on /p/:asin
+  source:           varchar('source', { length: 20 }).default('banner').notNull(),
   clickedAt:        timestamp('clicked_at').defaultNow().notNull(),
 });
 export type AeNudgeClick    = typeof aeNudgeClicks.$inferSelect;

@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm';
 import { db } from '../db/client';
 import { isAdmin } from '../middleware/admin';
 import { requireAuth } from '../middleware/auth';
+import { extractBrandModel } from '../marketplaces/aliexpress';
 
 const router = Router();
 
@@ -39,18 +40,67 @@ router.get('/ae/r/:amazonProductId', async (req: Request, res: Response) => {
   // Fire-and-forget click log. Failures here never block the redirect —
   // the affiliate cookie is the priority; metrics are nice-to-have.
   void db.execute(sql`
-    INSERT INTO ae_nudge_clicks (amazon_product_id, ae_product_id, user_id, user_agent, referer)
+    INSERT INTO ae_nudge_clicks (amazon_product_id, ae_product_id, user_id, user_agent, referer, source)
     VALUES (
       ${id},
       ${eq.aeProductId ?? null},
       ${req.session.userId ?? null},
       ${(req.headers['user-agent'] as string) ?? null},
-      ${(req.headers['referer']    as string) ?? null}
+      ${(req.headers['referer']    as string) ?? null},
+      'banner'
     )
   `).catch((err: unknown) => console.warn(`[ae-nudge-click] log failed: ${(err as Error).message}`));
 
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
   return res.redirect(302, target);
+});
+
+// ── GET /ae/s/:amazonProductId — tracked redirect to AE search ───────────
+// Counterpart to /ae/r for the *manual* "Buscar en AliExpress" button. The
+// button shows on every /p/:asin (not just where eligible match exists),
+// so we want its clicks distinguishable from the curated banner clicks
+// — same table, different `source`. Brand+model keywords are extracted
+// server-side from the product's title (same heuristic the auto-discovery
+// uses) so the keywords stay consistent regardless of what the link
+// happened to encode at render time.
+router.get('/ae/s/:amazonProductId', async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params.amazonProductId), 10);
+  if (!Number.isFinite(id) || id < 1) {
+    return res.status(404).render('404', {
+      user: req.session.userId ? { email: req.session.userEmail } : null,
+    });
+  }
+
+  const productRows = await db.execute(sql`
+    SELECT name FROM products WHERE id = ${id}
+  `);
+  const product = productRows.rows[0] as { name: string | null } | undefined;
+  if (!product?.name) {
+    return res.status(404).render('404', {
+      user: req.session.userId ? { email: req.session.userEmail } : null,
+    });
+  }
+
+  const keywords = extractBrandModel(product.name);
+  if (!keywords) {
+    // Title was all stopwords — nothing meaningful to search. Bounce to
+    // the open search page so the user can refine manually.
+    return res.redirect(302, '/search?marketplace=aliexpress');
+  }
+
+  void db.execute(sql`
+    INSERT INTO ae_nudge_clicks (amazon_product_id, user_id, user_agent, referer, source)
+    VALUES (
+      ${id},
+      ${req.session.userId ?? null},
+      ${(req.headers['user-agent'] as string) ?? null},
+      ${(req.headers['referer']    as string) ?? null},
+      'search'
+    )
+  `).catch((err: unknown) => console.warn(`[ae-search-click] log failed: ${(err as Error).message}`));
+
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  return res.redirect(302, `/search?q=${encodeURIComponent(keywords)}&marketplace=aliexpress`);
 });
 
 // ── POST /ae/:productId/threshold — set / clear the user's alert threshold ─

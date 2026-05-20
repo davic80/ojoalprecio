@@ -84,10 +84,10 @@
     </p>
   </div>
 
-  <!-- Clicks tracking -->
+  <!-- Banner clicks (auto) -->
   <div class="card">
-    <h2>Clicks en el banner cross-marketplace</h2>
-    <p class="subtitle">Cada click en "AliExpress −X%" desde una página de producto Amazon pasa por <code>/ae/r/:id</code> y se registra antes del 302.</p>
+    <h2>Banner automático <span class="hint" style="font-weight:400">cross-marketplace</span></h2>
+    <p class="subtitle">Cada click en "AliExpress −X%" desde una página de producto Amazon pasa por <code>/ae/r/:id</code>. Sólo aparece cuando hay match elegible (texto ≥0.40, ≥10% más barato).</p>
 
     <% const ctrAll = stats.totalNudgeViews > 0 ? (stats.totalNudgeClicks / stats.totalNudgeViews * 100) : 0; %>
     <% const ctr7d  = stats.nudgeViews7d   > 0 ? (stats.nudgeClicks7d   / stats.nudgeViews7d   * 100) : 0; %>
@@ -133,7 +133,7 @@
 
   <% if (topClicked.length > 0) { %>
     <div class="card">
-      <h2>Más clicados — últimos 7 días</h2>
+      <h2>Banner — más clicados últimos 7 días</h2>
       <div class="table-wrap">
         <table class="price-table table-card-mobile">
           <thead>
@@ -155,6 +155,57 @@
                   <%= c.ctr !== null ? c.ctr.toFixed(1) + '%' : '—' %>
                 </td>
                 <td data-label="% barato" style="text-align:right;color:var(--aliexpress);font-variant-numeric:tabular-nums"><%= c.pctCheaper !== null ? c.pctCheaper.toFixed(1) + '%' : '—' %></td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  <% } %>
+
+  <!-- Manual search clicks -->
+  <div class="card">
+    <h2>Botón manual <span class="hint" style="font-weight:400">"Buscar en AliExpress"</span></h2>
+    <p class="subtitle">Click en el botón naranja debajo del CTA en cualquier <code>/p/:asin</code>. Pasa por <code>/ae/s/:id</code>, deriva keywords y redirige a <code>/search?marketplace=aliexpress</code>. Visible en todas las páginas de producto Amazon, no solo en las que tienen match elegible.</p>
+
+    <div class="stats-bar" style="margin-top:var(--sp-3)">
+      <div class="stat-pill">
+        <span class="stat-pill-value"><%= stats.totalSearchClicks %></span>
+        <span class="stat-pill-label">búsquedas totales</span>
+      </div>
+      <div class="stat-pill stat-pill-green">
+        <span class="stat-pill-value"><%= stats.searchClicks7d %></span>
+        <span class="stat-pill-label">últimos 7 días</span>
+      </div>
+      <div class="stat-pill">
+        <span class="stat-pill-value"><%= stats.searchClicks24h %></span>
+        <span class="stat-pill-label">últimas 24 h</span>
+      </div>
+    </div>
+
+    <p class="hint" style="margin-top:var(--sp-3)">
+      Útil para comparar: clicks del banner = descubrimiento curado, clicks del botón = intención de búsqueda. CTR del banner / CTR del botón nos dice qué surface convierte mejor por unidad de exposición.
+    </p>
+  </div>
+
+  <% if (topSearchClicked.length > 0) { %>
+    <div class="card">
+      <h2>Botón manual — más clicados últimos 7 días</h2>
+      <div class="table-wrap">
+        <table class="price-table table-card-mobile">
+          <thead>
+            <tr>
+              <th>Producto Amazon</th>
+              <th style="text-align:right">Búsquedas</th>
+              <th style="text-align:right">Último click</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% topSearchClicked.forEach(function(c) { %>
+              <tr>
+                <td data-label="Producto"><a href="/p/<%= c.amazonAsin %>" style="font-size:13px"><%= (c.amazonName || '').slice(0, 60) %><%= (c.amazonName || '').length > 60 ? '…' : '' %></a></td>
+                <td data-label="Búsquedas" style="text-align:right;font-weight:600;font-variant-numeric:tabular-nums"><%= c.clicks %></td>
+                <td data-label="Último click" style="text-align:right;font-size:12px;color:var(--gray-500)"><%= c.lastClickedAt ? new Date(c.lastClickedAt).toLocaleString('es-ES') : '—' %></td>
               </tr>
             <% }); %>
           </tbody>

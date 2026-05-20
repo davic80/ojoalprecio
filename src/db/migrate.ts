@@ -702,6 +702,16 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX IF NOT EXISTS idx_ae_nudge_views_day ON ae_nudge_views(day DESC);
   `,
+  // Migration 48: surface attribution for nudge clicks. Until now every
+  // click came from the auto-banner (.ae-nudge). The new manual button
+  // ("Buscar en AliExpress") needs the same plumbing but its clicks
+  // should be distinguishable so we can compare which discovery surface
+  // converts better. Default 'banner' keeps existing rows attributed
+  // correctly; the new /ae/s/:id endpoint writes 'search'.
+  `
+  ALTER TABLE ae_nudge_clicks ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT 'banner' NOT NULL;
+  CREATE INDEX IF NOT EXISTS idx_ae_nudge_clicks_source ON ae_nudge_clicks(source);
+  `,
 ];
 
 export async function migrate(pool: Pool = defaultPool): Promise<void> {

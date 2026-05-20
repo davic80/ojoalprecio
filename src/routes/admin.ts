@@ -1018,9 +1018,12 @@ router.get('/admin/aliexpress', requireAuth, requireAdmin, async (req: Request, 
       (SELECT COUNT(*)::int FROM aliexpress_similars)                                    AS "totalSimilarEdges",
       (SELECT COUNT(*)::int FROM amazon_ae_equivalents)                                  AS "totalEquivalentsChecked",
       (SELECT COUNT(*)::int FROM amazon_ae_equivalents WHERE is_eligible = TRUE)         AS "totalEligibleEquivalents",
-      (SELECT COUNT(*)::int FROM ae_nudge_clicks)                                        AS "totalNudgeClicks",
-      (SELECT COUNT(*)::int FROM ae_nudge_clicks WHERE clicked_at >= NOW() - INTERVAL '7 days')  AS "nudgeClicks7d",
-      (SELECT COUNT(*)::int FROM ae_nudge_clicks WHERE clicked_at >= NOW() - INTERVAL '1 day')   AS "nudgeClicks24h",
+      (SELECT COUNT(*)::int FROM ae_nudge_clicks WHERE source = 'banner')                                   AS "totalNudgeClicks",
+      (SELECT COUNT(*)::int FROM ae_nudge_clicks WHERE source = 'banner' AND clicked_at >= NOW() - INTERVAL '7 days')   AS "nudgeClicks7d",
+      (SELECT COUNT(*)::int FROM ae_nudge_clicks WHERE source = 'banner' AND clicked_at >= NOW() - INTERVAL '1 day')    AS "nudgeClicks24h",
+      (SELECT COUNT(*)::int FROM ae_nudge_clicks WHERE source = 'search')                                   AS "totalSearchClicks",
+      (SELECT COUNT(*)::int FROM ae_nudge_clicks WHERE source = 'search' AND clicked_at >= NOW() - INTERVAL '7 days')   AS "searchClicks7d",
+      (SELECT COUNT(*)::int FROM ae_nudge_clicks WHERE source = 'search' AND clicked_at >= NOW() - INTERVAL '1 day')    AS "searchClicks24h",
       (SELECT COALESCE(SUM(count), 0)::int FROM ae_nudge_views)                          AS "totalNudgeViews",
       (SELECT COALESCE(SUM(count), 0)::int FROM ae_nudge_views WHERE day >= TO_CHAR(NOW() - INTERVAL '7 days', 'YYYY-MM-DD'))  AS "nudgeViews7d",
       (SELECT MAX(last_fetched_at) FROM aliexpress_products)                             AS "lastAEFetch",
@@ -1051,14 +1054,16 @@ router.get('/admin/aliexpress', requireAuth, requireAdmin, async (req: Request, 
     LIMIT 20
   `);
 
-  // Most-clicked equivalents in the last 7 days. JOINs views aggregate to
-  // compute per-product CTR — the real metric, not "clicks alone".
+  // Most-clicked equivalents in the last 7 days. Banner-source clicks
+  // only, since CTR is per-product and the search-source clicks come
+  // from a surface that's shown on every product page (different
+  // denominator). JOINs views aggregate to compute per-product CTR.
   const topClickedRes = await db.execute(sql`
     WITH
       clicks7d AS (
         SELECT amazon_product_id, COUNT(*)::int AS n, MAX(clicked_at) AS last_clicked
         FROM ae_nudge_clicks
-        WHERE clicked_at >= NOW() - INTERVAL '7 days'
+        WHERE source = 'banner' AND clicked_at >= NOW() - INTERVAL '7 days'
         GROUP BY amazon_product_id
       ),
       views7d AS (
@@ -1086,6 +1091,24 @@ router.get('/admin/aliexpress', requireAuth, requireAdmin, async (req: Request, 
     LIMIT 10
   `);
 
+  // Top manual-search clicks (source='search') in the last 7 days. Different
+  // surface, different denominator — own table. No CTR yet because the
+  // denominator (page_views for /p/:asin) needs a join we'll add later.
+  const topSearchClickedRes = await db.execute(sql`
+    SELECT
+      c.amazon_product_id   AS "amazonId",
+      p.asin                AS "amazonAsin",
+      p.name                AS "amazonName",
+      COUNT(*)::int         AS "clicks",
+      MAX(c.clicked_at)     AS "lastClickedAt"
+    FROM ae_nudge_clicks c
+    LEFT JOIN products p ON p.id = c.amazon_product_id
+    WHERE c.source = 'search' AND c.clicked_at >= NOW() - INTERVAL '7 days'
+    GROUP BY c.amazon_product_id, p.asin, p.name
+    ORDER BY clicks DESC
+    LIMIT 10
+  `);
+
   const aeConfigured = getAliExpressClient() !== null;
 
   res.render('admin-aliexpress', {
@@ -1093,6 +1116,7 @@ router.get('/admin/aliexpress', requireAuth, requireAdmin, async (req: Request, 
     stats: row,
     topEquivalents: topEquivalentsRes.rows,
     topClicked: topClickedRes.rows,
+    topSearchClicked: topSearchClickedRes.rows,
     aeConfigured,
   });
 });

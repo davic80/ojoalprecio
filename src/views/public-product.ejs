@@ -120,7 +120,10 @@
      side with the same heuristic the auto-discovery uses, so results
      are tightly scoped. -%>
   <% if (typeof aeSearchKeywords !== 'undefined' && aeSearchKeywords) { %>
-    <a href="/search?q=<%= encodeURIComponent(aeSearchKeywords) %>&marketplace=aliexpress"
+    <%# Routed through /ae/s/:id so the click counts as a 'search'-source
+       event in ae_nudge_clicks. The endpoint re-derives the keywords
+       server-side and 302s to /search?marketplace=aliexpress. -%>
+    <a href="/ae/s/<%= product.id %>"
        class="btn btn-outline ae-search-cta"
        style="margin:0 0 var(--sp-4); width:100%; gap:var(--sp-2)">
       <span style="font-size:18px">🔍</span>
