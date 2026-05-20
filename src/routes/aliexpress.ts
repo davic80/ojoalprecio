@@ -53,6 +53,41 @@ router.get('/ae/r/:amazonProductId', async (req: Request, res: Response) => {
   return res.redirect(302, target);
 });
 
+// ── POST /ae/:productId/threshold — set / clear the user's alert threshold ─
+// Body: { threshold?: string }. Empty / missing clears it (alerts disabled).
+// Any change resets notified_at so the next price tick fairly re-evaluates.
+router.post('/ae/:productId/threshold', requireAuth, async (req: Request, res: Response) => {
+  const productId = String(req.params.productId).trim();
+  const userId    = req.session.userId!;
+  if (!/^\d{10,16}$/.test(productId)) return res.status(404).json({ error: 'Producto no válido.' });
+
+  const raw = String(req.body?.threshold ?? '').trim();
+  let value: number | null = null;
+  if (raw) {
+    const n = parseFloat(raw.replace(',', '.'));
+    if (!Number.isFinite(n) || n <= 0 || n > 100_000) {
+      return res.status(400).json({ error: 'El umbral tiene que ser un número entre 0 y 100 000 €.' });
+    }
+    value = n;
+  }
+
+  const r = await db.execute(sql`
+    UPDATE aliexpress_user_tracks
+    SET threshold_price = ${value}, notified_at = NULL
+    WHERE user_id = ${userId} AND product_id = ${productId}
+    RETURNING product_id
+  `);
+  if (r.rows.length === 0) {
+    return res.status(404).json({ error: 'No estás siguiendo este producto.' });
+  }
+
+  if (req.headers['hx-request']) {
+    res.setHeader('HX-Redirect', `/ae/${productId}`);
+    return res.status(200).send('');
+  }
+  return res.redirect(`/ae/${productId}`);
+});
+
 // ── DELETE /ae/:productId/track — stop following an AliExpress product ───────
 // User-scoped: removes ONLY this user's track row. The catalog entry
 // (aliexpress_products), price history and similars all survive for any
@@ -158,15 +193,21 @@ router.get('/ae/:productId', async (req: Request, res: Response) => {
     ORDER BY "pctCheaper" DESC, s.text_score DESC
   `);
 
-  // Track state — is the current user following this product?
+  // Track state for the current user — drives the "+ Seguir / Editar
+  // alerta / Quitar" UI on the page.
   let isTracking = false;
+  let userThreshold: number | null = null;
   if (req.session.userId) {
     const trackRows = await db.execute(sql`
-      SELECT 1 FROM aliexpress_user_tracks
+      SELECT threshold_price::float AS "thresholdPrice"
+      FROM aliexpress_user_tracks
       WHERE user_id = ${req.session.userId} AND product_id = ${productId}
       LIMIT 1
     `);
-    isTracking = trackRows.rows.length > 0;
+    if (trackRows.rows.length > 0) {
+      isTracking = true;
+      userThreshold = (trackRows.rows[0] as any).thresholdPrice ?? null;
+    }
   }
 
   res.render('aliexpress-product', {
@@ -177,6 +218,7 @@ router.get('/ae/:productId', async (req: Request, res: Response) => {
     similars:   similarsRows.rows,
     history,
     isTracking,
+    userThreshold,
   });
 });
 

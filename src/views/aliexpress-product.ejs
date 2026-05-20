@@ -113,6 +113,45 @@
     <% } %>
   </div>
 
+  <%# Threshold editor — only shown to logged-in tracking users. When
+     `userThreshold` is null we render the "set threshold" form; once
+     set we render the editor with the current value pre-filled.
+     POST clears with an empty value. -%>
+  <% if (isLogged && isTracking) { %>
+    <div class="card" style="margin-top:var(--sp-3)">
+      <h2 style="font-size:var(--fs-lg)">Alerta de precio</h2>
+      <p class="subtitle">
+        <% if (userThreshold !== null) { %>
+          Te avisaremos cuando el precio baje de <strong><%= userThreshold.toFixed(2) %> €</strong>.
+        <% } else { %>
+          Pon un umbral y te avisaremos por email cuando el precio baje de ese valor.
+        <% } %>
+      </p>
+      <form method="POST" action="/ae/<%= product.productId %>/threshold" style="margin-top:var(--sp-3)">
+        <div class="input-group" style="max-width:340px">
+          <input
+            type="text"
+            name="threshold"
+            inputmode="decimal"
+            placeholder="<%= product.salePrice ? (product.salePrice * 0.9).toFixed(2) + ' €' : '15.00 €' %>"
+            value="<%= userThreshold !== null ? userThreshold.toFixed(2) : '' %>"
+            class="input"
+            autocomplete="off"
+            aria-label="Umbral de precio en euros"
+          >
+          <button type="submit" class="btn btn-primary"><%= userThreshold !== null ? 'Actualizar' : 'Guardar' %></button>
+        </div>
+        <p class="hint" style="margin-top:var(--sp-2)">
+          <% if (userThreshold !== null) { %>
+            Deja vacío y pulsa Actualizar para desactivar la alerta.
+          <% } else { %>
+            Precio en euros (sin símbolo). Por ejemplo: <code>15.00</code> o <code>15,00</code>.
+          <% } %>
+        </p>
+      </form>
+    </div>
+  <% } %>
+
   <!-- Similars -->
   <% if (similars.length > 0) { %>
     <div class="card">

@@ -207,8 +207,17 @@ router.post(
       if (!aeClient) {
         return res.status(503).json({ error: 'La integración con AliExpress no está configurada en este servidor.' });
       }
+      // Optional alert threshold: comes from the "+ Seguir" form on /ae/:productId.
+      // Validate it's a positive number ≤ 100k EUR; clamp falsy values to null.
+      const rawThreshold = String(req.body.aeThreshold ?? '').trim();
+      let thresholdPrice: number | null = null;
+      if (rawThreshold) {
+        const n = parseFloat(rawThreshold.replace(',', '.'));
+        if (Number.isFinite(n) && n > 0 && n <= 100_000) thresholdPrice = n;
+      }
+
       try {
-        await ingestAliExpressProduct({ client: aeClient, productId: aeId, userId });
+        await ingestAliExpressProduct({ client: aeClient, productId: aeId, userId, thresholdPrice });
       } catch (err) {
         if (err instanceof AliExpressError) {
           return res.status(502).json({ error: `AliExpress API: ${err.message.slice(0, 200)}` });
