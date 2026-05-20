@@ -45,6 +45,22 @@ function trendBadge(current, previous) {
 
 <main class="container">
 
+  <%# Flash result from POST /aliexpress/bulk redirect. Shows once,
+     disappears on the next page load (no flash state in session). -%>
+  <% if (typeof bulkResult !== 'undefined' && bulkResult) { %>
+    <% const total = bulkResult.added + bulkResult.existed + bulkResult.failed; %>
+    <div class="alert-box" style="background:<%= bulkResult.failed > bulkResult.added ? 'var(--red-light)' : '#f0fdf4' %>;border:1px solid <%= bulkResult.failed > bulkResult.added ? 'var(--red-border)' : '#bbf7d0' %>;color:<%= bulkResult.failed > bulkResult.added ? '#9b1c1c' : '#166534' %>;margin-bottom:var(--sp-4)">
+      <strong>Importación lote AliExpress:</strong>
+      <%= bulkResult.added %> añadido<%= bulkResult.added === 1 ? '' : 's' %>
+      <% if (bulkResult.existed > 0) { %>· <%= bulkResult.existed %> ya seguías<% } %>
+      <% if (bulkResult.failed > 0) { %>· <strong><%= bulkResult.failed %> con error</strong><% } %>
+      &nbsp;(<%= total %> URLs procesadas)
+      <% if (bulkResult.firstError) { %>
+        <div style="margin-top:6px;font-size:var(--fs-sm);opacity:.85">Primer error: <%= bulkResult.firstError %></div>
+      <% } %>
+    </div>
+  <% } %>
+
   <div class="page-header">
     <h1>Mis productos</h1>
     <p class="subtitle">Sigue el precio de tus artículos favoritos de Amazon.es y AliExpress</p>
@@ -107,6 +123,29 @@ function trendBadge(current, previous) {
       <p id="add-error" style="margin:6px 0 0;font-size:13px;color:var(--red,#dc2626)"></p>
       <p class="hint" style="margin-top:4px">Pega cualquier URL de Amazon.es o AliExpress. Acepta también links cortos (<code>amzn.eu</code>, <code>s.click.aliexpress.com</code>).</p>
     </form>
+
+    <%# Bulk import for AliExpress — collapsed by default so new users don't
+       see clutter. The Amazon side already has wishlist import below for
+       power users. -%>
+    <details style="margin-top:var(--sp-3)">
+      <summary style="cursor:pointer;font-size:var(--fs-sm);color:var(--gray-500);user-select:none">
+        + Importar varios productos de AliExpress
+      </summary>
+      <form method="POST" action="/aliexpress/bulk" style="margin-top:var(--sp-3)">
+        <textarea
+          name="urls"
+          class="input"
+          rows="6"
+          required
+          placeholder="Una URL por línea (máx. 20).&#10;&#10;https://es.aliexpress.com/item/1005006789012345.html&#10;https://s.click.aliexpress.com/e/_XXXXXXX"
+          style="font-family:inherit;font-size:var(--fs-base);resize:vertical;width:100%"
+        ></textarea>
+        <div style="margin-top:var(--sp-2);display:flex;gap:var(--sp-2);align-items:center;flex-wrap:wrap">
+          <button type="submit" class="btn btn-outline btn-sm">Importar lote</button>
+          <span class="hint" style="font-size:var(--fs-xs)">Procesa secuencialmente — puede tardar 30-60 s para 20 URLs.</span>
+        </div>
+      </form>
+    </details>
 
     <% if (typeof isAdmin !== 'undefined' && isAdmin) { %>
     <hr style="border:none;border-top:1px solid #f0f0f0;margin:16px 0">

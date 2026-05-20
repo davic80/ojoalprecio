@@ -167,12 +167,21 @@ router.get('/', (req: Request, res: Response, next) => {
   `);
   const aliexpressTracks = aeRows.rows as any[];
 
+  // Flash data from the AliExpress bulk-import redirect, if any.
+  const bulkResult = req.query.bulk_added != null ? {
+    added:      parseInt(String(req.query.bulk_added),   10) || 0,
+    existed:    parseInt(String(req.query.bulk_existed), 10) || 0,
+    failed:     parseInt(String(req.query.bulk_failed),  10) || 0,
+    firstError: req.query.bulk_first_error ? String(req.query.bulk_first_error).slice(0, 140) : null,
+  } : null;
+
   res.render('dashboard', {
     products: prods, stats,
     filters: { q, category: catFilter, status, sort: sortBy, perPage },
     page, totalPages, totalCount,
     allCategories,
     aliexpressTracks,
+    bulkResult,
     user: { email: req.session.userEmail },
     isAdmin: isAdmin(req),
   });

@@ -3,7 +3,13 @@ import { sql } from 'drizzle-orm';
 import { db } from '../db/client';
 import { isAdmin } from '../middleware/admin';
 import { requireAuth } from '../middleware/auth';
-import { extractBrandModel } from '../marketplaces/aliexpress';
+import {
+  extractBrandModel,
+  resolveAndParseProductId as resolveAEProductId,
+  getAliExpressClient,
+  ingestProduct as ingestAEProduct,
+  AliExpressError,
+} from '../marketplaces/aliexpress';
 
 const router = Router();
 
@@ -101,6 +107,68 @@ router.get('/ae/s/:amazonProductId', async (req: Request, res: Response) => {
 
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
   return res.redirect(302, `/search?q=${encodeURIComponent(keywords)}&marketplace=aliexpress`);
+});
+
+// ── POST /aliexpress/bulk — paste multiple AE URLs at once ──────────────────
+// Body: { urls: string } where `urls` is a textarea, one URL per line.
+// Caps at MAX_BULK so a runaway paste can't burn the API budget. Each
+// line goes through the same resolve → ingest pipeline as the single-URL
+// flow on /products. Returns a redirect to / with summary query params
+// the dashboard reads to render a flash banner.
+const MAX_BULK = 20;
+router.post('/aliexpress/bulk', requireAuth, async (req: Request, res: Response) => {
+  const userId = req.session.userId!;
+  const raw    = String(req.body?.urls ?? '');
+  const lines  = raw.split(/\r?\n/).map(s => s.trim()).filter(Boolean).slice(0, MAX_BULK);
+
+  if (lines.length === 0) {
+    return res.redirect('/?bulk_added=0&bulk_existed=0&bulk_failed=0&bulk_first_error=' +
+      encodeURIComponent('No has pegado ninguna URL.'));
+  }
+
+  const client = getAliExpressClient();
+  if (!client) {
+    return res.redirect('/?bulk_added=0&bulk_existed=0&bulk_failed=' + lines.length +
+      '&bulk_first_error=' + encodeURIComponent('AliExpress no está configurado en este servidor.'));
+  }
+
+  let added = 0, existed = 0, failed = 0;
+  let firstError: string | null = null;
+
+  for (const url of lines) {
+    try {
+      const productId = await resolveAEProductId(url);
+      if (!productId) {
+        failed++;
+        firstError ??= `URL no válida: ${url.slice(0, 60)}`;
+        continue;
+      }
+
+      // Detect already-tracked BEFORE the ingest API call so we avoid
+      // burning AE quota on duplicates.
+      const existing = await db.execute(sql`
+        SELECT 1 FROM aliexpress_user_tracks
+        WHERE user_id = ${userId} AND product_id = ${productId}
+        LIMIT 1
+      `);
+      if (existing.rows.length > 0) { existed++; continue; }
+
+      await ingestAEProduct({ client, productId, userId });
+      added++;
+    } catch (err) {
+      failed++;
+      const msg = err instanceof AliExpressError ? `AliExpress: ${err.message}` : (err as Error).message;
+      firstError ??= msg.slice(0, 140);
+    }
+  }
+
+  const qs = new URLSearchParams({
+    bulk_added:   String(added),
+    bulk_existed: String(existed),
+    bulk_failed:  String(failed),
+  });
+  if (firstError) qs.set('bulk_first_error', firstError);
+  res.redirect(`/?${qs.toString()}`);
 });
 
 // ── POST /ae/:productId/threshold — set / clear the user's alert threshold ─
