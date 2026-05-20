@@ -1113,7 +1113,15 @@ body:has(.bottom-nav) {
     flex: 1;
     min-width: 0;
     min-height: 44px;
-    font-size: var(--fs-md);
+    /* Override the global .btn `white-space: nowrap` so long labels like
+       "Comprar en Amazon.es — 329.99 €" can break onto a second line
+       inside a 175 px flex slot instead of being clipped on both sides.
+       line-height tightened so the two-row case still looks compact. */
+    white-space: normal;
+    line-height: 1.15;
+    font-size: var(--fs-base);
+    padding: 6px 10px;
+    text-align: center;
   }
   /* Add extra bottom space on the product page so the last lines of
      content aren't hidden behind the stacked sticky CTA + bottom-nav.
