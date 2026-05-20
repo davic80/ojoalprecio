@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= q ? `"${q}" — ` : '' %>Buscar — OjoAlPrecio</title>
+  <meta name="description" content="Busca productos de Amazon.es y AliExpress y descubre cuál tiene el mejor precio en ojoalprecio.com">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<%- include('partials/navbar', { variant: user ? 'user' : 'anonymous', user, isAdmin }) %>
+
+<main class="container-wide">
+
+  <div class="page-header">
+    <h1>Buscar</h1>
+    <p class="subtitle">Productos en Amazon.es y AliExpress en un único listado, ordenados por % de descuento.</p>
+  </div>
+
+  <form method="GET" action="/search" class="add-form" style="margin-bottom:var(--sp-4)">
+    <div class="input-group">
+      <input type="search" name="q" value="<%= q %>" placeholder="Sonos, walkie talkie, robot piscina…"
+             class="input" autocomplete="off" autofocus inputmode="search" minlength="2" maxlength="100">
+      <button type="submit" class="btn btn-primary">Buscar</button>
+    </div>
+    <% if (q.length > 0 && q.length < 2) { %>
+      <p class="hint" style="margin-top:var(--sp-1)">Mínimo 2 caracteres.</p>
+    <% } %>
+  </form>
+
+  <% if (q.length >= 2) { %>
+    <p class="subtitle" style="margin-bottom:var(--sp-3)">
+      <%= totalCount %> resultado<%= totalCount === 1 ? '' : 's' %> para <strong><%= q %></strong>.
+    </p>
+  <% } %>
+
+  <% if (q.length >= 2 && results.length === 0) { %>
+    <div class="empty-state">
+      <div class="empty-icon">🔍</div>
+      <h3>Sin resultados</h3>
+      <p>No encontramos productos con esa búsqueda. Prueba con menos palabras o sin marcas.</p>
+    </div>
+  <% } %>
+
+  <% if (results.length > 0) { %>
+    <div class="product-grid">
+      <% results.forEach(function(r) { %>
+        <a href="<%= r.href %>" class="product-card" style="text-decoration:none;color:inherit">
+          <div class="product-card-link" style="padding:var(--sp-3)">
+            <div class="product-img-wrap">
+              <% if (r.imageUrl) { %>
+                <img src="<%= r.imageUrl %>" alt="" class="product-img" loading="lazy">
+              <% } else { %>
+                <div class="product-img-placeholder">
+                  <%= r.marketplace === 'aliexpress' ? '🛒' : '📦' %>
+                </div>
+              <% } %>
+              <% if (r.isOnSale && r.dealScore) { %>
+                <% const tierClass = r.saleTier ? ('badge-tier-' + r.saleTier) : 'badge-sale'; %>
+                <span class="<%= tierClass %>">−<%= Math.round(r.dealScore) %>%</span>
+              <% } %>
+            </div>
+            <div class="product-info">
+              <p class="product-name"><%= r.title %></p>
+              <p class="product-asin" style="margin-top:var(--sp-1)">
+                <span class="marketplace-tag <%= r.marketplace === 'aliexpress' ? 'marketplace-tag-aliexpress' : 'marketplace-tag-amazon' %>">
+                  <%= r.marketplace === 'aliexpress' ? '🛒 AliExpress' : '📦 Amazon' %>
+                </span>
+              </p>
+            </div>
+          </div>
+          <div class="product-prices">
+            <div class="price-current"><%= r.currentPrice ? r.currentPrice.toFixed(2) + ' €' : '—' %></div>
+          </div>
+        </a>
+      <% }); %>
+    </div>
+
+    <% if (totalPages > 1) { %>
+      <% const pageBase = `/search?q=${encodeURIComponent(q)}`; %>
+      <div class="pagination" style="margin-top:var(--sp-5)">
+        <% if (page > 1) { %>
+          <a href="<%= pageBase %>&page=<%= page - 1 %>" class="btn btn-sm btn-outline">← Anterior</a>
+        <% } %>
+        <span class="hint" style="align-self:center">Página <%= page %> de <%= totalPages %></span>
+        <% if (page < totalPages) { %>
+          <a href="<%= pageBase %>&page=<%= page + 1 %>" class="btn btn-sm btn-outline">Siguiente →</a>
+        <% } %>
+      </div>
+    <% } %>
+  <% } %>
+
+</main>
+
+<%- include('partials/footer', { middleHtml: 'Seguimiento de precios en Amazon.es y AliExpress' }) %>
+
+<%- include('partials/bottom-nav', { user, activeNav: 'buscar' }) %>
+
+</body>
+</html>

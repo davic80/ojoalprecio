@@ -2,7 +2,7 @@
   Mobile-only persistent bottom navigation. CSS hides it on ≥640px.
   Locals:
     user        : (optional) — current user, drives logged vs anon links
-    activeNav   : 'ofertas' | 'panel' | 'cuenta' | undefined
+    activeNav   : 'ofertas' | 'buscar' | 'panel' | 'cuenta' | undefined
                   (controls aria-current + .bn-active styling)
 %>
 <% const _logged = typeof user !== 'undefined' && user; -%>
@@ -12,6 +12,10 @@
   <a href="/ofertas" class="<%= _bn('ofertas') %>"<% if (_active === 'ofertas') { %> aria-current="page"<% } %>>
     <span class="bn-icon" aria-hidden="true">🏷</span>
     <span class="bn-label">Ofertas</span>
+  </a>
+  <a href="/search" class="<%= _bn('buscar') %>"<% if (_active === 'buscar') { %> aria-current="page"<% } %>>
+    <span class="bn-icon" aria-hidden="true">🔍</span>
+    <span class="bn-label">Buscar</span>
   </a>
   <a href="<%= _logged ? '/' : '/auth/login' %>" class="<%= _bn('panel') %>"<% if (_active === 'panel') { %> aria-current="page"<% } %>>
     <span class="bn-icon" aria-hidden="true">📊</span>

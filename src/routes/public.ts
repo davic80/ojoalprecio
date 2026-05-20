@@ -9,6 +9,87 @@ import { getAliExpressClient, discoverAndPersistEquivalent } from '../marketplac
 
 const router = Router();
 
+// ── GET /search — Cross-marketplace public search ───────────────────────────
+// ILIKE over Amazon products + AliExpress catalog, mixed and sorted by
+// discount % so the most compelling deals float up regardless of source.
+// Anonymous-friendly (no login required) — built for SEO and viral
+// discovery. Empty query renders the input but no results.
+router.get('/search', async (req: Request, res: Response) => {
+  const q       = String(req.query.q ?? '').trim();
+  const page    = Math.max(1, parseInt(String(req.query.page ?? '1'), 10));
+  const perPage = 24;
+  const offset  = (page - 1) * perPage;
+
+  let amazonRows: any[] = [];
+  let aeRows: any[]     = [];
+  let totalCount        = 0;
+
+  if (q.length >= 2) {
+    const pattern = '%' + q.replace(/[%_]/g, m => '\\' + m) + '%';
+    // Amazon side: only public-eligible products (is_active + is_available)
+    // so we never surface stale / blacklisted catalog entries to anons.
+    const az = await db.execute(sql`
+      SELECT
+        'amazon'              AS marketplace,
+        p.id::text            AS "id",
+        p.asin                AS "ref",
+        p.name                AS "title",
+        p.image_url           AS "imageUrl",
+        (SELECT ph.price::float FROM price_history ph
+          WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1) AS "currentPrice",
+        p.deal_score::float   AS "dealScore",
+        p.is_on_sale          AS "isOnSale",
+        p.sale_tier           AS "saleTier",
+        '/p/' || p.asin       AS "href"
+      FROM products p
+      WHERE p.is_active = TRUE AND p.is_available = TRUE
+        AND p.name ILIKE ${pattern} ESCAPE '\\'
+    `);
+    amazonRows = az.rows as any[];
+
+    const ae = await db.execute(sql`
+      SELECT
+        'aliexpress'          AS marketplace,
+        p.product_id          AS "id",
+        p.product_id          AS "ref",
+        p.title               AS "title",
+        p.image_url           AS "imageUrl",
+        p.sale_price::float   AS "currentPrice",
+        p.discount_pct::float AS "dealScore",
+        (p.discount_pct IS NOT NULL AND p.discount_pct > 0) AS "isOnSale",
+        NULL                  AS "saleTier",
+        '/ae/' || p.product_id AS "href"
+      FROM aliexpress_products p
+      WHERE p.is_available = TRUE
+        AND p.title ILIKE ${pattern} ESCAPE '\\'
+    `);
+    aeRows = ae.rows as any[];
+
+    totalCount = amazonRows.length + aeRows.length;
+  }
+
+  // Merge + sort: deal_score / discount_pct desc, NULL last, then alpha.
+  const merged = [...amazonRows, ...aeRows].sort((a, b) => {
+    const da = a.dealScore ?? -1;
+    const db_ = b.dealScore ?? -1;
+    if (db_ !== da) return db_ - da;
+    return String(a.title).localeCompare(String(b.title));
+  });
+
+  const paged      = merged.slice(offset, offset + perPage);
+  const totalPages = Math.max(1, Math.ceil(merged.length / perPage));
+
+  res.render('search', {
+    user:       req.session.userId ? { email: req.session.userEmail } : null,
+    isAdmin:    isAdmin(req),
+    q,
+    results:    paged,
+    page,
+    totalPages,
+    totalCount: merged.length,
+  });
+});
+
 // ── GET /ofertas — Public deals page ─────────────────────────────────────────
 router.get('/ofertas', async (req: Request, res: Response) => {
   const rows = await db.execute(sql`
