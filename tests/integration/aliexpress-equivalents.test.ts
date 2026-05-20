@@ -50,7 +50,7 @@ describe('findAEEquivalent (pure)', () => {
     expect(r.isEligible).toBe(true);
   });
 
-  it('rejects when text score is too low (cross-marketplace requires ≥0.4)', async () => {
+  it('rejects when text score is too low (cross-marketplace requires ≥0.25)', async () => {
     const client = {
       productDetail: vi.fn(),
       productQuery: vi.fn().mockResolvedValue({

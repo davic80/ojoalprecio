@@ -19,14 +19,16 @@ import { upsertAEProductSql } from './persist';
  * product* (or close to it), not just "you may also like".
  *
  * Eligibility (both must hold):
- *   - text_score   >= 0.40   ← stricter than 0.30 (intra-AE), since
- *                              cross-marketplace false positives are
- *                              user-facing and erode trust fast
+ *   - text_score   >= 0.25   ← was 0.40; relaxed because verbose AE
+ *                              titles in Spanish + English mix were
+ *                              suppressing legit matches around 0.30.
+ *                              False-positive rate trade-off accepted
+ *                              for higher coverage.
  *   - pct_cheaper  >= 10.00  ← below 10% the user has no real reason to
  *                              jump marketplace
  */
 
-const TEXT_SCORE_MIN  = 0.40;
+const TEXT_SCORE_MIN  = 0.25;
 const PCT_CHEAPER_MIN = 10.00;
 const QUERY_PAGE_SIZE = 20;
 const TTL_HOURS       = 24;

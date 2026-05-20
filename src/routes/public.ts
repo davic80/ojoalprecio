@@ -325,15 +325,18 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
   // ── Cross-marketplace banner (Amazon → AliExpress equivalent) ──────────
   // Cheap query against the cache. If there's a recent eligible match,
   // pass it down so the view can render "X € más barato en AliExpress".
-  // Stale or missing entries trigger a fire-and-forget discovery so the
-  // banner appears on the NEXT visit — never blocks the current render.
+  // Three states, each handled differently:
+  //   1. Cache hit FRESH (<TTL_MS): use it, no API call.
+  //   2. Cache hit STALE: use it, fire-and-forget refresh in background.
+  //   3. Cache MISS: SYNCHRONOUSLY discover (block render up to 5s) so the
+  //      banner appears on the very first visit instead of next reload.
   let aeEquivalent: {
     productId: string; title: string; imageUrl: string | null;
     promotionUrl: string | null; productUrl: string;
     salePrice: number; currency: string; pctCheaper: number; saving: number;
   } | null = null;
 
-  const eqRows = await db.execute(sql`
+  const aeEqSelect = sql`
     SELECT e.ae_product_id AS "aeProductId", e.pct_cheaper::float AS "pctCheaper",
            e.ae_price_snapshot::float AS "aePrice", e.is_eligible AS "isEligible",
            e.checked_at AS "checkedAt",
@@ -342,10 +345,44 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
     FROM amazon_ae_equivalents e
     LEFT JOIN aliexpress_products p ON p.product_id = e.ae_product_id
     WHERE e.amazon_product_id = ${productView.id}
-  `);
-  const aeEqRow = eqRows.rows[0] as any;
-  const ageMs = aeEqRow ? (Date.now() - new Date(aeEqRow.checkedAt).getTime()) : Infinity;
+  `;
+  let aeEqRow = (await db.execute(aeEqSelect)).rows[0] as any | undefined;
   const TTL_MS = 24 * 60 * 60 * 1000;
+  const SYNC_DISCOVERY_TIMEOUT_MS = 5000;
+  const aeClient = getAliExpressClient();
+
+  // STATE 3 — cache miss: block render up to 5s for a single API call.
+  // The discovery races against a timeout so a slow AE endpoint can't
+  // hang the page. If it wins, we re-read the row we just wrote.
+  if (!aeEqRow && aeClient && currentPrice && productView.name) {
+    try {
+      await Promise.race([
+        discoverAndPersistEquivalent(aeClient, productView.id, {
+          title: productView.name,
+          price: Number(currentPrice),
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('ae-sync-discovery-timeout')), SYNC_DISCOVERY_TIMEOUT_MS),
+        ),
+      ]);
+      aeEqRow = (await db.execute(aeEqSelect)).rows[0] as any | undefined;
+    } catch (err) {
+      // Failure is silent for the user — they'll see the manual search button.
+      // Background refresh on subsequent visits will retry.
+      console.warn(`[ae-equivalent] sync discovery for product ${productView.id} failed: ${(err as Error).message}`);
+    }
+  }
+
+  // STATE 2 — cache stale: fire-and-forget refresh. The user sees the stale
+  // banner now; the next visit (or this one if the refresh is quick enough
+  // to land before the next visit) sees the fresh result.
+  const ageMs = aeEqRow ? (Date.now() - new Date(aeEqRow.checkedAt).getTime()) : Infinity;
+  if (aeEqRow && ageMs > TTL_MS && aeClient && currentPrice && productView.name) {
+    void discoverAndPersistEquivalent(aeClient, productView.id, {
+      title: productView.name,
+      price: Number(currentPrice),
+    }).catch((err: unknown) => console.warn(`[ae-equivalent] background refresh for product ${productView.id} failed: ${(err as Error).message}`));
+  }
 
   if (aeEqRow?.isEligible && aeEqRow.aeProductId && currentPrice) {
     aeEquivalent = {
@@ -361,27 +398,13 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
     };
 
     // Aggregate view counter for the banner. One row per
-    // (amazon_product, day) regardless of traffic — keeps row count
-    // bounded. Fire-and-forget; failures don't block the page render.
+    // (amazon_product, day) regardless of traffic. Fire-and-forget.
     const today = new Date().toISOString().slice(0, 10);
     void db.execute(sql`
       INSERT INTO ae_nudge_views (amazon_product_id, day, count)
       VALUES (${productView.id}, ${today}, 1)
       ON CONFLICT (amazon_product_id, day) DO UPDATE SET count = ae_nudge_views.count + 1
     `).catch((err: unknown) => console.warn(`[ae-nudge-view] log failed: ${(err as Error).message}`));
-  }
-
-  // Fire-and-forget discovery when missing or stale. We only run it once
-  // a candidate price exists (otherwise pct_cheaper is meaningless), and
-  // only when an AE client is configured.
-  if (currentPrice && (!aeEqRow || ageMs > TTL_MS) && productView.name) {
-    const aeClient = getAliExpressClient();
-    if (aeClient) {
-      void discoverAndPersistEquivalent(aeClient, productView.id, {
-        title: productView.name,
-        price: Number(currentPrice),
-      }).catch((err: unknown) => console.warn(`[ae-equivalent] background lookup for product ${productView.id} failed: ${(err as Error).message}`));
-    }
   }
 
   res.render('public-product', {
