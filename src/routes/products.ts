@@ -137,11 +137,41 @@ router.get('/', (req: Request, res: Response, next) => {
     failed:    all.filter(p => p.is_failed).length,
   };
 
+  // AliExpress tracks for this user — separate query (different schema,
+  // different scoring needs). Joined with aliexpress_products for display.
+  // Limited to 50 just to keep the page bounded; pagination per-marketplace
+  // is overkill until any user actually hits the cap.
+  const aeRows = await db.execute(sql`
+    SELECT
+      t.product_id           AS "productId",
+      t.threshold_price::float AS "thresholdPrice",
+      t.alert_enabled        AS "alertEnabled",
+      t.added_at             AS "addedAt",
+      p.title                AS title,
+      p.image_url            AS "imageUrl",
+      p.product_url          AS "productUrl",
+      p.promotion_url        AS "promotionUrl",
+      p.sale_price::float    AS "salePrice",
+      p.original_price::float AS "originalPrice",
+      p.discount_pct         AS "discountPct",
+      p.currency             AS currency,
+      p.shop_name            AS "shopName",
+      p.is_available         AS "isAvailable",
+      (SELECT COUNT(*)::int FROM aliexpress_similars s WHERE s.master_product_id = t.product_id) AS "similarsCount"
+    FROM aliexpress_user_tracks t
+    JOIN aliexpress_products p ON p.product_id = t.product_id
+    WHERE t.user_id = ${userId}
+    ORDER BY t.added_at DESC
+    LIMIT 50
+  `);
+  const aliexpressTracks = aeRows.rows as any[];
+
   res.render('dashboard', {
     products: prods, stats,
     filters: { q, category: catFilter, status, sort: sortBy, perPage },
     page, totalPages, totalCount,
     allCategories,
+    aliexpressTracks,
     user: { email: req.session.userEmail },
     isAdmin: isAdmin(req),
   });

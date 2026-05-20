@@ -332,6 +332,70 @@ function trendBadge(current, previous) {
   </div>
   <% } %>
 
+  <%# AliExpress tracked products — separate section so the Amazon grid's
+      filters/sort/pagination don't try to handle two schemas. Hidden when
+      the user has none, so first-time users see nothing AliExpress-y. -%>
+  <% if (typeof aliexpressTracks !== 'undefined' && aliexpressTracks.length > 0) { %>
+    <section style="margin-top:var(--sp-8)">
+      <div class="page-header" style="display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap">
+        <h2 style="margin:0;font-size:var(--fs-xl)">Mis productos AliExpress</h2>
+        <span class="marketplace-tag marketplace-tag-aliexpress">🛒 <%= aliexpressTracks.length %></span>
+      </div>
+
+      <div class="product-grid">
+        <% aliexpressTracks.forEach(function(t) { %>
+          <div class="product-card" id="ae-card-<%= t.productId %>">
+            <a href="/ae/<%= t.productId %>" class="product-card-link">
+              <div class="product-img-wrap">
+                <% if (t.imageUrl) { %>
+                  <img src="<%= t.imageUrl %>" alt="" class="product-img" loading="lazy">
+                <% } else { %>
+                  <div class="product-img-placeholder">🛒</div>
+                <% } %>
+                <% if (!t.isAvailable) { %>
+                  <span class="badge-unavailable">Sin stock</span>
+                <% } else if (t.discountPct && t.discountPct >= 7) { %>
+                  <span class="badge-sale">-<%= t.discountPct %>%</span>
+                <% } %>
+              </div>
+              <div class="product-info">
+                <p class="product-name"><%= t.title %></p>
+                <p class="product-asin">
+                  ID: <%= t.productId %>
+                  <% if (t.shopName) { %> · <%= t.shopName %><% } %>
+                </p>
+                <% if (t.similarsCount > 0) { %>
+                  <p class="hint" style="margin-top:4px"><%= t.similarsCount %> alternativas similares</p>
+                <% } %>
+              </div>
+            </a>
+            <div class="product-prices">
+              <div class="price-row">
+                <div class="price-current"><%= t.salePrice ? t.salePrice.toFixed(2) + ' €' : '—' %></div>
+                <% if (t.originalPrice && t.originalPrice > t.salePrice) { %>
+                  <span style="font-size:var(--fs-sm);text-decoration:line-through;color:var(--gray-400)"><%= t.originalPrice.toFixed(2) %> €</span>
+                <% } %>
+              </div>
+            </div>
+            <div class="product-actions">
+              <a href="/ae/<%= t.productId %>" class="btn btn-sm btn-outline">Ver detalles</a>
+              <a href="<%= t.promotionUrl || t.productUrl %>" target="_blank" rel="noopener sponsored" class="btn btn-sm btn-aliexpress">AliExpress ↗</a>
+              <button
+                class="btn btn-sm btn-ghost"
+                style="margin-left:auto"
+                hx-delete="/ae/<%= t.productId %>/track"
+                hx-target="#ae-card-<%= t.productId %>"
+                hx-swap="outerHTML"
+                hx-confirm="¿Dejar de seguir este producto?"
+                title="Dejar de seguir"
+              >×</button>
+            </div>
+          </div>
+        <% }); %>
+      </div>
+    </section>
+  <% } %>
+
 </main>
 
 <%- include('partials/footer', { middleHtml: 'Amazon.es Price Tracker' }) %>

@@ -2,8 +2,27 @@ import { Router, type Request, type Response } from 'express';
 import { sql } from 'drizzle-orm';
 import { db } from '../db/client';
 import { isAdmin } from '../middleware/admin';
+import { requireAuth } from '../middleware/auth';
 
 const router = Router();
+
+// ── DELETE /ae/:productId/track — stop following an AliExpress product ───────
+// User-scoped: removes ONLY this user's track row. The catalog entry
+// (aliexpress_products), price history and similars all survive for any
+// other follower and for the 8h refresh cron (Phase D).
+router.delete('/ae/:productId/track', requireAuth, async (req: Request, res: Response) => {
+  const productId = String(req.params.productId).trim();
+  const userId    = req.session.userId!;
+  if (!/^\d{10,16}$/.test(productId)) return res.status(404).json({ error: 'Producto no válido.' });
+
+  await db.execute(sql`
+    DELETE FROM aliexpress_user_tracks
+    WHERE user_id = ${userId} AND product_id = ${productId}
+  `);
+
+  if (req.headers['hx-request']) return res.send('');
+  res.json({ success: true });
+});
 
 /**
  * GET /ae/:productId — public product detail page for an AliExpress SKU.
