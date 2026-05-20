@@ -1021,6 +1021,8 @@ router.get('/admin/aliexpress', requireAuth, requireAdmin, async (req: Request, 
       (SELECT COUNT(*)::int FROM ae_nudge_clicks)                                        AS "totalNudgeClicks",
       (SELECT COUNT(*)::int FROM ae_nudge_clicks WHERE clicked_at >= NOW() - INTERVAL '7 days')  AS "nudgeClicks7d",
       (SELECT COUNT(*)::int FROM ae_nudge_clicks WHERE clicked_at >= NOW() - INTERVAL '1 day')   AS "nudgeClicks24h",
+      (SELECT COALESCE(SUM(count), 0)::int FROM ae_nudge_views)                          AS "totalNudgeViews",
+      (SELECT COALESCE(SUM(count), 0)::int FROM ae_nudge_views WHERE day >= TO_CHAR(NOW() - INTERVAL '7 days', 'YYYY-MM-DD'))  AS "nudgeViews7d",
       (SELECT MAX(last_fetched_at) FROM aliexpress_products)                             AS "lastAEFetch",
       (SELECT MAX(checked_at)      FROM amazon_ae_equivalents)                           AS "lastEquivalentCheck",
       (SELECT MAX(scraped_at)      FROM aliexpress_price_history)                        AS "lastPriceTick",
@@ -1049,23 +1051,38 @@ router.get('/admin/aliexpress', requireAuth, requireAdmin, async (req: Request, 
     LIMIT 20
   `);
 
-  // Most-clicked equivalents in the last 7 days — feedback for "is the
-  // nudge actually working?". JOIN reaches into the equivalents table to
-  // pull the current pct_cheaper so we can sort by impact-per-click later.
+  // Most-clicked equivalents in the last 7 days. JOINs views aggregate to
+  // compute per-product CTR — the real metric, not "clicks alone".
   const topClickedRes = await db.execute(sql`
+    WITH
+      clicks7d AS (
+        SELECT amazon_product_id, COUNT(*)::int AS n, MAX(clicked_at) AS last_clicked
+        FROM ae_nudge_clicks
+        WHERE clicked_at >= NOW() - INTERVAL '7 days'
+        GROUP BY amazon_product_id
+      ),
+      views7d AS (
+        SELECT amazon_product_id, SUM(count)::int AS n
+        FROM ae_nudge_views
+        WHERE day >= TO_CHAR(NOW() - INTERVAL '7 days', 'YYYY-MM-DD')
+        GROUP BY amazon_product_id
+      )
     SELECT
-      c.amazon_product_id   AS "amazonId",
-      p.asin                AS "amazonAsin",
-      p.name                AS "amazonName",
-      COUNT(*)::int         AS "clicks",
-      MAX(c.clicked_at)     AS "lastClickedAt",
-      e.pct_cheaper::float  AS "pctCheaper"
-    FROM ae_nudge_clicks c
-    LEFT JOIN products p ON p.id = c.amazon_product_id
+      c.amazon_product_id  AS "amazonId",
+      p.asin               AS "amazonAsin",
+      p.name               AS "amazonName",
+      c.n                  AS "clicks",
+      COALESCE(v.n, 0)     AS "views",
+      CASE WHEN COALESCE(v.n, 0) > 0
+           THEN ROUND((c.n::numeric / v.n) * 100, 1)::float
+           ELSE NULL END   AS "ctr",
+      c.last_clicked       AS "lastClickedAt",
+      e.pct_cheaper::float AS "pctCheaper"
+    FROM clicks7d c
+    LEFT JOIN views7d v               ON v.amazon_product_id = c.amazon_product_id
+    LEFT JOIN products p              ON p.id = c.amazon_product_id
     LEFT JOIN amazon_ae_equivalents e ON e.amazon_product_id = c.amazon_product_id
-    WHERE c.clicked_at >= NOW() - INTERVAL '7 days'
-    GROUP BY c.amazon_product_id, p.asin, p.name, e.pct_cheaper
-    ORDER BY clicks DESC
+    ORDER BY c.n DESC
     LIMIT 10
   `);
 

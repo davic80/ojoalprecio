@@ -359,6 +359,16 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
       pctCheaper:   Number(aeEqRow.pctCheaper),
       saving:       Number(currentPrice) - Number(aeEqRow.aePrice),
     };
+
+    // Aggregate view counter for the banner. One row per
+    // (amazon_product, day) regardless of traffic — keeps row count
+    // bounded. Fire-and-forget; failures don't block the page render.
+    const today = new Date().toISOString().slice(0, 10);
+    void db.execute(sql`
+      INSERT INTO ae_nudge_views (amazon_product_id, day, count)
+      VALUES (${productView.id}, ${today}, 1)
+      ON CONFLICT (amazon_product_id, day) DO UPDATE SET count = ae_nudge_views.count + 1
+    `).catch((err: unknown) => console.warn(`[ae-nudge-view] log failed: ${(err as Error).message}`));
   }
 
   // Fire-and-forget discovery when missing or stale. We only run it once

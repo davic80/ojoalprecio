@@ -687,6 +687,21 @@ export const MIGRATIONS: string[] = [
   END
   WHERE sale_tier IS NULL AND discount_pct IS NOT NULL;
   `,
+  // Migration 47: aggregate view counter for the cross-marketplace nudge.
+  // Counts every render of the .ae-nudge banner (eligible match displayed
+  // to a user) per Amazon product per day. We DON'T log per-request rows —
+  // page-view-style aggregation keeps row count linear with active
+  // products, not with traffic. Combined with ae_nudge_clicks gives the
+  // CTR the admin dashboard couldn't compute without a denominator.
+  `
+  CREATE TABLE IF NOT EXISTS ae_nudge_views (
+    amazon_product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    day               TEXT    NOT NULL,
+    count             INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (amazon_product_id, day)
+  );
+  CREATE INDEX IF NOT EXISTS idx_ae_nudge_views_day ON ae_nudge_views(day DESC);
+  `,
 ];
 
 export async function migrate(pool: Pool = defaultPool): Promise<void> {

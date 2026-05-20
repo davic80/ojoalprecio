@@ -261,6 +261,20 @@ export type NewAmazonAeEquivalent = typeof amazonAeEquivalents.$inferInsert;
 // Click log for the cross-marketplace nudge banner. Insert-only, never
 // mutated. ae_product_id is stored as a plain string (no FK) on purpose
 // so the click record outlives any AE catalog cleanup.
+// Daily-aggregated view counter for the cross-marketplace nudge banner.
+// Insert with ON CONFLICT DO UPDATE SET count = count + 1, so one row per
+// (amazon_product, day) regardless of traffic. Drizzle's primaryKey() is
+// applied via the second argument below.
+export const aeNudgeViews = pgTable('ae_nudge_views', {
+  amazonProductId: integer('amazon_product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
+  day:             text('day').notNull(),   // ISO 'YYYY-MM-DD'
+  count:           integer('count').default(1).notNull(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.amazonProductId, t.day] }),
+}));
+export type AeNudgeView    = typeof aeNudgeViews.$inferSelect;
+export type NewAeNudgeView = typeof aeNudgeViews.$inferInsert;
+
 export const aeNudgeClicks = pgTable('ae_nudge_clicks', {
   id:               serial('id').primaryKey(),
   amazonProductId:  integer('amazon_product_id').references(() => products.id, { onDelete: 'cascade' }),

@@ -89,18 +89,38 @@
     <h2>Clicks en el banner cross-marketplace</h2>
     <p class="subtitle">Cada click en "AliExpress −X%" desde una página de producto Amazon pasa por <code>/ae/r/:id</code> y se registra antes del 302.</p>
 
+    <% const ctrAll = stats.totalNudgeViews > 0 ? (stats.totalNudgeClicks / stats.totalNudgeViews * 100) : 0; %>
+    <% const ctr7d  = stats.nudgeViews7d   > 0 ? (stats.nudgeClicks7d   / stats.nudgeViews7d   * 100) : 0; %>
     <div class="stats-bar" style="margin-top:var(--sp-3)">
+      <div class="stat-pill">
+        <span class="stat-pill-value"><%= stats.totalNudgeViews %></span>
+        <span class="stat-pill-label">vistas totales</span>
+      </div>
       <div class="stat-pill">
         <span class="stat-pill-value"><%= stats.totalNudgeClicks %></span>
         <span class="stat-pill-label">clicks totales</span>
       </div>
+      <div class="stat-pill <%= ctrAll >= 3 ? 'stat-pill-green' : 'stat-pill-warn' %>">
+        <span class="stat-pill-value"><%= ctrAll.toFixed(2) %>%</span>
+        <span class="stat-pill-label">CTR total</span>
+      </div>
+    </div>
+    <div class="stats-bar" style="margin-top:var(--sp-2)">
+      <div class="stat-pill">
+        <span class="stat-pill-value"><%= stats.nudgeViews7d %></span>
+        <span class="stat-pill-label">vistas 7d</span>
+      </div>
       <div class="stat-pill stat-pill-green">
         <span class="stat-pill-value"><%= stats.nudgeClicks7d %></span>
-        <span class="stat-pill-label">últimos 7 días</span>
+        <span class="stat-pill-label">clicks 7d</span>
+      </div>
+      <div class="stat-pill <%= ctr7d >= 3 ? 'stat-pill-green' : 'stat-pill-warn' %>">
+        <span class="stat-pill-value"><%= ctr7d.toFixed(2) %>%</span>
+        <span class="stat-pill-label">CTR 7d</span>
       </div>
       <div class="stat-pill">
         <span class="stat-pill-value"><%= stats.nudgeClicks24h %></span>
-        <span class="stat-pill-label">últimas 24 h</span>
+        <span class="stat-pill-label">clicks 24h</span>
       </div>
     </div>
 
@@ -119,18 +139,22 @@
           <thead>
             <tr>
               <th>Producto Amazon</th>
+              <th style="text-align:right">Vistas</th>
               <th style="text-align:right">Clicks</th>
+              <th style="text-align:right">CTR</th>
               <th style="text-align:right">% más barato (AE)</th>
-              <th style="text-align:right">Último click</th>
             </tr>
           </thead>
           <tbody>
             <% topClicked.forEach(function(c) { %>
               <tr>
                 <td data-label="Producto"><a href="/p/<%= c.amazonAsin %>" style="font-size:13px"><%= (c.amazonName || '').slice(0, 60) %><%= (c.amazonName || '').length > 60 ? '…' : '' %></a></td>
+                <td data-label="Vistas" style="text-align:right;font-variant-numeric:tabular-nums"><%= c.views %></td>
                 <td data-label="Clicks" style="text-align:right;font-weight:600;font-variant-numeric:tabular-nums"><%= c.clicks %></td>
+                <td data-label="CTR" style="text-align:right;font-variant-numeric:tabular-nums;color:<%= (c.ctr ?? 0) >= 5 ? 'var(--green)' : 'var(--gray-700)' %>">
+                  <%= c.ctr !== null ? c.ctr.toFixed(1) + '%' : '—' %>
+                </td>
                 <td data-label="% barato" style="text-align:right;color:var(--aliexpress);font-variant-numeric:tabular-nums"><%= c.pctCheaper !== null ? c.pctCheaper.toFixed(1) + '%' : '—' %></td>
-                <td data-label="Último click" style="text-align:right;font-size:12px;color:var(--gray-500)"><%= c.lastClickedAt ? new Date(c.lastClickedAt).toLocaleString('es-ES') : '—' %></td>
               </tr>
             <% }); %>
           </tbody>
