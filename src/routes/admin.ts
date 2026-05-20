@@ -10,6 +10,7 @@ import { getScraperStatus, triggerScrape } from '../scheduler';
 import { getBestUnpostedDeal, postDailyDeal, POST_HOURS } from '../scheduler/social';
 import { refreshAllAETracks, refreshAEEquivalents } from '../scheduler/aliexpress';
 import { getAliExpressClient } from '../marketplaces/aliexpress';
+import { importAmazonCsv } from '../marketplaces/amazon-affiliates/csv-import';
 import { getAllSettings, setSetting } from '../db/settings';
 
 const SYSTEM_EMAIL = 'system@ojoalprecio.local';
@@ -1153,6 +1154,100 @@ router.post('/admin/aliexpress/refresh-now', requireAuth, requireAdmin, async (r
     return res.status(200).send('');
   }
   res.redirect('/admin/aliexpress?refresh=started');
+});
+
+// ── GET /admin/affiliates — Amazon affiliate stats dashboard ────────────────
+router.get('/admin/affiliates', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const summaryRows = await db.execute(sql`
+    SELECT
+      (SELECT COUNT(*)::int FROM amazon_affiliate_stats) AS "totalRows",
+      (SELECT COUNT(DISTINCT day)::int FROM amazon_affiliate_stats) AS "totalDays",
+      (SELECT COUNT(DISTINCT tracking_id)::int FROM amazon_affiliate_stats) AS "totalTrackings",
+      (SELECT MAX(day) FROM amazon_affiliate_stats) AS "latestDay",
+      (SELECT MIN(day) FROM amazon_affiliate_stats) AS "earliestDay",
+      (SELECT MAX(uploaded_at) FROM amazon_affiliate_stats) AS "lastUploadAt",
+      -- Last 30 / 7 / current month aggregates
+      (SELECT COALESCE(SUM(earnings), 0)::float FROM amazon_affiliate_stats WHERE day >= TO_CHAR(NOW() - INTERVAL '30 days', 'YYYY-MM-DD')) AS "earnings30d",
+      (SELECT COALESCE(SUM(earnings), 0)::float FROM amazon_affiliate_stats WHERE day >= TO_CHAR(NOW() - INTERVAL '7 days',  'YYYY-MM-DD')) AS "earnings7d",
+      (SELECT COALESCE(SUM(earnings), 0)::float FROM amazon_affiliate_stats WHERE day >= TO_CHAR(DATE_TRUNC('month', NOW()), 'YYYY-MM-DD')) AS "earningsMonth",
+      (SELECT COALESCE(SUM(clicks),   0)::int   FROM amazon_affiliate_stats WHERE day >= TO_CHAR(NOW() - INTERVAL '30 days', 'YYYY-MM-DD')) AS "clicks30d",
+      (SELECT COALESCE(SUM(items_ordered), 0)::int FROM amazon_affiliate_stats WHERE day >= TO_CHAR(NOW() - INTERVAL '30 days', 'YYYY-MM-DD')) AS "orders30d"
+  `);
+  const summary = summaryRows.rows[0] as any;
+
+  // Top earning ASINs in the last 30 days. Cross-reference with our
+  // products catalog so we can show the product name we know it by.
+  const topAsinsRows = await db.execute(sql`
+    SELECT
+      s.asin,
+      SUM(s.earnings)::float       AS "earnings",
+      SUM(s.items_ordered)::int    AS "items",
+      MAX(s.day)                   AS "lastDay",
+      p.name                       AS "name",
+      p.id                         AS "internalId",
+      EXISTS (SELECT 1 FROM products p2 WHERE p2.asin = s.asin) AS "isTracked"
+    FROM amazon_affiliate_stats s
+    LEFT JOIN products p ON p.asin = s.asin
+    WHERE s.day >= TO_CHAR(NOW() - INTERVAL '30 days', 'YYYY-MM-DD')
+      AND s.asin <> '*'
+      AND s.earnings IS NOT NULL AND s.earnings > 0
+    GROUP BY s.asin, p.name, p.id
+    ORDER BY earnings DESC
+    LIMIT 20
+  `);
+
+  // Daily totals last 30d for the chart
+  const dailyRows = await db.execute(sql`
+    SELECT day, SUM(earnings)::float AS earnings, SUM(items_ordered)::int AS items
+    FROM amazon_affiliate_stats
+    WHERE day >= TO_CHAR(NOW() - INTERVAL '30 days', 'YYYY-MM-DD')
+    GROUP BY day
+    ORDER BY day ASC
+  `);
+
+  // Flash from the upload redirect
+  const flash = req.query.imported != null ? {
+    imported: parseInt(String(req.query.imported), 10) || 0,
+    updated:  parseInt(String(req.query.updated),  10) || 0,
+    skipped:  parseInt(String(req.query.skipped),  10) || 0,
+    days:     req.query.days     ? String(req.query.days)     : '',
+    firstErr: req.query.first_err ? String(req.query.first_err).slice(0, 200) : '',
+  } : null;
+
+  res.render('admin-affiliates', {
+    user: { email: req.session.userEmail },
+    summary,
+    topAsins: topAsinsRows.rows,
+    daily:    dailyRows.rows,
+    flash,
+  });
+});
+
+// ── POST /admin/affiliates/import — upload an Amazon CSV ────────────────────
+// Body: { csv: string } from the textarea. Caps body at 5MB via
+// express.urlencoded default; the file rarely exceeds 200 KB.
+router.post('/admin/affiliates/import', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const csv = String(req.body?.csv ?? '').trim();
+  if (!csv) {
+    return res.redirect('/admin/affiliates?imported=0&updated=0&skipped=0&first_err=' +
+      encodeURIComponent('No has pegado contenido.'));
+  }
+  try {
+    const summary = await importAmazonCsv(csv);
+    const qs = new URLSearchParams({
+      imported: String(summary.imported),
+      updated:  String(summary.updated),
+      skipped:  String(summary.skipped),
+      days:     summary.daysCovered.length
+                  ? `${summary.daysCovered[0]}…${summary.daysCovered[summary.daysCovered.length - 1]}`
+                  : '',
+    });
+    if (summary.errors.length) qs.set('first_err', summary.errors[0]);
+    res.redirect(`/admin/affiliates?${qs.toString()}`);
+  } catch (err) {
+    res.redirect('/admin/affiliates?imported=0&updated=0&skipped=0&first_err=' +
+      encodeURIComponent((err as Error).message.slice(0, 200)));
+  }
 });
 
 export default router;

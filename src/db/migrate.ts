@@ -712,6 +712,33 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE ae_nudge_clicks ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT 'banner' NOT NULL;
   CREATE INDEX IF NOT EXISTS idx_ae_nudge_clicks_source ON ae_nudge_clicks(source);
   `,
+  // Migration 49: storage for CSV-imported Amazon Affiliates stats.
+  // Amazon doesn't expose an earnings API, so admin uploads the CSV
+  // they download from afiliados.amazon.es periodically. The composite
+  // PK (tracking_id, asin, day) is the natural grain — rows from
+  // overlapping uploads UPSERT and the last upload wins (most recent
+  // numbers are correct because Amazon revises earlier rows for
+  // returns/adjustments). asin = '*' means "aggregate row, no per-item
+  // breakdown" (some Amazon reports aggregate by day only).
+  // raw_row keeps the original parsed object so future schema changes
+  // can re-derive columns from past uploads without re-importing.
+  `
+  CREATE TABLE IF NOT EXISTS amazon_affiliate_stats (
+    tracking_id    VARCHAR(50) NOT NULL,
+    asin           VARCHAR(20) NOT NULL DEFAULT '*',
+    day            DATE        NOT NULL,
+    clicks         INTEGER,
+    items_ordered  INTEGER,
+    items_returned INTEGER,
+    earnings       NUMERIC(12,2),
+    currency       VARCHAR(5)  DEFAULT 'EUR',
+    raw_row        JSONB,
+    uploaded_at    TIMESTAMP   DEFAULT NOW() NOT NULL,
+    PRIMARY KEY (tracking_id, asin, day)
+  );
+  CREATE INDEX IF NOT EXISTS idx_amazon_affiliate_stats_day  ON amazon_affiliate_stats(day DESC);
+  CREATE INDEX IF NOT EXISTS idx_amazon_affiliate_stats_asin ON amazon_affiliate_stats(asin) WHERE asin <> '*';
+  `,
 ];
 
 export async function migrate(pool: Pool = defaultPool): Promise<void> {

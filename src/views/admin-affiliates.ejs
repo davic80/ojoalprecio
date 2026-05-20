@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Afiliados Amazon — Admin OjoAlPrecio</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<%- include('partials/navbar-admin', { user, activePage: 'affiliates' }) %>
+
+<main class="container">
+
+  <div class="page-header">
+    <h1>Afiliados Amazon</h1>
+    <p class="subtitle">Sube periódicamente el CSV desde <a href="https://afiliados.amazon.es/p/reporting/earnings" target="_blank" rel="noopener">afiliados.amazon.es → Informes</a> (recomendado: <strong>Linked-Product</strong> para el desglose por ASIN). Las cargas que se solapan en fecha pisan los valores anteriores — los más recientes ganan.</p>
+  </div>
+
+  <% if (flash) { %>
+    <% const okish = flash.imported > 0 || flash.updated > 0; %>
+    <div class="alert-box" style="background:<%= okish ? '#f0fdf4' : 'var(--red-light)' %>;border:1px solid <%= okish ? '#bbf7d0' : 'var(--red-border)' %>;color:<%= okish ? '#166534' : '#9b1c1c' %>;margin-bottom:var(--sp-4)">
+      <strong>Importación:</strong>
+      <%= flash.imported %> nuevas filas
+      · <%= flash.updated %> actualizadas
+      <% if (flash.skipped > 0) { %>· <strong><%= flash.skipped %> ignoradas</strong><% } %>
+      <% if (flash.days) { %>· período: <code><%= flash.days %></code><% } %>
+      <% if (flash.firstErr) { %>
+        <div style="margin-top:6px;font-size:var(--fs-sm);opacity:.85">Primer error: <%= flash.firstErr %></div>
+      <% } %>
+    </div>
+  <% } %>
+
+  <!-- Stats -->
+  <div class="stats-bar" style="margin-bottom:var(--sp-4)">
+    <div class="stat-pill stat-pill-green">
+      <span class="stat-pill-value"><%= summary.earningsMonth.toFixed(2) %> €</span>
+      <span class="stat-pill-label">este mes</span>
+    </div>
+    <div class="stat-pill">
+      <span class="stat-pill-value"><%= summary.earnings7d.toFixed(2) %> €</span>
+      <span class="stat-pill-label">7 días</span>
+    </div>
+    <div class="stat-pill">
+      <span class="stat-pill-value"><%= summary.earnings30d.toFixed(2) %> €</span>
+      <span class="stat-pill-label">30 días</span>
+    </div>
+    <div class="stat-pill">
+      <span class="stat-pill-value"><%= summary.orders30d %></span>
+      <span class="stat-pill-label">unidades pedidas 30d</span>
+    </div>
+    <% if (summary.clicks30d > 0) { %>
+    <div class="stat-pill">
+      <span class="stat-pill-value"><%= summary.clicks30d %></span>
+      <span class="stat-pill-label">clicks 30d</span>
+    </div>
+    <% } %>
+  </div>
+
+  <p class="hint" style="margin-bottom:var(--sp-4)">
+    <%= summary.totalRows %> filas en BD · <%= summary.totalDays %> días distintos · <%= summary.totalTrackings %> tracking IDs
+    <% if (summary.lastUploadAt) { %>· última carga: <strong><%= new Date(summary.lastUploadAt).toLocaleString('es-ES') %></strong><% } %>
+    <% if (summary.earliestDay && summary.latestDay) { %>· período: <code><%= summary.earliestDay %> … <%= summary.latestDay %></code><% } %>
+  </p>
+
+  <!-- Upload form -->
+  <div class="card">
+    <h2>Importar CSV</h2>
+    <p class="subtitle">Abre el CSV en cualquier editor (Excel, Numbers, vi, lo que sea), copia <strong>todo el contenido</strong> (Ctrl/Cmd+A, Ctrl/Cmd+C), pégalo aquí y dale a Importar.</p>
+    <form method="POST" action="/admin/affiliates/import" style="margin-top:var(--sp-3)">
+      <textarea
+        name="csv"
+        class="input"
+        rows="10"
+        required
+        placeholder="Date,Tracking ID,Earnings,...&#10;2026-05-20,canidrone-21,12.34,..."
+        style="font-family:'SF Mono','Menlo','Monaco',monospace;font-size:12px;width:100%;resize:vertical"
+      ></textarea>
+      <div style="margin-top:var(--sp-3);display:flex;gap:var(--sp-2);align-items:center;flex-wrap:wrap">
+        <button type="submit" class="btn btn-primary">Importar</button>
+        <span class="hint" style="font-size:var(--fs-xs)">Detecta automáticamente separador (<code>,</code> o <code>;</code>), decimales (<code>1,23</code> o <code>1.23</code>), BOM, y formato de fecha.</span>
+      </div>
+    </form>
+  </div>
+
+  <% if (topAsins.length > 0) { %>
+    <div class="card">
+      <h2>Top ASINs por comisión — últimos 30 días</h2>
+      <p class="subtitle">Resaltados en verde los ASINs que también seguimos en ojoalprecio (cross-reference automático).</p>
+      <div class="table-wrap">
+        <table class="price-table table-card-mobile">
+          <thead>
+            <tr>
+              <th>ASIN</th>
+              <th>Producto</th>
+              <th style="text-align:right">Comisión</th>
+              <th style="text-align:right">Unidades</th>
+              <th style="text-align:right">Último día</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% topAsins.forEach(function(t) { %>
+              <tr style="<%= t.isTracked ? 'background:#f0fdf4' : '' %>">
+                <td data-label="ASIN" style="font-family:monospace;font-size:12px">
+                  <% if (t.isTracked) { %>
+                    <a href="/p/<%= t.asin %>"><%= t.asin %></a>
+                  <% } else { %>
+                    <%= t.asin %>
+                  <% } %>
+                </td>
+                <td data-label="Producto" style="font-size:13px">
+                  <% if (t.name) { %>
+                    <%= t.name.length > 50 ? t.name.slice(0, 50) + '…' : t.name %>
+                  <% } else { %>
+                    <span class="hint">No seguimos este producto</span>
+                  <% } %>
+                </td>
+                <td data-label="Comisión" style="text-align:right;font-weight:600;font-variant-numeric:tabular-nums;color:var(--green)">
+                  <%= t.earnings.toFixed(2) %> €
+                </td>
+                <td data-label="Unidades" style="text-align:right;font-variant-numeric:tabular-nums">
+                  <%= t.items ?? '—' %>
+                </td>
+                <td data-label="Último día" style="text-align:right;font-size:12px;color:var(--gray-500)">
+                  <%= t.lastDay %>
+                </td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  <% } %>
+
+  <% if (daily.length >= 2) { %>
+    <div class="card">
+      <h2>Comisiones diarias — últimos 30 días</h2>
+      <div class="chart-wrap" style="margin-top:var(--sp-3)">
+        <canvas id="dailyChart"></canvas>
+      </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script>
+      const dailyData = <%- JSON.stringify(daily.map(d => ({ x: d.day, y: d.earnings }))) %>;
+      document.addEventListener('DOMContentLoaded', () => {
+        const ctx = document.getElementById('dailyChart').getContext('2d');
+        new Chart(ctx, {
+          type: 'bar',
+          data: { datasets: [{
+            label: 'Comisión (€)', data: dailyData,
+            backgroundColor: 'rgba(25, 135, 84, 0.6)',
+            borderColor: 'rgba(25, 135, 84, 1)', borderWidth: 1,
+          }]},
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+              x: { type: 'time', time: { unit: 'day', displayFormats: { day: 'dd/MM' } }, ticks: { maxTicksLimit: 10 }, grid: { display: false } },
+              y: { ticks: { callback: v => v.toFixed(2) + ' €' }, grid: { color: 'rgba(0,0,0,0.05)' } }
+            }
+          }
+        });
+      });
+    </script>
+  <% } %>
+
+</main>
+
+<%- include('partials/footer-admin') %>
+
+</body>
+</html>

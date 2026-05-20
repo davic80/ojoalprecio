@@ -258,6 +258,27 @@ export const amazonAeEquivalents = pgTable('amazon_ae_equivalents', {
 export type AmazonAeEquivalent    = typeof amazonAeEquivalents.$inferSelect;
 export type NewAmazonAeEquivalent = typeof amazonAeEquivalents.$inferInsert;
 
+// CSV-imported Amazon Affiliates stats. Composite PK with UPSERT semantics
+// so overlapping uploads keep the most recent numbers (Amazon revises rows
+// for returns/adjustments after the fact). asin='*' is the sentinel for
+// daily-aggregate rows that don't have per-item granularity.
+export const amazonAffiliateStats = pgTable('amazon_affiliate_stats', {
+  trackingId:     varchar('tracking_id', { length: 50 }).notNull(),
+  asin:           varchar('asin',        { length: 20 }).notNull().default('*'),
+  day:            text('day').notNull(),  // ISO 'YYYY-MM-DD' for consistency with page_views
+  clicks:         integer('clicks'),
+  itemsOrdered:   integer('items_ordered'),
+  itemsReturned:  integer('items_returned'),
+  earnings:       numeric('earnings', { precision: 12, scale: 2 }),
+  currency:       varchar('currency', { length: 5 }).default('EUR'),
+  rawRow:         text('raw_row'),   // JSONB at SQL level; drizzle text() is fine for our read paths
+  uploadedAt:     timestamp('uploaded_at').defaultNow().notNull(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.trackingId, t.asin, t.day] }),
+}));
+export type AmazonAffiliateStat    = typeof amazonAffiliateStats.$inferSelect;
+export type NewAmazonAffiliateStat = typeof amazonAffiliateStats.$inferInsert;
+
 // Click log for the cross-marketplace nudge banner. Insert-only, never
 // mutated. ae_product_id is stored as a plain string (no FK) on purpose
 // so the click record outlives any AE catalog cleanup.

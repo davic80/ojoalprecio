@@ -17,6 +17,7 @@
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "connect-pg-simple": "^9.0.1",
+    "csv-parse": "^6.2.1",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.38.4",
     "ejs": "^3.1.10",
