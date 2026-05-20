@@ -6,6 +6,7 @@ import { affiliateUrl } from '../scraper/amazon';
 import { isAdmin } from '../middleware/admin';
 import { onScrapeUpdate } from '../lib/product-events';
 import { getAliExpressClient, discoverAndPersistEquivalent, extractBrandModel } from '../marketplaces/aliexpress';
+import { upsertAEProductSql } from '../marketplaces/aliexpress/persist';
 
 const router = Router();
 
@@ -49,7 +50,7 @@ router.get('/search', async (req: Request, res: Response) => {
     `);
     amazonRows = az.rows as any[];
 
-    const ae = marketplace === 'amazon' ? { rows: [] } : await db.execute(sql`
+    const aeRowsSql = sql`
       SELECT
         'aliexpress'          AS marketplace,
         p.product_id          AS "id",
@@ -64,8 +65,44 @@ router.get('/search', async (req: Request, res: Response) => {
       FROM aliexpress_products p
       WHERE p.is_available = TRUE
         AND p.title ILIKE ${pattern} ESCAPE '\\'
-    `);
+    `;
+    const ae = marketplace === 'amazon' ? { rows: [] } : await db.execute(aeRowsSql);
     aeRows = ae.rows as any[];
+
+    // Live AE fallback. Our local catalog only contains AE products that
+    // someone has tracked or that surfaced as a similar — for fresh
+    // queries (most of them) the local result will be empty. Fire the
+    // affiliate API, upsert results into our catalog, then re-query
+    // local so the rendered shape stays identical. Only on page 1
+    // (paginating mixed live+local is overkill for v1) and only when
+    // we have a meaningful keyword and few local hits.
+    const aeClient = getAliExpressClient();
+    const LOCAL_RESULTS_FALLBACK_THRESHOLD = 8;
+    if (
+      marketplace !== 'amazon'
+      && aeClient
+      && page === 1
+      && aeRows.length < LOCAL_RESULTS_FALLBACK_THRESHOLD
+    ) {
+      try {
+        const live = await Promise.race([
+          aeClient.productQuery({ keywords: q, pageSize: 20 }),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('ae-live-search-timeout')), 5000),
+          ),
+        ]);
+        if (live?.products?.length) {
+          // Upsert all in parallel. Idempotent — the existing rows from
+          // the ILIKE pass above just get refreshed.
+          await Promise.all(live.products.map(p => db.execute(upsertAEProductSql(p))));
+          aeRows = (await db.execute(aeRowsSql)).rows as any[];
+        }
+      } catch (err) {
+        // Falling back to whatever the local ILIKE returned is fine —
+        // no need to surface the error to anonymous users.
+        console.warn(`[search] AE live productQuery for "${q}" failed: ${(err as Error).message}`);
+      }
+    }
   }
 
   // Merge + sort: deal_score / discount_pct desc, NULL last, then alpha.
