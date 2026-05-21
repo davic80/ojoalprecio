@@ -108,6 +108,21 @@ const BLOCKED_TYPES = new Set(['media', 'other', 'ping', 'beacon']);
 //  - #dp: too broad, catches accessory prices from "frequently bought together".
 // If none of these match, the product has no buybox price (variant unselected,
 // only used offers, etc.) and we fail cleanly rather than guess.
+// Title selectors — Amazon serves several layouts depending on the
+// category (Books, Toys, Electronics all differ). When `#productTitle`
+// is the only one we wait for, a non-standard layout causes a 10 s
+// timeout + the whole scrape fails even though the price is visible
+// (real case: B0D17X2Y4D — toy/game category, no #productTitle).
+// We race the lot and take whichever resolves first, then fall back
+// to the og:title meta tag which every Amazon page has.
+const TITLE_SELECTORS = [
+  '#productTitle',
+  '#title span#productTitle',
+  '#title h1 span',
+  '[data-feature-name="title"] h1',
+  '[data-csa-c-content-id="title"] span',
+  'h1.product-title-word-break',
+];
 const PRICE_SELECTORS = [
   '#corePriceDisplay_desktop_feature_div .a-price:not(.a-text-price):not(.a-text-strike) .a-offscreen',
   '#corePrice_feature_div .a-price:not(.a-text-price):not(.a-text-strike) .a-offscreen',
@@ -412,9 +427,26 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
           }
         }
 
-        // Phase 1: name + availability in parallel (both instant after domcontentloaded)
+        // Phase 1: name + availability in parallel. Title races every known
+        // selector + falls back to the og:title meta tag — the latter is
+        // present on every Amazon layout so the only way to genuinely fail
+        // here is a non-product page (404 / blocked).
         const [name, availabilityText] = await Promise.all([
-          page.locator('#productTitle').first().textContent({ timeout: LOCATOR_TIMEOUT_MS }).then(t => t?.trim() ?? ''),
+          Promise.any(
+            TITLE_SELECTORS.map(sel =>
+              page.locator(sel).first().textContent({ timeout: LOCATOR_TIMEOUT_MS }).then(t => {
+                const s = t?.trim() ?? '';
+                if (!s) throw new Error('empty');
+                return s;
+              })
+            )
+          ).catch(async () => {
+            // Final fallback — meta[property="og:title"] is always set on
+            // product pages (used by Amazon for share previews).
+            const t = await page.locator('meta[property="og:title"]').first()
+              .getAttribute('content', { timeout: 2000 }).catch(() => '');
+            return t?.trim() ?? '';
+          }),
           page.locator('#availability').first().textContent({ timeout: 5000 }).catch(() => ''),
         ]);
         if (!name) throw new Error('Título no encontrado');
