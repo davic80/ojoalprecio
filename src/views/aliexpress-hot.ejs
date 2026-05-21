@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chollos AliExpress — OjoAlPrecio</title>
+  <meta name="description" content="Los productos más vendidos en AliExpress ahora mismo: precios bajos, envío a España y comparativa de descuentos al instante.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<%- include('partials/navbar', { variant: user ? 'user' : 'anonymous', user, isAdmin }) %>
+
+<main class="container-wide">
+
+  <div class="page-header">
+    <h1>Chollos AliExpress</h1>
+    <p class="subtitle">
+      Los productos más vendidos en AliExpress, refrescados cada día.
+      Precios en € con envío a España.
+      <% if (lastFetched) { %>
+        Última actualización: <%= new Date(lastFetched).toLocaleString('es-ES') %>.
+      <% } %>
+    </p>
+  </div>
+
+  <%# Quick switch back to the Amazon deals page so anonymous visitors
+     who land here from search can see we have both. -%>
+  <div style="display:flex;gap:var(--sp-2);margin-bottom:var(--sp-4);flex-wrap:wrap">
+    <a href="/ofertas" class="btn btn-sm btn-outline">📦 Ofertas Amazon</a>
+    <span class="btn btn-sm btn-aliexpress" style="cursor:default">🛒 Chollos AliExpress</span>
+  </div>
+
+  <% if (products.length === 0) { %>
+    <div class="empty-state">
+      <div class="empty-icon">🛒</div>
+      <h3>Aún no hay chollos</h3>
+      <p>El feed se actualiza automáticamente cada día. Vuelve dentro de un rato.</p>
+    </div>
+  <% } else { %>
+    <div class="product-grid">
+      <% products.forEach(function(p) { %>
+        <%# Tracked click — sends through /ae/r-like instrumentation? For now
+           direct promotion link (tracking_id is already embedded). Click
+           tracking for hot products can be added later if needed. -%>
+        <div class="product-card">
+          <a href="/ae/<%= p.productId %>" class="product-card-link" title="Ver historial de precio">
+            <div class="product-img-wrap">
+              <% if (p.imageUrl) { %>
+                <img src="<%= p.imageUrl %>" alt="" class="product-img" loading="lazy">
+              <% } else { %>
+                <div class="product-img-placeholder">🛒</div>
+              <% } %>
+              <% if (p.saleTier) { %>
+                <span class="badge-tier-<%= p.saleTier %>">−<%= p.discountPct %>%</span>
+              <% } else if (p.discountPct && p.discountPct >= 7) { %>
+                <span class="badge-sale">−<%= p.discountPct %>%</span>
+              <% } %>
+            </div>
+            <div class="product-info">
+              <p class="product-name"><%= p.title %></p>
+              <p class="product-asin" style="margin-top:var(--sp-1)">
+                <span class="marketplace-tag marketplace-tag-aliexpress">🛒 AliExpress</span>
+                <% if (p.shopName) { %> · <%= p.shopName %><% } %>
+              </p>
+              <% if (p.ordersCount) { %>
+                <p class="hint" style="margin-top:4px">
+                  <%= Number(p.ordersCount).toLocaleString('es-ES') %> pedidos
+                </p>
+              <% } %>
+            </div>
+          </a>
+          <div class="product-prices">
+            <div class="price-row">
+              <div class="price-current"><%= p.salePrice ? p.salePrice.toFixed(2) + ' €' : '—' %></div>
+              <% if (p.originalPrice && p.originalPrice > p.salePrice) { %>
+                <span style="font-size:var(--fs-sm);text-decoration:line-through;color:var(--gray-400)">
+                  <%= p.originalPrice.toFixed(2) %> €
+                </span>
+              <% } %>
+            </div>
+          </div>
+          <div class="product-actions">
+            <a href="/ae/<%= p.productId %>" class="btn btn-sm btn-outline">Ver detalles</a>
+            <a href="<%= p.promotionUrl || p.productUrl %>" target="_blank" rel="noopener sponsored" class="btn btn-sm btn-aliexpress">AliExpress ↗</a>
+          </div>
+        </div>
+      <% }); %>
+    </div>
+  <% } %>
+
+</main>
+
+<%- include('partials/footer', { middleHtml: 'Seguimiento de precios en Amazon.es y AliExpress &nbsp;·&nbsp; <a href="/auth/register">Crea tu cuenta gratis</a>' }) %>
+
+<%- include('partials/bottom-nav', { user, activeNav: 'ofertas' }) %>
+
+</body>
+</html>

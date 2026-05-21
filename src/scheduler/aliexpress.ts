@@ -315,6 +315,59 @@ export async function refreshAEEquivalents(client: AliExpressClient): Promise<{
   return { candidates: candidates.length, updated, eligible, failed };
 }
 
+/**
+ * Daily refresh of the hot-products feed for /ofertas/aliexpress.
+ *
+ * Calls aliexpress.affiliate.hotproduct.query once, upserts the result
+ * into aliexpress_products with is_hot=TRUE + hot_rank preserving the
+ * order, then clears is_hot on every row not in the current batch so
+ * yesterday's hot products don't linger. Permission-required (Advanced
+ * API) — gracefully no-ops on AliExpressPermissionError.
+ *
+ * Cap at 100 — that's two full pages of public.ejs grid, plenty for
+ * the daily feed while keeping the upsert batch small.
+ */
+const HOT_PRODUCTS_BATCH = 100;
+
+export async function refreshAEHotProducts(client: AliExpressClient): Promise<{
+  fetched: number; persisted: number;
+}> {
+  let res;
+  try {
+    res = await client.hotProductQuery({ pageSize: HOT_PRODUCTS_BATCH });
+  } catch (err) {
+    if (err instanceof AliExpressPermissionError) {
+      console.warn('[ae-hot] permission denied — skip');
+      return { fetched: 0, persisted: 0 };
+    }
+    throw err;
+  }
+
+  const products = res.products ?? [];
+  if (products.length === 0) {
+    // Defensive: don't blank-out the current pool if AE returned empty.
+    console.warn('[ae-hot] empty response, keeping previous pool');
+    return { fetched: 0, persisted: 0 };
+  }
+
+  await db.transaction(async (tx) => {
+    // 1. Demote previous hot products so stale entries fall off the feed.
+    await tx.execute(sql`UPDATE aliexpress_products SET is_hot = FALSE WHERE is_hot = TRUE`);
+    // 2. Upsert + promote each new one with its rank.
+    for (let i = 0; i < products.length; i++) {
+      const p = products[i];
+      await tx.execute(upsertAEProductSql(p));
+      await tx.execute(sql`
+        UPDATE aliexpress_products
+        SET is_hot = TRUE, hot_rank = ${i + 1}, hot_fetched_at = NOW()
+        WHERE product_id = ${p.productId}
+      `);
+    }
+  });
+
+  return { fetched: products.length, persisted: products.length };
+}
+
 /** Wire the 8h cron. Skips entirely when no AE client is configured. */
 export function startAliExpressScheduler(): void {
   const client = getAliExpressClient();
@@ -324,6 +377,20 @@ export function startAliExpressScheduler(): void {
   }
   const tz = 'Europe/Madrid';
   // Every 8h at :05, offset from the Amazon scheduler's :00.
+  // Hot-products: once a day at 04:10 Europe/Madrid (off-peak, after
+  // the 04:05 ae-scheduler tick so they don't collide). Cheap — one
+  // API call total per day.
+  cron.schedule('10 4 * * *', async () => {
+    const started = Date.now();
+    console.log('[ae-hot] daily refresh…');
+    try {
+      const r = await refreshAEHotProducts(client);
+      console.log(`[ae-hot] done in ${((Date.now() - started)/1000).toFixed(1)}s — ${r.persisted}/${r.fetched} hot products persisted.`);
+    } catch (err) {
+      console.error('[ae-hot] uncaught:', err);
+    }
+  }, { timezone: tz });
+
   cron.schedule('5 */8 * * *', async () => {
     const started = Date.now();
     console.log('[ae-scheduler] starting 8h refresh…');

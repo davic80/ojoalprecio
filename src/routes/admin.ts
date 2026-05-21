@@ -8,7 +8,7 @@ import { requireAdmin } from '../middleware/admin';
 import { scrapeUrlForAsins, extractAsin, normaliseAmazonUrl } from '../scraper/amazon';
 import { getScraperStatus, triggerScrape } from '../scheduler';
 import { getBestUnpostedDeal, postDailyDeal, POST_HOURS } from '../scheduler/social';
-import { refreshAllAETracks, refreshAEEquivalents } from '../scheduler/aliexpress';
+import { refreshAllAETracks, refreshAEEquivalents, refreshAEHotProducts } from '../scheduler/aliexpress';
 import { getAliExpressClient, discoverAndPersistEquivalent } from '../marketplaces/aliexpress';
 import { importAmazonCsv } from '../marketplaces/amazon-affiliates/csv-import';
 import { getAllSettings, setSetting } from '../db/settings';
@@ -1138,11 +1138,13 @@ router.post('/admin/aliexpress/refresh-now', requireAuth, requireAdmin, async (r
     try {
       const t = await refreshAllAETracks(client);
       const e = await refreshAEEquivalents(client);
+      const h = await refreshAEHotProducts(client);
       const ms = Date.now() - started;
       console.log(
         `[ae-admin] manual refresh done in ${(ms / 1000).toFixed(1)}s — ` +
         `tracks: ${t.refreshed}/${t.totalProducts} (${t.alertsSent} alerts); ` +
-        `equivalents: ${e.updated}/${e.candidates} (${e.eligible} eligible).`
+        `equivalents: ${e.updated}/${e.candidates} (${e.eligible} eligible); ` +
+        `hot: ${h.persisted}/${h.fetched}.`
       );
     } catch (err) {
       console.error('[ae-admin] manual refresh failed:', err);

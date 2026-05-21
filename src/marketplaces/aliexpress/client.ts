@@ -137,6 +137,44 @@ export class AliExpressClient {
     };
   }
 
+  /**
+   * Top trending products in the AE catalog. Requires the Advanced API
+   * permission (approved 2026-05-21). Sorting defaults to LAST_VOLUME_DESC
+   * — i.e. "most-ordered first", the closest proxy AE exposes for
+   * popularity-driven discovery. Optional category + price filters keep
+   * the feed relevant.
+   */
+  async hotProductQuery(opts: {
+    pageSize?:     number;
+    pageNo?:       number;
+    categoryIds?:  string;       // CSV of AE category ids
+    keywords?:     string;
+    minSalePrice?: number;
+    maxSalePrice?: number;
+    sort?:         'LAST_VOLUME_DESC' | 'LAST_VOLUME_ASC' | 'SALE_PRICE_DESC' | 'SALE_PRICE_ASC';
+  } = {}): Promise<AliExpressListResponse> {
+    const r = await this.call<any>('aliexpress.affiliate.hotproduct.query', {
+      tracking_id:     this.cfg.trackingId,
+      page_no:         opts.pageNo   ?? 1,
+      page_size:       opts.pageSize ?? 50,
+      ...(opts.keywords     ? { keywords:        opts.keywords    } : {}),
+      ...(opts.categoryIds  ? { category_ids:    opts.categoryIds } : {}),
+      ...(opts.minSalePrice != null ? { min_sale_price: Math.floor(opts.minSalePrice) } : {}),
+      ...(opts.maxSalePrice != null ? { max_sale_price: Math.ceil(opts.maxSalePrice)  } : {}),
+      target_currency: this.cfg.targetCurrency ?? 'EUR',
+      target_language: this.cfg.targetLanguage ?? 'ES',
+      ship_to_country: this.cfg.shipToCountry  ?? 'ES',
+      sort:            opts.sort ?? 'LAST_VOLUME_DESC',
+    });
+    const items = r?.resp_result?.result?.products?.product ?? [];
+    return {
+      products:   items.map(mapProduct),
+      totalCount: Number(r?.resp_result?.result?.total_record_count ?? items.length),
+      pageNo:     Number(r?.resp_result?.result?.current_page_no ?? opts.pageNo ?? 1),
+      pageSize:   Number(r?.resp_result?.result?.page_size ?? opts.pageSize ?? 50),
+    };
+  }
+
   /** "You may also like" given a productId (strategy C fallback). EXTRA permission. */
   async smartMatch(productId: string, pageSize = 10): Promise<AliExpressProduct[]> {
     const r = await this.call<any>('aliexpress.affiliate.product.smartmatch', {

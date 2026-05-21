@@ -746,6 +746,23 @@ export const MIGRATIONS: string[] = [
   // with the page_views / ae_nudge_views convention of storing ISO
   // 'YYYY-MM-DD' strings.
   `ALTER TABLE amazon_affiliate_stats ALTER COLUMN day TYPE TEXT USING TO_CHAR(day, 'YYYY-MM-DD');`,
+  // Migration 51: hot-products feed columns on aliexpress_products.
+  // hotproduct.query (Advanced API perm, approved 2026-05-21) returns
+  // the top-trending AE products globally. We refresh a small pool
+  // daily and surface them on /ofertas/aliexpress. Reuses the existing
+  // catalog row when an AE product appears both as a hot one AND as
+  // someone's tracked / similar — no duplication.
+  //   is_hot          : filter for the public page
+  //   hot_rank        : preserves the API's order (1 = top)
+  //   hot_fetched_at  : lets us age out stale entries
+  `
+  ALTER TABLE aliexpress_products
+    ADD COLUMN IF NOT EXISTS is_hot         BOOLEAN DEFAULT FALSE NOT NULL,
+    ADD COLUMN IF NOT EXISTS hot_rank       INTEGER,
+    ADD COLUMN IF NOT EXISTS hot_fetched_at TIMESTAMP;
+  CREATE INDEX IF NOT EXISTS idx_aliexpress_products_hot_rank
+    ON aliexpress_products(hot_rank) WHERE is_hot = TRUE;
+  `,
 ];
 
 export async function migrate(pool: Pool = defaultPool): Promise<void> {

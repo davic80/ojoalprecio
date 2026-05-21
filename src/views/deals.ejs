@@ -19,6 +19,12 @@
     <p class="subtitle">Productos en Amazon.es con bajadas de precio destacadas</p>
   </div>
 
+  <%# Marketplace switcher — visible reciprocal link to the AE hot feed. -%>
+  <div style="display:flex;gap:var(--sp-2);margin-bottom:var(--sp-4);flex-wrap:wrap">
+    <span class="btn btn-sm btn-amazon" style="cursor:default">📦 Ofertas Amazon</span>
+    <a href="/ofertas/aliexpress" class="btn btn-sm btn-outline">🛒 Chollos AliExpress</a>
+  </div>
+
   <% const totalDeals = groups.reduce((s, g) => s + g.deals.length, 0); %>
 
   <% if (process.env.TELEGRAM_PUBLIC_CHANNEL) { %>

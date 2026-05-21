@@ -13,6 +13,43 @@ import {
 
 const router = Router();
 
+// ── GET /ofertas/aliexpress — public hot-products feed ──────────────────────
+// Cron refresh runs daily (see scheduler/aliexpress.ts startAliExpressScheduler
+// → 04:10 Madrid). This route just reads the cached pool — no API hit per
+// request. Anonymous-friendly, SEO-optimised description.
+router.get('/ofertas/aliexpress', async (req: Request, res: Response) => {
+  const rows = await db.execute(sql`
+    SELECT
+      product_id           AS "productId",
+      title,
+      image_url            AS "imageUrl",
+      product_url          AS "productUrl",
+      promotion_url        AS "promotionUrl",
+      sale_price::float    AS "salePrice",
+      original_price::float AS "originalPrice",
+      discount_pct         AS "discountPct",
+      currency,
+      sale_tier            AS "saleTier",
+      orders_count         AS "ordersCount",
+      shop_name            AS "shopName",
+      hot_rank             AS "hotRank",
+      hot_fetched_at       AS "hotFetchedAt"
+    FROM aliexpress_products
+    WHERE is_hot = TRUE
+    ORDER BY hot_rank ASC NULLS LAST
+    LIMIT 100
+  `);
+  const products = rows.rows as any[];
+  const lastFetched = products[0]?.hotFetchedAt ?? null;
+
+  res.render('aliexpress-hot', {
+    user:    req.session.userId ? { email: req.session.userEmail } : null,
+    isAdmin: isAdmin(req),
+    products,
+    lastFetched,
+  });
+});
+
 // ── GET /ae/r/:amazonProductId — tracked redirect to the AE equivalent ──────
 // The .ae-nudge banner on /p/:asin links here. We look up the current
 // eligible equivalent, log a click row (best-effort, never blocks the
