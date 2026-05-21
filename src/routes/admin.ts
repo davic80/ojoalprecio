@@ -1156,6 +1156,65 @@ router.post('/admin/aliexpress/refresh-now', requireAuth, requireAdmin, async (r
   res.redirect('/admin/aliexpress?refresh=started');
 });
 
+// ── GET /admin/cleanup — candidates to delete ───────────────────────────────
+// Auto-imported products that nobody is using and that the scraper has lost
+// touch with. The criteria:
+//   - ≥3 days old (don't judge brand-new adds that haven't had time to
+//     accumulate datapoints)
+//   - <3 price_history rows in the last 3 days (i.e. <1/day average —
+//     scrape failing, listing dead, blacklisted, etc.)
+//   - 0 user follows excluding the system user (no human cares)
+//   - 0 alerts (related: nobody set one up)
+//   - created_by_user_id IS NULL OR = system user (auto-imported by
+//     wishlist/category/twister, not manually added by a human)
+// All four gates together → safe to nuke. Capped at 500 for the UI; if
+// the catalog grows past that we can paginate.
+router.get('/admin/cleanup', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const rows = await db.execute(sql`
+    WITH system_user AS (
+      SELECT id FROM users WHERE email = ${SYSTEM_EMAIL} LIMIT 1
+    )
+    SELECT
+      p.id,
+      p.asin,
+      p.name,
+      p.image_url                                    AS "imageUrl",
+      p.last_error                                   AS "lastError",
+      p.is_available                                 AS "isAvailable",
+      p.created_at                                   AS "createdAt",
+      EXTRACT(DAY FROM (NOW() - p.created_at))::int  AS "daysOld",
+      (SELECT COUNT(*)::int FROM price_history ph
+        WHERE ph.product_id = p.id
+          AND ph.scraped_at >= NOW() - INTERVAL '3 days')   AS "datapoints3d",
+      (SELECT COUNT(*)::int FROM price_history ph
+        WHERE ph.product_id = p.id)                          AS "datapointsTotal",
+      (SELECT MAX(ph.scraped_at) FROM price_history ph
+        WHERE ph.product_id = p.id)                          AS "lastScrapeAt"
+    FROM products p
+    LEFT JOIN system_user su ON TRUE
+    WHERE p.is_active = TRUE
+      AND p.created_at < NOW() - INTERVAL '3 days'
+      AND (p.created_by_user_id IS NULL
+           OR (su.id IS NOT NULL AND p.created_by_user_id = su.id))
+      AND NOT EXISTS (
+        SELECT 1 FROM user_products up
+        WHERE up.product_id = p.id
+          AND (su.id IS NULL OR up.user_id <> su.id)
+      )
+      AND NOT EXISTS (SELECT 1 FROM alerts a WHERE a.product_id = p.id)
+      AND (SELECT COUNT(*) FROM price_history ph
+            WHERE ph.product_id = p.id
+              AND ph.scraped_at >= NOW() - INTERVAL '3 days') < 3
+    ORDER BY "datapoints3d" ASC, p.created_at ASC
+    LIMIT 500
+  `);
+
+  res.render('admin-cleanup', {
+    user: { email: req.session.userEmail },
+    candidates: rows.rows,
+  });
+});
+
 // ── POST /admin/aliexpress/equivalent/:amazonProductId/recheck ──────────────
 // Force-re-run the cross-marketplace discovery for one Amazon product,
 // bypassing the 24h cache. Used from the admin diagnostic block on /p/:asin

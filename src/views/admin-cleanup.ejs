@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Limpieza — Admin OjoAlPrecio</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<%- include('partials/navbar-admin', { user, activePage: 'cleanup' }) %>
+
+<main class="container-wide">
+
+  <div class="page-header">
+    <h1>Limpieza · candidatos a borrar</h1>
+    <p class="subtitle">
+      Productos auto-importados (sin <code>created_by_user_id</code> de usuario humano),
+      <strong>sin seguidores reales</strong> y <strong>sin alertas</strong>, que llevan
+      <strong>≥3 días</strong> en el catálogo y han tenido <strong>&lt; 3 datapoints en
+      los últimos 3 días</strong>. Cálculo on-demand sobre la BD, siempre fresco.
+    </p>
+  </div>
+
+  <% if (candidates.length === 0) { %>
+    <div class="empty-state">
+      <div class="empty-icon">✨</div>
+      <h3>Nada que borrar</h3>
+      <p>No hay productos auto-importados huérfanos con scrape moribundo en este momento.</p>
+    </div>
+  <% } else { %>
+    <div class="bulk-bar" id="bulk-bar">
+      <button type="button" onclick="selectAllVisible()" class="btn btn-sm btn-ghost">Todos</button>
+      <button type="button" onclick="clearSelection()" class="btn btn-sm btn-ghost">Ninguno</button>
+      <span id="bulk-count" class="hint" style="min-width:90px"></span>
+      <button type="button" id="bulk-delete-btn" onclick="deleteBulk()" class="btn btn-sm btn-danger" disabled
+        title="Borrado definitivo — cascadea a price_history, alerts, user_products, anomalías">
+        Borrar seleccionados
+      </button>
+      <span id="bulk-result" class="hint" style="color:var(--green)"></span>
+      <span class="hint" style="margin-left:auto"><%= candidates.length %> candidato<%= candidates.length === 1 ? '' : 's' %><% if (candidates.length >= 500) { %> (mostrando los primeros 500)<% } %></span>
+    </div>
+
+    <div class="table-wrap">
+      <table class="price-table table-card-mobile">
+        <thead>
+          <tr>
+            <th style="width:30px"></th>
+            <th>Producto</th>
+            <th style="text-align:right">Días en BD</th>
+            <th style="text-align:right">Datapoints 3d</th>
+            <th style="text-align:right">Total datapoints</th>
+            <th style="text-align:right">Último scrape</th>
+            <th>Estado</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% candidates.forEach(function(p) { %>
+            <tr>
+              <td data-label="">
+                <input type="checkbox" class="product-checkbox" data-id="<%= p.id %>" aria-label="Seleccionar producto <%= p.asin %>">
+              </td>
+              <td data-label="Producto" style="max-width:380px">
+                <a href="/p/<%= p.asin %>" target="_blank" rel="noopener" style="font-size:13px;font-weight:500">
+                  <%= p.name ? (p.name.length > 70 ? p.name.slice(0, 70) + '…' : p.name) : p.asin %>
+                </a>
+                <div class="hint" style="font-size:11px;margin-top:2px">
+                  <code><%= p.asin %></code>
+                </div>
+              </td>
+              <td data-label="Días" style="text-align:right;font-variant-numeric:tabular-nums"><%= p.daysOld %></td>
+              <td data-label="Datapoints 3d" style="text-align:right;font-variant-numeric:tabular-nums;color:<%= p.datapoints3d === 0 ? 'var(--red)' : 'var(--gray-700)' %>">
+                <%= p.datapoints3d %>
+              </td>
+              <td data-label="Total datapoints" style="text-align:right;font-variant-numeric:tabular-nums"><%= p.datapointsTotal %></td>
+              <td data-label="Último scrape" style="text-align:right;font-size:12px;color:var(--gray-500)">
+                <%= p.lastScrapeAt ? new Date(p.lastScrapeAt).toLocaleString('es-ES') : '—' %>
+              </td>
+              <td data-label="Estado">
+                <% if (!p.isAvailable) { %>
+                  <span class="alert-badge badge-triggered">Sin stock</span>
+                <% } else if (p.lastError) { %>
+                  <span class="alert-badge" style="background:var(--red-light);color:#9b1c1c" title="<%= p.lastError %>">Error</span>
+                <% } else { %>
+                  <span class="hint">—</span>
+                <% } %>
+              </td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+
+</main>
+
+<%- include('partials/footer-admin') %>
+
+<script>
+(function () {
+  const selectedIds = new Set();
+
+  function updateUI() {
+    // Drop any selected id whose row vanished after a delete
+    const domIds = new Set([...document.querySelectorAll('.product-checkbox')].map(c => parseInt(c.dataset.id)));
+    for (const id of selectedIds) { if (!domIds.has(id)) selectedIds.delete(id); }
+
+    const count = selectedIds.size;
+    const countEl = document.getElementById('bulk-count');
+    if (countEl) countEl.textContent = count > 0 ? count + ' seleccionado' + (count !== 1 ? 's' : '') : '';
+    const btn = document.getElementById('bulk-delete-btn');
+    if (btn) btn.disabled = count === 0;
+
+    document.querySelectorAll('.product-checkbox').forEach(cb => {
+      const id = parseInt(cb.dataset.id);
+      cb.checked = selectedIds.has(id);
+    });
+  }
+
+  window.selectAllVisible = function () {
+    document.querySelectorAll('.product-checkbox').forEach(cb => selectedIds.add(parseInt(cb.dataset.id)));
+    updateUI();
+  };
+
+  window.clearSelection = function () {
+    selectedIds.clear();
+    const result = document.getElementById('bulk-result');
+    if (result) result.textContent = '';
+    updateUI();
+  };
+
+  window.deleteBulk = async function () {
+    if (!selectedIds.size) return;
+    if (!confirm('¿Borrar definitivamente ' + selectedIds.size + ' producto(s)? Se eliminan también su historial de precios, alertas, follows y anomalías. Esta acción no se puede deshacer.')) return;
+    const btn = document.getElementById('bulk-delete-btn');
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Borrando…';
+    try {
+      const res = await fetch('/products/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: [...selectedIds] }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        document.getElementById('bulk-result').textContent = '✓ ' + data.deleted + ' borrado' + (data.deleted !== 1 ? 's' : '');
+        clearSelection();
+        setTimeout(() => location.reload(), 900);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert('Error: ' + (err.error || res.statusText));
+      }
+    } finally {
+      btn.textContent = original;
+    }
+  };
+
+  document.addEventListener('change', function (e) {
+    if (!e.target.classList.contains('product-checkbox')) return;
+    const id = parseInt(e.target.dataset.id);
+    if (e.target.checked) selectedIds.add(id); else selectedIds.delete(id);
+    updateUI();
+  });
+
+  updateUI();
+})();
+</script>
+
+</body>
+</html>
