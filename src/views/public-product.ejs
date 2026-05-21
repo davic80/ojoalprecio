@@ -94,6 +94,52 @@
     </a>
   <% } %>
 
+  <%# Admin-only equivalent diagnostic — visible only when isAdmin so end
+     users never see it. Direct answer to "why is/isn't the AE banner
+     showing for THIS product?" without having to dig into
+     /admin/aliexpress. -%>
+  <% if (typeof aeEquivalentDebug !== 'undefined' && aeEquivalentDebug && isAdmin) { %>
+    <% const d = aeEquivalentDebug; %>
+    <% const stateLabels = { 'unchecked': '⌛ Pendiente de comprobar', 'no-candidate': '✗ Sin candidato AE', 'ineligible': '✗ Candidato no elegible', 'eligible': '✓ Match elegible (banner activo)' }; %>
+    <% const stateColors = { 'unchecked': 'var(--gray-500)', 'no-candidate': 'var(--gray-500)', 'ineligible': '#c2410c', 'eligible': '#166534' }; %>
+    <details style="margin:var(--sp-3) 0;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius);padding:var(--sp-3)" open>
+      <summary style="cursor:pointer;font-size:var(--fs-sm);color:var(--gray-700);user-select:none">
+        🔧 <strong>Admin · Equivalente AliExpress</strong>
+        — <span style="color:<%= stateColors[d.state] %>"><%= stateLabels[d.state] %></span>
+      </summary>
+      <div style="margin-top:var(--sp-3);font-size:var(--fs-sm);font-family:'SF Mono','Menlo','Monaco',monospace;line-height:1.6">
+        <div><strong>Keywords (brand+model):</strong> <%= d.keywords || '<sin extraer — título vacío?>' %></div>
+        <% if (d.checkedAt) { %>
+          <div><strong>Última comprobación:</strong> <%= new Date(d.checkedAt).toLocaleString('es-ES') %> · hace <%= Math.round(d.ageMs / 60000) %> min</div>
+        <% } else { %>
+          <div><strong>Última comprobación:</strong> nunca</div>
+        <% } %>
+        <% if (d.aeProductId) { %>
+          <div style="margin-top:var(--sp-2)"><strong>Candidato AE:</strong> <a href="/ae/<%= d.aeProductId %>"><%= d.aeProductId %></a></div>
+          <div><strong>Título AE:</strong> <%= d.aeTitle %></div>
+          <div>
+            <strong>Precio AE:</strong> <%= d.aePrice !== null ? d.aePrice.toFixed(2) + ' €' : '—' %>
+            <% if (d.amazonPriceSnapshot !== null) { %> · <strong>vs Amazon snapshot:</strong> <%= d.amazonPriceSnapshot.toFixed(2) %> €<% } %>
+          </div>
+          <div>
+            <strong>text_score:</strong> <%= d.textScore !== null ? d.textScore.toFixed(2) : '—' %> <span style="color:var(--gray-500)">(umbral 0.25)</span>
+            · <strong>pct_cheaper:</strong> <%= d.pctCheaper !== null ? d.pctCheaper.toFixed(1) + '%' : '—' %> <span style="color:var(--gray-500)">(umbral 10%)</span>
+          </div>
+          <% if (d.state === 'ineligible') { %>
+            <div style="margin-top:var(--sp-2);color:#c2410c">
+              ⚠ No pasa los gates: <% if (d.textScore !== null && d.textScore < 0.25) { %>text_score &lt; 0.25 · <% } %><% if (d.pctCheaper !== null && d.pctCheaper < 10) { %>pct_cheaper &lt; 10%<% } %>
+            </div>
+          <% } %>
+        <% } else if (d.state === 'no-candidate') { %>
+          <div style="margin-top:var(--sp-2);color:var(--gray-500)">AliExpress no devolvió ningún match para estos keywords.</div>
+        <% } %>
+        <form method="POST" action="/admin/aliexpress/equivalent/<%= product.id %>/recheck" style="margin-top:var(--sp-3);display:inline">
+          <button type="submit" class="btn btn-sm btn-outline">↻ Re-comprobar ahora (ignora caché)</button>
+        </form>
+      </div>
+    </details>
+  <% } %>
+
   <!-- CTA bar -->
   <div class="cta-bar">
     <a href="<%= product.amazonUrl %>" target="_blank" rel="noopener sponsored" class="btn btn-amazon">

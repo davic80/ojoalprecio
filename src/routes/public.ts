@@ -444,6 +444,55 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
     `).catch((err: unknown) => console.warn(`[ae-nudge-view] log failed: ${(err as Error).message}`));
   }
 
+  // Admin-only diagnostic block — explains why the auto-banner is/isn't
+  // showing for this product without making admin guess via /admin/aliexpress.
+  let aeEquivalentDebug: {
+    state: 'unchecked' | 'no-candidate' | 'ineligible' | 'eligible';
+    aeProductId: string | null;
+    aeTitle: string | null;
+    aePrice: number | null;
+    amazonPriceSnapshot: number | null;
+    textScore: number | null;
+    pctCheaper: number | null;
+    isEligible: boolean;
+    checkedAt: Date | null;
+    ageMs: number;
+    keywords: string;
+  } | null = null;
+  if (adminUser) {
+    const keywords = productView.name ? extractBrandModel(productView.name) : '';
+    if (!aeEqRow) {
+      aeEquivalentDebug = {
+        state: 'unchecked',
+        aeProductId: null, aeTitle: null, aePrice: null, amazonPriceSnapshot: null,
+        textScore: null, pctCheaper: null, isEligible: false,
+        checkedAt: null, ageMs: Infinity, keywords,
+      };
+    } else {
+      const state: 'no-candidate' | 'ineligible' | 'eligible' = !aeEqRow.aeProductId
+        ? 'no-candidate' : aeEqRow.isEligible ? 'eligible' : 'ineligible';
+      // Score / pct_cheaper aren't in the page-query SELECT — fetch them.
+      const extraRows = await db.execute(sql`
+        SELECT text_score::float AS "textScore", amazon_price_snapshot::float AS "amazonPriceSnapshot"
+        FROM amazon_ae_equivalents WHERE amazon_product_id = ${productView.id}
+      `);
+      const extra = extraRows.rows[0] as any | undefined;
+      aeEquivalentDebug = {
+        state,
+        aeProductId: aeEqRow.aeProductId ?? null,
+        aeTitle:     aeEqRow.title       ?? null,
+        aePrice:     aeEqRow.aePrice != null ? Number(aeEqRow.aePrice) : null,
+        amazonPriceSnapshot: extra?.amazonPriceSnapshot ?? null,
+        textScore:   extra?.textScore   ?? null,
+        pctCheaper:  aeEqRow.pctCheaper != null ? Number(aeEqRow.pctCheaper) : null,
+        isEligible:  !!aeEqRow.isEligible,
+        checkedAt:   aeEqRow.checkedAt,
+        ageMs:       ageMs,
+        keywords,
+      };
+    }
+  }
+
   res.render('public-product', {
     product: productView,
     history,
@@ -460,6 +509,7 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
     viewCount,
     variants: variantsView,
     aeEquivalent,
+    aeEquivalentDebug,
     aeSearchKeywords: productView.name ? extractBrandModel(productView.name) : '',
   });
 });

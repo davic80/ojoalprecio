@@ -9,7 +9,7 @@ import { scrapeUrlForAsins, extractAsin, normaliseAmazonUrl } from '../scraper/a
 import { getScraperStatus, triggerScrape } from '../scheduler';
 import { getBestUnpostedDeal, postDailyDeal, POST_HOURS } from '../scheduler/social';
 import { refreshAllAETracks, refreshAEEquivalents } from '../scheduler/aliexpress';
-import { getAliExpressClient } from '../marketplaces/aliexpress';
+import { getAliExpressClient, discoverAndPersistEquivalent } from '../marketplaces/aliexpress';
 import { importAmazonCsv } from '../marketplaces/amazon-affiliates/csv-import';
 import { getAllSettings, setSetting } from '../db/settings';
 
@@ -1155,6 +1155,53 @@ router.post('/admin/aliexpress/refresh-now', requireAuth, requireAdmin, async (r
   }
   res.redirect('/admin/aliexpress?refresh=started');
 });
+
+// ── POST /admin/aliexpress/equivalent/:amazonProductId/recheck ──────────────
+// Force-re-run the cross-marketplace discovery for one Amazon product,
+// bypassing the 24h cache. Used from the admin diagnostic block on /p/:asin
+// so admin can verify that the discovery is actually working after a
+// config change without waiting for the cache to expire.
+router.post('/admin/aliexpress/equivalent/:amazonProductId/recheck',
+  requireAuth, requireAdmin,
+  async (req: Request, res: Response) => {
+    const id = parseInt(String(req.params.amazonProductId), 10);
+    if (!Number.isFinite(id) || id < 1) {
+      return res.status(404).json({ error: 'Producto no válido.' });
+    }
+    const client = getAliExpressClient();
+    if (!client) {
+      return res.status(503).json({ error: 'AliExpress no está configurado.' });
+    }
+
+    // Drop the cache row first so discoverAndPersistEquivalent treats this
+    // as a miss + re-fetches from the API.
+    await db.execute(sql`DELETE FROM amazon_ae_equivalents WHERE amazon_product_id = ${id}`);
+
+    // Fetch the product info we need for discovery
+    const productRows = await db.execute(sql`
+      SELECT p.asin, p.name,
+        (SELECT ph.price::float FROM price_history ph
+          WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1) AS price
+      FROM products p WHERE p.id = ${id}
+    `);
+    const p = productRows.rows[0] as { asin: string; name: string | null; price: number | null } | undefined;
+    if (!p?.name || !p.price) {
+      return res.status(400).json({ error: 'Producto sin nombre o sin precio actual.' });
+    }
+
+    try {
+      await discoverAndPersistEquivalent(client, id, { title: p.name, price: p.price });
+    } catch (err) {
+      console.warn(`[admin-recheck] discovery for ${id} failed: ${(err as Error).message}`);
+    }
+
+    if (req.headers['hx-request']) {
+      res.setHeader('HX-Redirect', `/p/${p.asin}`);
+      return res.status(200).send('');
+    }
+    return res.redirect(`/p/${p.asin}`);
+  },
+);
 
 // ── GET /admin/affiliates — Amazon affiliate stats dashboard ────────────────
 router.get('/admin/affiliates', requireAuth, requireAdmin, async (req: Request, res: Response) => {
