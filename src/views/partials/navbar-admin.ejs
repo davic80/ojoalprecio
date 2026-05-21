@@ -78,22 +78,26 @@ _%>
 </nav>
 
 <script>
-// Click-to-toggle admin dropdowns. Only one open at a time. Click outside
-// closes them all. Keyboard: Esc closes the open one. Plain JS, no deps.
-(function () {
-  const menus = document.querySelectorAll('.admin-menu');
+// Click-to-toggle admin dropdowns. Wrapped in DOMContentLoaded so the
+// inline tag doesn't block HTML parsing (the partial sits at the top of
+// every admin page — even ~5 ms of synchronous JS made the menu feel
+// laggy when stacked with the page render). Elements are cached once
+// after the DOM is ready so click handlers don't re-querySelector.
+document.addEventListener('DOMContentLoaded', function () {
+  const menus = [...document.querySelectorAll('.admin-menu')]
+    .map(m => ({ trigger: m.querySelector('.admin-menu-trigger'), panel: m.querySelector('.admin-menu-panel') }))
+    .filter(m => m.trigger && m.panel);
+  let anyOpen = false;
+
   function closeAll() {
-    menus.forEach(m => {
-      const p = m.querySelector('.admin-menu-panel');
-      const t = m.querySelector('.admin-menu-trigger');
-      if (p) p.setAttribute('hidden', '');
-      if (t) t.setAttribute('aria-expanded', 'false');
-    });
+    if (!anyOpen) return;
+    for (const { trigger, panel } of menus) {
+      panel.setAttribute('hidden', '');
+      trigger.setAttribute('aria-expanded', 'false');
+    }
+    anyOpen = false;
   }
-  menus.forEach(m => {
-    const trigger = m.querySelector('.admin-menu-trigger');
-    const panel   = m.querySelector('.admin-menu-panel');
-    if (!trigger || !panel) return;
+  for (const { trigger, panel } of menus) {
     trigger.addEventListener('click', e => {
       e.stopPropagation();
       const wasOpen = !panel.hasAttribute('hidden');
@@ -101,10 +105,11 @@ _%>
       if (!wasOpen) {
         panel.removeAttribute('hidden');
         trigger.setAttribute('aria-expanded', 'true');
+        anyOpen = true;
       }
     });
-  });
+  }
   document.addEventListener('click', closeAll);
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAll(); });
-})();
+});
 </script>

@@ -485,9 +485,16 @@ async function checkProduct(productId: number, url: string, label: string, timeo
     const result = await scrapeProduct(url, timeoutSeconds);
 
     // ── Anomaly guard (symmetric: rejects extreme highs and extreme lows) ────
-    // LOW  (price < median × 0.4): selector caught a "desde X €" / accessory price.
-    // HIGH (price > median × 2.5): third-party seller temporarily holding the buybox
-    //      at an inflated price (caso B01N7RLGIJ Mario Kart 285/335 €).
+    // Margins widened 2026-05-22 (was 0.4 / 2.5 → 0.25 / 3.5). The system
+    // had grown enough confidence in the stock + buybox detection that
+    // borderline cases (-50%/-60% flash deals, +100% genuine reprices)
+    // were producing too many false-positive anomalies for admin review.
+    // Only catch true outliers now:
+    //   LOW  (price < median × 0.25): -75 % move → near-certainly an
+    //        accessory / "Nuevo y de segunda mano" selector slip.
+    //   HIGH (price > median × 3.5): +250 % move → third-party seller
+    //        camping the buybox at inflated price (caso B01N7RLGIJ Mario
+    //        Kart 285/335 €).
     // Bypass for legit movements: was_price corroborates a real flash deal (RRP ≥
     // 4× price) or a pre-existing high range (max ≥ 0.8 × new price). Auto-accept
     // after 3 consecutive anomalies so a genuine price shift can recover.
@@ -502,8 +509,8 @@ async function checkProduct(productId: number, url: string, label: string, timeo
     if (recent.length >= 3 && anomalyCount < 3 && !bypassed) {
       const sorted = recent.slice().sort((a, b) => a - b);
       const median = sorted[Math.floor(sorted.length / 2)];
-      const lowSuspect  = result.price < median * 0.4 && !(result.wasPrice != null && result.wasPrice >= result.price * 4);
-      const highSuspect = result.price > median * 2.5 && (allTimeMax === null || result.price > allTimeMax * 1.5);
+      const lowSuspect  = result.price < median * 0.25 && !(result.wasPrice != null && result.wasPrice >= result.price * 4);
+      const highSuspect = result.price > median * 3.5  && (allTimeMax === null || result.price > allTimeMax * 1.5);
       if (lowSuspect || highSuspect) {
         const newCount = anomalyCount + 1;
         const dir = lowSuspect ? '<<' : '>>';
