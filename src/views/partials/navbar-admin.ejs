@@ -1,14 +1,26 @@
 <%_
-  // Admin navbar partial. Locals:
+  // Admin navbar partial — grouped dropdowns. Locals:
   //   user        : { email }                            (required)
-  //   activePage  : 'categories' | 'deals' | 'social'
-  //               | 'stats' | 'users' | 'alerts'
-  //               | 'anomalies' | 'aliexpress'
-  //               | 'affiliates' | 'cleanup'
+  //   activePage  : 'categories' | 'deals' | 'cleanup' | 'anomalies'
+  //               | 'users' | 'alerts'
+  //               | 'aliexpress' | 'affiliates'
+  //               | 'stats' | 'social'
   //               | 'settings'                           (optional)
-  //   showHubLink : boolean — render leading "/admin"    (optional, anomalies)
+  //   showHubLink : boolean — render leading "/admin"    (optional)
+  //
+  // The 11-item flat layout from earlier ran out of horizontal room. Now
+  // 4 dropdowns + Ajustes suelto, with the trigger highlighted when any
+  // of its children is the active page.
+  const PAGE_GROUPS = {
+    categories: 'catalog', deals: 'catalog', anomalies: 'catalog', cleanup: 'catalog',
+    users: 'users', alerts: 'users',
+    aliexpress: 'marketplaces', affiliates: 'marketplaces',
+    stats: 'data', social: 'data',
+  };
   const _ap = typeof activePage !== 'undefined' ? activePage : null;
-  const _ac = (p) => 'nav-link' + (_ap === p ? ' nav-link-active' : '');
+  const _activeGroup = _ap ? PAGE_GROUPS[_ap] : null;
+  const _item    = (p) => 'admin-menu-item' + (_ap === p ? ' admin-menu-item-active' : '');
+  const _trigger = (g) => 'admin-menu-trigger' + (_activeGroup === g ? ' admin-menu-trigger-active' : '');
   const _showHub = typeof showHubLink !== 'undefined' && showHubLink;
 _%>
 <nav class="navbar">
@@ -20,17 +32,43 @@ _%>
     <%_ if (_showHub) { _%>
     <a href="/admin" class="nav-link">Admin</a>
     <%_ } _%>
-    <a href="/admin/categories" class="<%= _ac('categories') %>">Categorías</a>
-    <a href="/admin/deals" class="<%= _ac('deals') %>">Chollos</a>
-    <a href="/admin/social" class="<%= _ac('social') %>">Social</a>
-    <a href="/admin/stats" class="<%= _ac('stats') %>">Stats</a>
-    <a href="/admin/users" class="<%= _ac('users') %>">Usuarios</a>
-    <a href="/admin/alerts" class="<%= _ac('alerts') %>">Alertas</a>
-    <a href="/admin/anomalies" class="<%= _ac('anomalies') %>">Anomalías</a>
-    <a href="/admin/aliexpress" class="<%= _ac('aliexpress') %>">AliExpress</a>
-    <a href="/admin/affiliates" class="<%= _ac('affiliates') %>">€ Amazon</a>
-    <a href="/admin/cleanup" class="<%= _ac('cleanup') %>">🧹 Limpieza</a>
-    <a href="/admin/settings" class="<%= _ac('settings') %>">Ajustes</a>
+
+    <div class="admin-menu">
+      <button type="button" class="<%= _trigger('catalog') %>" aria-haspopup="true" aria-expanded="false">📦 Catálogo ▾</button>
+      <div class="admin-menu-panel" hidden>
+        <a href="/admin/categories" class="<%= _item('categories') %>">Categorías</a>
+        <a href="/admin/deals"      class="<%= _item('deals') %>">Chollos</a>
+        <a href="/admin/anomalies"  class="<%= _item('anomalies') %>">⚠ Anomalías</a>
+        <a href="/admin/cleanup"    class="<%= _item('cleanup') %>">🧹 Limpieza</a>
+      </div>
+    </div>
+
+    <div class="admin-menu">
+      <button type="button" class="<%= _trigger('users') %>" aria-haspopup="true" aria-expanded="false">👥 Usuarios ▾</button>
+      <div class="admin-menu-panel" hidden>
+        <a href="/admin/users"  class="<%= _item('users') %>">Usuarios</a>
+        <a href="/admin/alerts" class="<%= _item('alerts') %>">Alertas</a>
+      </div>
+    </div>
+
+    <div class="admin-menu">
+      <button type="button" class="<%= _trigger('marketplaces') %>" aria-haspopup="true" aria-expanded="false">🛒 Marketplaces ▾</button>
+      <div class="admin-menu-panel" hidden>
+        <a href="/admin/aliexpress"  class="<%= _item('aliexpress') %>">AliExpress</a>
+        <a href="/admin/affiliates"  class="<%= _item('affiliates') %>">€ Amazon</a>
+      </div>
+    </div>
+
+    <div class="admin-menu">
+      <button type="button" class="<%= _trigger('data') %>" aria-haspopup="true" aria-expanded="false">📊 Datos ▾</button>
+      <div class="admin-menu-panel" hidden>
+        <a href="/admin/stats"  class="<%= _item('stats') %>">Stats</a>
+        <a href="/admin/social" class="<%= _item('social') %>">Social</a>
+      </div>
+    </div>
+
+    <a href="/admin/settings" class="nav-link<%= _ap === 'settings' ? ' nav-link-active' : '' %>">⚙️ Ajustes</a>
+
     <span id="scrape-widget" style="position:relative;margin-right:4px"></span>
     <a href="/account" class="user-email user-email-link"><%= user.email %></a>
     <form action="/auth/logout" method="POST" style="display:inline">
@@ -38,3 +76,35 @@ _%>
     </form>
   </div>
 </nav>
+
+<script>
+// Click-to-toggle admin dropdowns. Only one open at a time. Click outside
+// closes them all. Keyboard: Esc closes the open one. Plain JS, no deps.
+(function () {
+  const menus = document.querySelectorAll('.admin-menu');
+  function closeAll() {
+    menus.forEach(m => {
+      const p = m.querySelector('.admin-menu-panel');
+      const t = m.querySelector('.admin-menu-trigger');
+      if (p) p.setAttribute('hidden', '');
+      if (t) t.setAttribute('aria-expanded', 'false');
+    });
+  }
+  menus.forEach(m => {
+    const trigger = m.querySelector('.admin-menu-trigger');
+    const panel   = m.querySelector('.admin-menu-panel');
+    if (!trigger || !panel) return;
+    trigger.addEventListener('click', e => {
+      e.stopPropagation();
+      const wasOpen = !panel.hasAttribute('hidden');
+      closeAll();
+      if (!wasOpen) {
+        panel.removeAttribute('hidden');
+        trigger.setAttribute('aria-expanded', 'true');
+      }
+    });
+  });
+  document.addEventListener('click', closeAll);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAll(); });
+})();
+</script>

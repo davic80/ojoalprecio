@@ -775,6 +775,51 @@ body.auth-page {
 }
 .cta-bar .btn { flex: 1; min-width: 140px; }
 
+/* ── Admin dropdown menu (grouped admin navbar) ──────────────────────────── */
+.admin-menu { position: relative; display: inline-block; }
+.admin-menu-trigger {
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 4px 10px;
+  font-size: var(--fs-md);
+  font-weight: 500;
+  color: var(--gray-700);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  white-space: nowrap;
+  transition: background .15s;
+}
+.admin-menu-trigger:hover         { background: var(--gray-100); }
+.admin-menu-trigger-active        { background: var(--gray-100); color: var(--gray-900); }
+.admin-menu-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 190px;
+  background: var(--white);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 14px rgba(0,0,0,.08);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  z-index: 200;
+}
+.admin-menu-panel[hidden] { display: none; }
+.admin-menu-item {
+  display: block;
+  padding: 7px 12px;
+  font-size: var(--fs-base);
+  color: var(--gray-700);
+  text-decoration: none;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+.admin-menu-item:hover            { background: var(--gray-50); text-decoration: none; color: var(--gray-900); }
+.admin-menu-item-active           { background: var(--gray-100); color: var(--gray-900); font-weight: 600; }
+
 /* ── Nav link ────────────────────────────────────────────────────────────── */
 .nav-link {
   font-size: var(--fs-md);
