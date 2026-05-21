@@ -275,12 +275,16 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
     return res.status(404).render('404', { user: userId ? { email: req.session.userEmail } : null });
   }
 
+  // Raised from 500 → 20000 so the chart's "Todo" range really shows all
+  // history (a product checked hourly for 2 years = ~17500 rows). Payload
+  // is just dates+prices so 20k floats ≈ 160 KB JSON, acceptable for the
+  // product page given how rarely most products will have that much data.
   const history = await db
     .select()
     .from(priceHistory)
     .where(eq(priceHistory.productId, product.id))
     .orderBy(desc(priceHistory.scrapedAt))
-    .limit(500);
+    .limit(20000);
 
   const prices = history.map(h => parseFloat(String(h.price)));
   const currentPrice = prices[0] ?? null;

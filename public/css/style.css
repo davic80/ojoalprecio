@@ -484,6 +484,37 @@ a:hover { text-decoration: none; }
 /* ── Chart ───────────────────────────────────────────────────────────────── */
 .chart-wrap { height: 220px; position: relative; }
 
+/* Segmented range picker above price-history charts. Buttons are flat with
+   a 1px divider; the active one gets the marketplace's brand colour and a
+   filled background to read as "selected" rather than hover.            */
+.chart-range-bar {
+  display: inline-flex;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  margin-bottom: var(--sp-2);
+  background: var(--white);
+}
+.chart-range-bar button {
+  appearance: none;
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--gray-200);
+  padding: 6px 12px;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--gray-700);
+  cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.chart-range-bar button:first-child { border-left: none; }
+.chart-range-bar button:hover { background: var(--gray-50); }
+.chart-range-bar button.active {
+  background: var(--gray-100);
+  color: var(--gray-900);
+  font-weight: 600;
+}
+
 /* ── Toolbar ─────────────────────────────────────────────────────────────── */
 .toolbar { display: flex; gap: var(--sp-2); align-items: center; margin-bottom: var(--sp-4); flex-wrap: wrap; }
 

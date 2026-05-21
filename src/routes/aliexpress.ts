@@ -269,15 +269,14 @@ router.get('/ae/:productId', async (req: Request, res: Response) => {
     });
   }
 
-  // Price history — newest first, capped at the latest 200 ticks so the
-  // chart stays snappy on long-tracked products (8h cadence × 200 = ~66 days
-  // of data, which is plenty for the typical use case).
+  // Raised from 200 → 5000 so the chart's "Todo" range works long-term
+  // (3 ticks/day × 5000 = ~4.5 years of data). 5000 floats ≈ 40 KB JSON.
   const historyRows = await db.execute(sql`
     SELECT id, price::float AS price, currency, scraped_at AS "scrapedAt"
     FROM aliexpress_price_history
     WHERE product_id = ${productId}
     ORDER BY scraped_at DESC
-    LIMIT 200
+    LIMIT 5000
   `);
   const history = historyRows.rows as Array<{ id: number; price: number; currency: string; scrapedAt: Date }>;
 

@@ -317,6 +317,13 @@
   <% if (history.length > 0) { %>
     <div class="card chart-card">
       <h2>Historial de precios</h2>
+      <div class="chart-range-bar" role="tablist" aria-label="Rango temporal">
+        <button type="button" data-range="1w" role="tab">1S</button>
+        <button type="button" data-range="1m" role="tab">1M</button>
+        <button type="button" data-range="6m" role="tab">6M</button>
+        <button type="button" data-range="1y" role="tab">1A</button>
+        <button type="button" data-range="all" role="tab">Todo</button>
+      </div>
       <div class="chart-wrap">
         <canvas id="priceChart"></canvas>
       </div>
@@ -368,17 +375,32 @@
     </div>
 
     <script>
-      const chartData = <%- JSON.stringify(
+      const chartDataAll = <%- JSON.stringify(
         history.slice().reverse().map(h => ({ x: new Date(h.scrapedAt).toISOString(), y: parseFloat(h.price) }))
       ) %>;
+      // Range definitions in days. 'all' bypasses the filter.
+      const RANGE_DAYS = { '1w': 7, '1m': 30, '6m': 182, '1y': 365, 'all': null };
+      const STORAGE_KEY = 'oap.chartRange';
+      const DEFAULT_RANGE = '1m';
+
+      function sliceByRange(data, rangeKey) {
+        const days = RANGE_DAYS[rangeKey];
+        if (days == null) return data;
+        const cutoffMs = Date.now() - days * 86400 * 1000;
+        return data.filter(p => new Date(p.x).getTime() >= cutoffMs);
+      }
+
       document.addEventListener('DOMContentLoaded', () => {
         const ctx = document.getElementById('priceChart').getContext('2d');
-        new Chart(ctx, {
+        const initialRange = localStorage.getItem(STORAGE_KEY) || DEFAULT_RANGE;
+        let currentData = sliceByRange(chartDataAll, initialRange);
+
+        const chart = new Chart(ctx, {
           type: 'line',
           data: { datasets: [{
-            label: 'Precio (€)', data: chartData,
+            label: 'Precio (€)', data: currentData,
             borderColor: '#e63946', backgroundColor: 'rgba(230,57,70,0.08)',
-            borderWidth: 2, pointRadius: chartData.length > 100 ? 0 : 3,
+            borderWidth: 2, pointRadius: currentData.length > 100 ? 0 : 3,
             pointHoverRadius: 5, tension: 0.2, fill: true,
           }]},
           options: {
@@ -390,7 +412,7 @@
                 const price = ctx.parsed.y.toFixed(2) + ' €';
                 const idx = ctx.dataIndex;
                 if (idx === 0) return price;
-                const prev = chartData[idx - 1].y;
+                const prev = currentData[idx - 1].y;
                 const diff = ctx.parsed.y - prev;
                 const pct = (diff / prev * 100);
                 if (Math.abs(pct) < 0.1) return price;
@@ -404,6 +426,20 @@
             }
           }
         });
+
+        // Wire the range buttons. Highlight the active one + persist choice.
+        const buttons = document.querySelectorAll('.chart-range-bar button[data-range]');
+        function setRange(rangeKey) {
+          currentData = sliceByRange(chartDataAll, rangeKey);
+          chart.data.datasets[0].data = currentData;
+          chart.data.datasets[0].pointRadius = currentData.length > 100 ? 0 : 3;
+          chart.update();
+          buttons.forEach(b => b.classList.toggle('active', b.dataset.range === rangeKey));
+          try { localStorage.setItem(STORAGE_KEY, rangeKey); } catch {}
+        }
+        buttons.forEach(b => b.addEventListener('click', () => setRange(b.dataset.range)));
+        // Initial active highlight matches the data we already loaded
+        buttons.forEach(b => b.classList.toggle('active', b.dataset.range === initialRange));
       });
     </script>
   <% } else { %>
