@@ -80,6 +80,14 @@ export class AliExpressClient {
     if (json.error_response) {
       const e = json.error_response;
       const msg = `${e.msg ?? 'AliExpress error'}${e.sub_msg ? ' — ' + e.sub_msg : ''}`;
+      // Dump the actual business params (sans app_key + sign) so we can
+      // trace which call-site is sending the offending value. Useful when
+      // AE returns "<value>#<param> not valid" and the value we *think*
+      // we sent doesn't match what arrived.
+      const redacted = Object.fromEntries(
+        Object.entries(businessParams).filter(([k]) => !['app_key', 'sign'].includes(k)),
+      );
+      console.warn(`[ae-client] ${method} → AE error "${msg}". businessParams=${JSON.stringify(redacted)}`);
       if (e.code === 25 || e.code === '25' || /permission/i.test(String(e.sub_code ?? ''))) {
         throw new AliExpressPermissionError(msg, e);
       }
