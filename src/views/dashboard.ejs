@@ -243,6 +243,8 @@ function trendBadge(current, previous) {
       <% }); %>
     </select>
     <button type="button" id="bulk-assign-btn" onclick="assignBulkCategory()" class="btn btn-sm btn-primary" disabled>Asignar categoría</button>
+    <button type="button" id="bulk-unfeature-btn" onclick="unfeatureBulk()" class="btn btn-sm btn-outline" disabled title="Quitar de /ofertas y bloquear contra la auto-curación (feature_lock = mute)">Quitar destacado</button>
+    <button type="button" id="bulk-delete-btn" onclick="deleteBulk()" class="btn btn-sm btn-danger" disabled title="Borrar definitivamente — propaga por CASCADE a price_history, alerts, user_products, anomalies">Borrar</button>
     <span id="bulk-result" class="hint" style="color:var(--green)"></span>
   </div>
   <% } %>
@@ -460,9 +462,12 @@ function trendBadge(current, previous) {
 
     const count = selectedIds.size;
     const countEl = document.getElementById('bulk-count');
-    const assignBtn = document.getElementById('bulk-assign-btn');
     if (countEl) countEl.textContent = count > 0 ? count + ' seleccionado' + (count !== 1 ? 's' : '') : '';
-    if (assignBtn) assignBtn.disabled = count === 0;
+    // All bulk action buttons share the same disabled rule.
+    ['bulk-assign-btn', 'bulk-unfeature-btn', 'bulk-delete-btn'].forEach(id => {
+      const btn = document.getElementById(id);
+      if (btn) btn.disabled = count === 0;
+    });
 
     document.querySelectorAll('.product-checkbox').forEach(cb => {
       const id = parseInt(cb.dataset.id);
@@ -506,6 +511,53 @@ function trendBadge(current, previous) {
       btn.textContent = 'Asignar categoría';
     }
   };
+
+  // Helper that drives the two destructive bulk actions. The single fetch +
+  // result-message + reload loop is identical to assignBulkCategory; only
+  // the URL, button label and confirm message change.
+  async function bulkAction(opts) {
+    if (!selectedIds.size) return;
+    if (!confirm(opts.confirm.replace('{n}', selectedIds.size))) return;
+    const btn = document.getElementById(opts.btnId);
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = opts.busyLabel;
+    try {
+      const res = await fetch(opts.url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: [...selectedIds] }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const n = data.deleted ?? data.updated ?? 0;
+        document.getElementById('bulk-result').textContent = '✓ ' + n + ' ' + opts.resultNoun + (n !== 1 ? 's' : '');
+        clearSelection();
+        setTimeout(() => location.reload(), 900);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert('Error: ' + (err.error ?? res.statusText));
+      }
+    } finally {
+      btn.textContent = original;
+    }
+  }
+
+  window.unfeatureBulk = () => bulkAction({
+    url: '/products/bulk-unfeature',
+    btnId: 'bulk-unfeature-btn',
+    busyLabel: 'Quitando…',
+    confirm: '¿Quitar {n} producto(s) de destacados y bloquear que la auto-curación los vuelva a meter?',
+    resultNoun: 'quitado',
+  });
+
+  window.deleteBulk = () => bulkAction({
+    url: '/products/bulk-delete',
+    btnId: 'bulk-delete-btn',
+    busyLabel: 'Borrando…',
+    confirm: '¿Borrar definitivamente {n} producto(s)? Se eliminan también su historial de precios, alertas, follows y anomalías. Esta acción no se puede deshacer.',
+    resultNoun: 'borrado',
+  });
 
   // Checkbox change
   document.addEventListener('change', function (e) {

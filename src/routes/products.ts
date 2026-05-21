@@ -618,4 +618,41 @@ router.post('/products/bulk-set-category', requireAuth, requireAdmin, async (req
   res.json({ success: true, updated: ids.length });
 });
 
+// Tiny helper to extract + sanitise the `ids` array from a bulk-action body.
+// The Amazon flow has CASCADE FKs (price_history, alerts, user_products,
+// scrape_anomalies all reference products.id) so a hard delete here cleans
+// up everything in one shot.
+function parseBulkIds(raw: unknown): number[] {
+  const arr = Array.isArray(raw) ? raw : raw == null ? [] : [raw];
+  return arr.map(Number).filter(n => Number.isFinite(n) && n > 0);
+}
+
+// ── POST /products/bulk-delete (admin only) ──────────────────────────────────
+router.post('/products/bulk-delete', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const ids = parseBulkIds(req.body.ids);
+  if (!ids.length) return res.status(400).json({ error: 'No hay productos seleccionados.' });
+
+  // FK CASCADE handles price_history, alerts, user_products, scrape_anomalies
+  // and amazon_ae_equivalents on its own. We just have to drop the row.
+  const deleted = await db.delete(products).where(inArray(products.id, ids)).returning({ id: products.id });
+
+  res.json({ success: true, deleted: deleted.length });
+});
+
+// ── POST /products/bulk-unfeature (admin only) ───────────────────────────────
+// Removes a batch of products from /ofertas and locks them out of the
+// auto-curation rotation (feature_lock = 'mute'). Matches the semantics
+// of the per-product toggle-public "mute" state — admin force-keeps the
+// products excluded until they explicitly toggle them back.
+router.post('/products/bulk-unfeature', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const ids = parseBulkIds(req.body.ids);
+  if (!ids.length) return res.status(400).json({ error: 'No hay productos seleccionados.' });
+
+  await db.update(products)
+    .set({ isPublic: false, featuredAt: null, featureLock: 'mute' })
+    .where(inArray(products.id, ids));
+
+  res.json({ success: true, updated: ids.length });
+});
+
 export default router;
