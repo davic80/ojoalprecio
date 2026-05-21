@@ -6,10 +6,9 @@ import {
   AliExpressError,
   AliExpressPermissionError,
   getAliExpressClient,
-  extractBrandModel,
-  textSimilarity,
 } from '../marketplaces/aliexpress';
-import type { AliExpressProduct, SimilarSource } from '../marketplaces/aliexpress/types';
+import type { AliExpressProduct } from '../marketplaces/aliexpress/types';
+import { discoverSimilars } from '../marketplaces/aliexpress/similars';
 import { sendPriceAlert } from '../mailer';
 import { sendTelegramAlert } from '../mailer/telegram';
 import { discoverAndPersistEquivalent } from '../marketplaces/aliexpress/equivalents';
@@ -32,10 +31,8 @@ import { upsertAEProductSql } from '../marketplaces/aliexpress/persist';
  * Amazon scheduler's :00 firing.
  */
 
-const SIMILARITY_THRESHOLD = 0.30;
-const MIN_KEPT_BEFORE_FALLBACK = 3;
-const MAX_SIMILARS = 12;
-const QUERY_PAGE_SIZE = 30;
+// Similars thresholds + pagination live in marketplaces/aliexpress/similars.ts
+// (shared with the ingest module). Only the TTL is scheduler-specific.
 const SIMILARS_TTL_DAYS = 7;       // prune edges not refreshed within this window
 const PER_REQUEST_SLEEP_MS = 250;  // ~4 req/s budget, well under the per-app limit
 
@@ -66,33 +63,10 @@ export async function refreshAEProduct(client: AliExpressClient, productId: stri
   return fresh;
 }
 
-/** Re-run productQuery for a master, upsert seen candidates, prune stale edges. */
+/** Re-run discovery for a master, upsert seen candidates, prune stale edges.
+ *  Uses the shared 3-layer pipeline in marketplaces/aliexpress/similars.ts. */
 export async function refreshSimilars(client: AliExpressClient, master: AliExpressProduct): Promise<number> {
-  const keywords = extractBrandModel(master.title);
-  if (!keywords) return 0;
-
-  let queryRes;
-  try {
-    queryRes = await client.productQuery({
-      keywords,
-      maxSalePrice: master.salePrice > 0 ? Math.ceil(master.salePrice * 1.5) : undefined,
-      pageSize:     QUERY_PAGE_SIZE,
-    });
-  } catch (err) {
-    if (err instanceof AliExpressPermissionError) throw err;
-    console.warn(`[ae-refresh] productQuery for similars of ${master.productId} failed: ${(err as Error).message}`);
-    return 0;
-  }
-
-  const scored = queryRes.products
-    .filter(p => p.productId !== master.productId)
-    .map(p => ({ product: p, source: 'query' as SimilarSource, textScore: textSimilarity(master.title, p.title) }));
-
-  const strict = scored.filter(c => c.textScore >= SIMILARITY_THRESHOLD).sort((a, b) => b.textScore - a.textScore).slice(0, MAX_SIMILARS);
-  const kept = strict.length >= MIN_KEPT_BEFORE_FALLBACK
-    ? strict
-    : scored.sort((a, b) => b.textScore - a.textScore).slice(0, MAX_SIMILARS);
-
+  const kept = await discoverSimilars(client, master);
   if (kept.length === 0) return 0;
 
   await db.transaction(async (tx) => {
