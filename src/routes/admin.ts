@@ -1171,7 +1171,7 @@ router.post('/admin/aliexpress/refresh-now', requireAuth, requireAdmin, async (r
 // the catalog grows past that we can paginate.
 router.get('/admin/cleanup', requireAuth, requireAdmin, async (req: Request, res: Response) => {
   const rows = await db.execute(sql`
-    WITH system_user AS (
+    WITH sys_user AS (
       SELECT id FROM users WHERE email = ${SYSTEM_EMAIL} LIMIT 1
     )
     SELECT
@@ -1191,7 +1191,7 @@ router.get('/admin/cleanup', requireAuth, requireAdmin, async (req: Request, res
       (SELECT MAX(ph.scraped_at) FROM price_history ph
         WHERE ph.product_id = p.id)                          AS "lastScrapeAt"
     FROM products p
-    LEFT JOIN system_user su ON TRUE
+    LEFT JOIN sys_user su ON TRUE
     WHERE p.is_active = TRUE
       AND p.created_at < NOW() - INTERVAL '3 days'
       AND (p.created_by_user_id IS NULL
