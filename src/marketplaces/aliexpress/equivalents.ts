@@ -59,9 +59,12 @@ export async function findAEEquivalent(
     queryRes = await client.productQuery({
       keywords,
       // Cap candidates at the same Amazon price — anything more expensive
-      // on AE is never a useful equivalent to surface. The 1.0 multiplier
-      // also keeps us tighter than the intra-AE similars search (1.5×).
-      maxSalePrice: amazonProduct.price > 0 ? amazonProduct.price : undefined,
+      // on AE is never a useful equivalent to surface. Round UP to the next
+      // integer because AE rejects float values for this param with the
+      // (cryptic) error "null#max_sale_price" — they expect whole-euro
+      // integers, not decimals. The intra-AE similars code (ingest.ts,
+      // scheduler) already uses Math.ceil(...); mirror that pattern here.
+      maxSalePrice: amazonProduct.price > 0 ? Math.ceil(amazonProduct.price) : undefined,
       pageSize:     QUERY_PAGE_SIZE,
     });
   } catch (err) {
