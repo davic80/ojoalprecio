@@ -147,14 +147,14 @@
     </a>
     <% if (!isLogged) { %>
       <a href="/auth/register?next=<%= encodeURIComponent('/p/' + product.asin) %>&intent=alert" class="btn btn-outline">
-        Crear alerta de precio gratis
+        Crear alerta gratis
       </a>
     <% } else if (!followsThis) { %>
       <form method="POST" action="/products" style="display:inline">
         <input type="hidden" name="url" value="<%= product.amazonUrl %>">
         <input type="hidden" name="next" value="/p/<%= product.asin %>">
         <input type="hidden" name="intent" value="alert">
-        <button type="submit" class="btn btn-outline">+ Seguir y crear alerta −10%</button>
+        <button type="submit" class="btn btn-outline">Seguir y alertar −10%</button>
       </form>
     <% } %>
   </div>
