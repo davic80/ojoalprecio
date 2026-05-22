@@ -1,16 +1,11 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title><%= product.title.slice(0, 60) %> — AliExpress · OjoAlPrecio</title>
-  <meta name="description" content="Sigue el precio de este producto AliExpress y descubre <%= similars.length %> alternativas más baratas en ojoalprecio.com">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
-  <link rel="stylesheet" href="/css/style.css">
-  <% if (typeof history !== 'undefined' && history.length > 0) { %>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-  <% } %>
+<%- include('partials/head', {
+  title: product.title.slice(0, 60) + ' — AliExpress · OjoAlPrecio',
+  description: 'Sigue el precio de este producto AliExpress y descubre ' + similars.length + ' alternativas más baratas en ojoalprecio.com',
+  includeChart: typeof history !== 'undefined' && history.length > 0,
+}) %>
 </head>
 <body>
 

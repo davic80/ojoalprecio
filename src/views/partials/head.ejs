@@ -1,0 +1,56 @@
+<%_
+  // Single <head> for every view. Locals:
+  //   title          — string, required
+  //   description    — string, optional → emits <meta name="description">
+  //   canonicalPath  — string, optional → emits <link rel="canonical"> with siteUrl prepended
+  //   extraHead      — raw HTML string, optional → emitted verbatim (JSON-LD, page-specific scripts)
+  //   includeHtmx    — boolean, optional → adds the htmx CDN script (defer)
+  //   includeHtmxSse — boolean, optional → adds htmx + htmx-ext-sse (defer)
+  //   includeChart   — boolean, optional → adds chart.js + date-fns adapter
+  //
+  // res.locals (set by server.ts middleware, available to every view):
+  //   siteUrl            — public origin, no trailing slash
+  //   gaMeasurementId    — GA4 ID like "G-XXXXXXXXXX"; empty when not configured
+  const _title         = typeof title === 'string' ? title : 'OjoAlPrecio';
+  const _description   = typeof description === 'string' ? description : null;
+  const _canonicalPath = typeof canonicalPath === 'string' ? canonicalPath : null;
+  const _extraHead     = typeof extraHead === 'string' ? extraHead : '';
+  const _includeHtmx     = typeof includeHtmx === 'boolean' && includeHtmx;
+  const _includeHtmxSse  = typeof includeHtmxSse === 'boolean' && includeHtmxSse;
+  const _includeChart    = typeof includeChart === 'boolean' && includeChart;
+  // gaMeasurementId and siteUrl come from res.locals — available implicitly.
+_%>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title><%= _title %></title>
+<%_ if (_description) { _%>
+<meta name="description" content="<%= _description %>">
+<%_ } _%>
+<%_ if (_canonicalPath) { _%>
+<link rel="canonical" href="<%= siteUrl %><%= _canonicalPath %>">
+<%_ } _%>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
+<link rel="stylesheet" href="/css/style.css">
+<%_ if (_includeHtmx || _includeHtmxSse) { _%>
+<script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js" defer></script>
+<%_ } _%>
+<%_ if (_includeHtmxSse) { _%>
+<script src="https://unpkg.com/htmx-ext-sse@2.2.2/sse.js" defer></script>
+<%_ } _%>
+<%_ if (_includeChart) { _%>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<%_ } _%>
+<%- _extraHead %>
+<%_ if (typeof gaMeasurementId !== 'undefined' && gaMeasurementId) { _%>
+<%# Google Analytics 4 — only emitted when GA_MEASUREMENT_ID env var is set.
+   gtag.js loaded async so it never blocks render. Default config enables
+   the auto pageview; no extra event needed per route. -%>
+<script async src="https://www.googletagmanager.com/gtag/js?id=<%= gaMeasurementId %>"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', '<%= gaMeasurementId %>');
+</script>
+<%_ } _%>

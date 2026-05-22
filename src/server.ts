@@ -93,6 +93,17 @@ export function createApp() {
     return 'Escritorio';
   }
 
+  // Globals exposed to every view via res.locals — saves having to pass
+  // them on every res.render() call. GA_MEASUREMENT_ID is optional; when
+  // unset, the head partial silently omits the gtag.js block.
+  const _siteUrl     = (process.env.SITE_URL ?? 'http://localhost:3000').replace(/\/$/, '');
+  const _gaId        = process.env.GA_MEASUREMENT_ID ?? '';
+  app.use((_req, res, next) => {
+    res.locals.siteUrl          = _siteUrl;
+    res.locals.gaMeasurementId  = _gaId;
+    next();
+  });
+
   app.use((req, _res, next) => {
     const skip =
       req.method !== 'GET' ||

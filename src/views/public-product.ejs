@@ -1,53 +1,49 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title><%= product.name ?? product.asin %> — Historial de precio en Amazon.es | OjoAlPrecio</title>
-  <meta name="description" content="Historial de precio de <%= product.name ?? product.asin %> en Amazon.es. Precio actual: <%= currentPrice ? currentPrice.toFixed(2) + ' €' : 'N/D' %>. Mínimo histórico: <%= minPrice ? minPrice.toFixed(2) + ' €' : 'N/D' %>.">
-  <link rel="canonical" href="<%= siteUrl %>/p/<%= product.asin %>">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
-
-  <%# Schema.org Product JSON-LD — gives Google enough structured data to
-     show price + availability + price history in the SERP snippet. Only
-     emitted when we actually have a current price (otherwise the offer
-     block would be misleading). Availability tracks product.isAvailable.
-     PriceValidUntil set to 1 year out — the spec wants a date, and we
-     update the price field continuously so the "valid until" is more of
-     a freshness hint than a binding promise. -%>
-  <% if (currentPrice != null) {
+<%
+  // Build the JSON-LD extra-head block once so the head partial can stay
+  // declarative. Only emit Offer when we have a currentPrice (no price ⇒
+  // misleading offer). The escape covers the three characters that break
+  // JSON inside a <script type="application/ld+json"> block.
+  let _extraHead = '';
+  if (currentPrice != null) {
     const _esc = (s) => String(s ?? '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[\n\r\t]/g, ' ').trim();
     const _validUntil = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const _images = [product.imageUrl, ...((product.extraImages || []).slice(0, 4))].filter(Boolean);
-  %>
-  <script type="application/ld+json">
-  {
-    "@context": "https://schema.org/",
-    "@type": "Product",
-    "name": "<%- _esc(product.name ?? product.asin) %>",
-    "sku": "<%= product.asin %>",
-    "url": "<%= siteUrl %>/p/<%= product.asin %>"<% if (_images.length) { %>,
-    "image": [<%- _images.map(u => '"' + _esc(u) + '"').join(',') %>]<% } %><% if (product.name) { %>,
-    "description": "<%- _esc('Historial de precio de ' + product.name + ' en Amazon.es. Mínimo histórico: ' + (minPrice ? minPrice.toFixed(2) + ' €' : 'N/D') + '. Máximo: ' + (maxPrice ? maxPrice.toFixed(2) + ' €' : 'N/D') + '.') %>"<% } %>,
-    "offers": {
-      "@type": "Offer",
-      "url": "<%- _esc(product.amazonUrl) %>",
-      "priceCurrency": "EUR",
-      "price": "<%= currentPrice.toFixed(2) %>",
-      "priceValidUntil": "<%= _validUntil %>",
-      "availability": "https://schema.org/<%= product.isAvailable ? 'InStock' : 'OutOfStock' %>",
-      "itemCondition": "https://schema.org/NewCondition",
-      "seller": { "@type": "Organization", "name": "Amazon.es" }
-    }
+    const _name = _esc(product.name ?? product.asin);
+    const _desc = product.name ? _esc('Historial de precio de ' + product.name + ' en Amazon.es. Mínimo histórico: ' + (minPrice ? minPrice.toFixed(2) + ' €' : 'N/D') + '. Máximo: ' + (maxPrice ? maxPrice.toFixed(2) + ' €' : 'N/D') + '.') : null;
+    _extraHead = '<script type="application/ld+json">' +
+      '{' +
+        '"@context":"https://schema.org/",' +
+        '"@type":"Product",' +
+        '"name":"' + _name + '",' +
+        '"sku":"' + product.asin + '",' +
+        '"url":"' + siteUrl + '/p/' + product.asin + '"' +
+        (_images.length ? ',"image":[' + _images.map(u => '"' + _esc(u) + '"').join(',') + ']' : '') +
+        (_desc ? ',"description":"' + _desc + '"' : '') +
+        ',"offers":{' +
+          '"@type":"Offer",' +
+          '"url":"' + _esc(product.amazonUrl) + '",' +
+          '"priceCurrency":"EUR",' +
+          '"price":"' + currentPrice.toFixed(2) + '",' +
+          '"priceValidUntil":"' + _validUntil + '",' +
+          '"availability":"https://schema.org/' + (product.isAvailable ? 'InStock' : 'OutOfStock') + '",' +
+          '"itemCondition":"https://schema.org/NewCondition",' +
+          '"seller":{"@type":"Organization","name":"Amazon.es"}' +
+        '}' +
+      '}' +
+    '</script>';
   }
-  </script>
-  <% } %>
-
-  <link rel="stylesheet" href="/css/style.css">
-  <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js" defer></script>
-  <script src="https://unpkg.com/htmx-ext-sse@2.2.2/sse.js" defer></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+%>
+<%- include('partials/head', {
+  title: (product.name ?? product.asin) + ' — Historial de precio en Amazon.es | OjoAlPrecio',
+  description: 'Historial de precio de ' + (product.name ?? product.asin) + ' en Amazon.es. Precio actual: ' + (currentPrice ? currentPrice.toFixed(2) + ' €' : 'N/D') + '. Mínimo histórico: ' + (minPrice ? minPrice.toFixed(2) + ' €' : 'N/D') + '.',
+  canonicalPath: '/p/' + product.asin,
+  includeHtmxSse: true,
+  includeChart: true,
+  extraHead: _extraHead,
+}) %>
 </head>
 <body>
 

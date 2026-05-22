@@ -1,12 +1,10 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title><%= q ? `"${q}" — ` : '' %>Buscar — OjoAlPrecio</title>
-  <meta name="description" content="Busca productos de Amazon.es y AliExpress y descubre cuál tiene el mejor precio en ojoalprecio.com">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
-  <link rel="stylesheet" href="/css/style.css">
+<%- include('partials/head', {
+  title: (q ? `"${q}" — ` : '') + 'Buscar — OjoAlPrecio',
+  description: 'Busca productos de Amazon.es y AliExpress y descubre cuál tiene el mejor precio en ojoalprecio.com',
+}) %>
 </head>
 <body>
 
