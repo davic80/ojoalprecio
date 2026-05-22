@@ -61,16 +61,24 @@
   <% if (anomalies.length === 0) { %>
     <div class="card"><p class="hint" style="margin:0">No hay anomalías que coincidan con los filtros.</p></div>
   <% } else { %>
+    <div class="bulk-bar" data-admin-bulk-bar-for="anomalies-table">
+      <span data-bulk-count></span>
+      <button type="button" data-bulk-action="approve" class="btn btn-sm" style="background:#16a34a;color:#fff;border-color:#16a34a">✅ Aprobar</button>
+      <button type="button" data-bulk-action="deny" class="btn btn-sm btn-outline">❌ Denegar</button>
+      <button type="button" data-bulk-action="delete" class="btn btn-sm btn-danger">🗑 Borrar</button>
+      <span id="bulk-result" class="hint" style="color:var(--green)"></span>
+    </div>
     <div class="card" style="padding:0">
-      <table class="price-table" style="margin:0">
+      <table id="anomalies-table" data-admin-table class="price-table" style="margin:0">
         <thead>
           <tr>
-            <th style="width:80px">Tipo</th>
-            <th>Producto</th>
-            <th style="text-align:right">Sospechoso</th>
+            <th class="select-col"><input type="checkbox" data-select-all aria-label="Seleccionar todos"></th>
+            <th data-col="type" class="sortable-col" style="width:80px">Tipo</th>
+            <th data-col="name" class="sortable-col">Producto</th>
+            <th data-col="suspect" class="sortable-col" style="text-align:right">Sospechoso</th>
             <th style="text-align:right">Mediana / Actual</th>
-            <th style="text-align:right">Δ</th>
-            <th>Detectada</th>
+            <th data-col="delta" class="sortable-col" style="text-align:right">Δ</th>
+            <th data-col="detected" class="sortable-col" data-default-sort="desc">Detectada</th>
             <th>Acciones</th>
           </tr>
         </thead>
@@ -87,7 +95,14 @@
                             : a.status === 'approved' ? { txt: 'Aprobada',   bg: '#dcfce7', fg: '#166534' }
                             :                            { txt: 'Denegada',   bg: '#e5e7eb', fg: '#4b5563' };
           %>
-            <tr id="anom-<%= a.id %>">
+            <tr id="anom-<%= a.id %>"
+              data-type="<%= a.anomalyType %>"
+              data-name="<%- (a.productName ?? a.productAsin).replace(/"/g,'&quot;') %>"
+              data-suspect="<%= susp ?? 0 %>"
+              data-delta="<%= delta ?? 0 %>"
+              data-detected="<%= new Date(a.detectedAt).getTime() %>"
+            >
+              <td><% if (a.status === 'pending') { %><input type="checkbox" class="row-select" value="<%= a.id %>" aria-label="Seleccionar anomalía"><% } %></td>
               <td>
                 <span style="background:<%= typeColor %>20;color:<%= typeColor %>;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:600;white-space:nowrap"><%= typeLabel %></span>
                 <% if (a.productBypass) { %><span class="hint" style="font-size:10px;color:#16a34a;display:block;margin-top:2px">bypass on</span><% } %>
@@ -167,6 +182,42 @@
 
 <%- include('partials/footer-admin') %>
 
+<script src="/js/admin-table.js"></script>
+<script>
+(function () {
+  const table = document.getElementById('anomalies-table');
+  if (!table) return;
+
+  async function bulk(action) {
+    const ids = [...window.AdminTable.get(table).selected].map(Number);
+    if (!ids.length) return;
+    const verb = action === 'approve' ? 'aprobar' : action === 'deny' ? 'denegar' : 'borrar';
+    if (!confirm(`¿${verb.charAt(0).toUpperCase() + verb.slice(1)} ${ids.length} anomalía(s)?`)) return;
+    const result = document.getElementById('bulk-result');
+    try {
+      const res = await fetch('/admin/anomalies/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids, action }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert('Error: ' + (err.error || res.statusText));
+        return;
+      }
+      const data = await res.json();
+      result.textContent = `✓ ${data.ok} OK${data.skipped > 0 ? ' · ' + data.skipped + ' omitidas' : ''}`;
+      setTimeout(() => location.reload(), 800);
+    } catch (e) {
+      alert('Error de red');
+    }
+  }
+
+  document.querySelectorAll('[data-bulk-action]').forEach(function (btn) {
+    btn.addEventListener('click', function () { bulk(btn.dataset.bulkAction); });
+  });
+})();
+</script>
 <script src="/js/scrape-widget.js"></script>
 </body>
 </html>

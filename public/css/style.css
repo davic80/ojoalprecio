@@ -836,6 +836,28 @@ body.auth-page {
 }
 .cta-bar .btn { flex: 1; min-width: 140px; }
 
+/* ── Admin tables: sort + multi-select ───────────────────────────────────── */
+.sortable-col { cursor: pointer; user-select: none; white-space: nowrap; }
+.sortable-col::after { content: ' ⇅'; opacity: 0.3; font-size: 11px; }
+.sortable-col.sort-asc::after  { content: ' ↑'; opacity: 1; }
+.sortable-col.sort-desc::after { content: ' ↓'; opacity: 1; }
+th.select-col { width: 32px; text-align: center; }
+th.select-col input,
+td .row-select { cursor: pointer; transform: scale(1.1); }
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  margin-bottom: var(--sp-3);
+  background: var(--gray-50);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-sm);
+  flex-wrap: wrap;
+}
+.bulk-bar.bulk-bar-active { background: var(--white); border-color: var(--gray-400); }
+.bulk-bar [data-bulk-count] { font-size: var(--fs-sm); color: var(--gray-700); min-width: 110px; font-weight: 500; }
+
 /* ── Admin dropdown menu (grouped admin navbar) ──────────────────────────── */
 .admin-menu { position: relative; display: inline-block; }
 .admin-menu-trigger {

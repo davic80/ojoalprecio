@@ -20,6 +20,7 @@
       <strong>sin seguidores reales</strong> y <strong>sin alertas</strong>, que llevan
       <strong>≥3 días</strong> en el catálogo y han tenido <strong>&lt; 3 datapoints en
       los últimos 3 días</strong>. Cálculo on-demand sobre la BD, siempre fresco.
+      <strong>Siguen scrapeándose</strong> en cada ciclo de 1h hasta que los borres o pauses.
     </p>
   </div>
 
@@ -30,37 +31,45 @@
       <p>No hay productos auto-importados huérfanos con scrape moribundo en este momento.</p>
     </div>
   <% } else { %>
-    <div class="bulk-bar" id="bulk-bar">
-      <button type="button" onclick="selectAllVisible()" class="btn btn-sm btn-ghost">Todos</button>
-      <button type="button" onclick="clearSelection()" class="btn btn-sm btn-ghost">Ninguno</button>
-      <span id="bulk-count" class="hint" style="min-width:90px"></span>
-      <button type="button" id="bulk-delete-btn" onclick="deleteBulk()" class="btn btn-sm btn-danger" disabled
-        title="Borrado definitivo — cascadea a price_history, alerts, user_products, anomalías">
-        Borrar seleccionados
+    <div class="bulk-bar" data-admin-bulk-bar-for="cleanup-table">
+      <span data-bulk-count></span>
+      <button type="button" data-bulk-action="pause" class="btn btn-sm btn-outline" title="Pone is_active=FALSE: deja de scrapearse pero se conservan datos">
+        ⏸ Pausar scrape
+      </button>
+      <button type="button" data-bulk-action="delete" class="btn btn-sm btn-danger" title="Borrado definitivo — cascadea a price_history, alerts, user_products, anomalías">
+        🗑 Borrar
       </button>
       <span id="bulk-result" class="hint" style="color:var(--green)"></span>
       <span class="hint" style="margin-left:auto"><%= candidates.length %> candidato<%= candidates.length === 1 ? '' : 's' %><% if (candidates.length >= 500) { %> (mostrando los primeros 500)<% } %></span>
     </div>
 
     <div class="table-wrap">
-      <table class="price-table table-card-mobile">
+      <table id="cleanup-table" data-admin-table class="price-table table-card-mobile">
         <thead>
           <tr>
-            <th style="width:30px"></th>
-            <th>Producto</th>
-            <th style="text-align:right">Días en BD</th>
-            <th style="text-align:right">Datapoints 3d</th>
-            <th style="text-align:right">Total datapoints</th>
-            <th style="text-align:right">Último scrape</th>
-            <th>Estado</th>
+            <th class="select-col"><input type="checkbox" data-select-all aria-label="Seleccionar todos"></th>
+            <th data-col="name" class="sortable-col">Producto</th>
+            <th data-col="daysOld" class="sortable-col" style="text-align:right">Días en BD</th>
+            <th data-col="datapoints3d" class="sortable-col" data-default-sort="asc" style="text-align:right">Datapoints 3d</th>
+            <th data-col="datapointsTotal" class="sortable-col" style="text-align:right">Total datapoints</th>
+            <th data-col="lastScrapeAt" class="sortable-col" style="text-align:right">Último scrape</th>
+            <th data-col="state" class="sortable-col">Estado</th>
           </tr>
         </thead>
         <tbody>
-          <% candidates.forEach(function(p) { %>
-            <tr>
-              <td data-label="">
-                <input type="checkbox" class="product-checkbox" data-id="<%= p.id %>" aria-label="Seleccionar producto <%= p.asin %>">
-              </td>
+          <% candidates.forEach(function(p) {
+            const lastScrapeMs = p.lastScrapeAt ? new Date(p.lastScrapeAt).getTime() : 0;
+            const state = !p.isAvailable ? 'sinstock' : (p.lastError ? 'error' : 'ok');
+          %>
+            <tr
+              data-name="<%- (p.name ?? p.asin).replace(/"/g,'&quot;') %>"
+              data-days-old="<%= p.daysOld %>"
+              data-datapoints3d="<%= p.datapoints3d %>"
+              data-datapoints-total="<%= p.datapointsTotal %>"
+              data-last-scrape-at="<%= lastScrapeMs %>"
+              data-state="<%= state %>"
+            >
+              <td><input type="checkbox" class="row-select" value="<%= p.id %>" aria-label="Seleccionar <%= p.asin %>"></td>
               <td data-label="Producto" style="max-width:380px">
                 <a href="/p/<%= p.asin %>" target="_blank" rel="noopener" style="font-size:13px;font-weight:500">
                   <%= p.name ? (p.name.length > 70 ? p.name.slice(0, 70) + '…' : p.name) : p.asin %>
@@ -97,74 +106,47 @@
 
 <%- include('partials/footer-admin') %>
 
+<script src="/js/admin-table.js"></script>
 <script>
 (function () {
-  const selectedIds = new Set();
+  const table = document.getElementById('cleanup-table');
+  if (!table) return;
 
-  function updateUI() {
-    // Drop any selected id whose row vanished after a delete
-    const domIds = new Set([...document.querySelectorAll('.product-checkbox')].map(c => parseInt(c.dataset.id)));
-    for (const id of selectedIds) { if (!domIds.has(id)) selectedIds.delete(id); }
-
-    const count = selectedIds.size;
-    const countEl = document.getElementById('bulk-count');
-    if (countEl) countEl.textContent = count > 0 ? count + ' seleccionado' + (count !== 1 ? 's' : '') : '';
-    const btn = document.getElementById('bulk-delete-btn');
-    if (btn) btn.disabled = count === 0;
-
-    document.querySelectorAll('.product-checkbox').forEach(cb => {
-      const id = parseInt(cb.dataset.id);
-      cb.checked = selectedIds.has(id);
-    });
+  function selectedIds() {
+    return [...window.AdminTable.get(table).selected].map(Number);
   }
 
-  window.selectAllVisible = function () {
-    document.querySelectorAll('.product-checkbox').forEach(cb => selectedIds.add(parseInt(cb.dataset.id)));
-    updateUI();
-  };
-
-  window.clearSelection = function () {
-    selectedIds.clear();
+  async function bulkAction(action) {
+    const ids = selectedIds();
+    if (!ids.length) return;
+    const verb = action === 'pause' ? 'pausar' : 'borrar';
+    if (!confirm(`¿${verb.charAt(0).toUpperCase() + verb.slice(1)} ${ids.length} producto(s)?` +
+      (action === 'delete' ? ' Se eliminan también su historial de precios, alertas, follows y anomalías. Esta acción no se puede deshacer.' : ' Quedan en BD pero el scraper deja de procesarlos.'))) return;
+    const url = action === 'delete' ? '/products/bulk-delete' : '/admin/products/bulk-pause';
     const result = document.getElementById('bulk-result');
-    if (result) result.textContent = '';
-    updateUI();
-  };
-
-  window.deleteBulk = async function () {
-    if (!selectedIds.size) return;
-    if (!confirm('¿Borrar definitivamente ' + selectedIds.size + ' producto(s)? Se eliminan también su historial de precios, alertas, follows y anomalías. Esta acción no se puede deshacer.')) return;
-    const btn = document.getElementById('bulk-delete-btn');
-    const original = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = 'Borrando…';
     try {
-      const res = await fetch('/products/bulk-delete', {
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: [...selectedIds] }),
+        body: JSON.stringify({ ids }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        document.getElementById('bulk-result').textContent = '✓ ' + data.deleted + ' borrado' + (data.deleted !== 1 ? 's' : '');
-        clearSelection();
-        setTimeout(() => location.reload(), 900);
-      } else {
+      if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         alert('Error: ' + (err.error || res.statusText));
+        return;
       }
-    } finally {
-      btn.textContent = original;
+      const data = await res.json();
+      const n = data.deleted ?? data.paused ?? ids.length;
+      result.textContent = `✓ ${n} ${action === 'delete' ? 'borrado' : 'pausado'}${n === 1 ? '' : 's'}`;
+      setTimeout(() => location.reload(), 800);
+    } catch (e) {
+      alert('Error de red');
     }
-  };
+  }
 
-  document.addEventListener('change', function (e) {
-    if (!e.target.classList.contains('product-checkbox')) return;
-    const id = parseInt(e.target.dataset.id);
-    if (e.target.checked) selectedIds.add(id); else selectedIds.delete(id);
-    updateUI();
+  table.parentElement.parentElement.querySelectorAll('[data-bulk-action]').forEach(function (btn) {
+    btn.addEventListener('click', function () { bulkAction(btn.dataset.bulkAction); });
   });
-
-  updateUI();
 })();
 </script>
 

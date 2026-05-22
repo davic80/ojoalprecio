@@ -1,4 +1,4 @@
-import { Router, type Request, type Response } from 'express';
+import express, { Router, type Request, type Response } from 'express';
 import os from 'os';
 import { db } from '../db/client';
 import { categories, products, users, recommendationLists, recommendationItems, scrapeAnomalies, priceHistory } from '../db/schema';
@@ -515,6 +515,71 @@ router.delete('/admin/anomalies/:id', requireAuth, requireAdmin, async (req: Req
   await db.delete(scrapeAnomalies).where(eq(scrapeAnomalies.id, id));
   if (req.headers['hx-request']) return res.send('');
   res.json({ success: true });
+});
+
+// ── POST /admin/anomalies/bulk — multi-anomaly action over an id list ─────
+// Body: { ids: number[], action: 'approve' | 'deny' | 'delete' }
+// Loops single-row handlers so the same data-mutation logic stays in one
+// place (approve inserts the suspect price, etc). Returns per-id outcomes.
+router.post('/admin/anomalies/bulk', requireAuth, requireAdmin, express.json(), async (req: Request, res: Response) => {
+  const body = req.body as { ids?: unknown; action?: unknown } | undefined;
+  const ids = Array.isArray(body?.ids) ? body!.ids.map((v) => parseInt(String(v), 10)).filter((n) => Number.isFinite(n) && n > 0) : [];
+  const action = String(body?.action ?? '');
+  if (!ids.length) return res.status(400).json({ error: 'ids vacíos.' });
+  if (!['approve', 'deny', 'delete'].includes(action)) return res.status(400).json({ error: 'action debe ser approve|deny|delete' });
+  const userId = req.session.userId!;
+
+  let ok = 0, skipped = 0;
+  for (const id of ids) {
+    try {
+      if (action === 'delete') {
+        const r = await db.delete(scrapeAnomalies).where(eq(scrapeAnomalies.id, id));
+        ok += (r as unknown as { rowCount?: number }).rowCount ?? 1;
+        continue;
+      }
+      const [a] = await db.select().from(scrapeAnomalies).where(eq(scrapeAnomalies.id, id)).limit(1);
+      if (!a || a.status !== 'pending') { skipped++; continue; }
+      if (action === 'approve' && (a.anomalyType === 'low' || a.anomalyType === 'high') && a.suspectPrice) {
+        await db.insert(priceHistory).values({
+          productId: a.productId,
+          price:     String(a.suspectPrice),
+          currency:  'EUR',
+          scrapedAt: a.detectedAt,
+        });
+        await db.execute(sql`
+          WITH stats AS (
+            SELECT MAX(price)::float AS amax,
+                   (SELECT price::float FROM price_history WHERE product_id = ${a.productId} ORDER BY scraped_at DESC LIMIT 1) AS cur
+            FROM price_history WHERE product_id = ${a.productId}
+          )
+          UPDATE products SET
+            is_on_sale = (SELECT cur < amax * 0.93 FROM stats),
+            deal_score = (SELECT ROUND(((amax - cur) / amax * 100)::numeric, 1) FROM stats WHERE amax > 0)
+          WHERE id = ${a.productId}
+        `);
+      }
+      await db.update(scrapeAnomalies)
+        .set({ status: action === 'approve' ? 'approved' : 'denied', reviewedBy: userId, reviewedAt: new Date() })
+        .where(eq(scrapeAnomalies.id, id));
+      ok++;
+    } catch (err) {
+      console.warn(`[admin-anomalies-bulk] ${action} id=${id} failed:`, (err as Error).message);
+      skipped++;
+    }
+  }
+  res.json({ ok, skipped, total: ids.length });
+});
+
+// ── POST /admin/products/bulk-pause — set is_active=FALSE on N products ───
+// Alternative to outright delete: keeps history + DB row, just stops the
+// scheduler from picking it up. Reversible via /admin/products/:id/resume
+// (TODO) or direct SQL toggle. Used from /admin/cleanup as a soft action.
+router.post('/admin/products/bulk-pause', requireAuth, requireAdmin, express.json(), async (req: Request, res: Response) => {
+  const body = req.body as { ids?: unknown } | undefined;
+  const ids = Array.isArray(body?.ids) ? body!.ids.map((v) => parseInt(String(v), 10)).filter((n) => Number.isFinite(n) && n > 0) : [];
+  if (!ids.length) return res.status(400).json({ error: 'ids vacíos.' });
+  const r = await db.execute(sql`UPDATE products SET is_active = FALSE WHERE id = ANY(${ids}::int[])`);
+  res.json({ paused: (r as unknown as { rowCount?: number }).rowCount ?? 0, total: ids.length });
 });
 
 // ── GET /admin/import-url ─────────────────────────────────────────────────────
