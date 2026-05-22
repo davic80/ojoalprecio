@@ -1340,19 +1340,25 @@ router.get('/admin/aliexpress/oauth/callback', requireAuth, requireAdmin, async 
   if (!cfg) return res.status(503).send('AliExpress not configured.');
   const code  = String(req.query.code  || '');
   const state = String(req.query.state || '');
+  console.log(`[ae-oauth] callback hit: code=${code.slice(0, 12)}… state=${state.slice(0, 12)}… known-states=${_oauthStates.size}`);
   if (!code)  return res.status(400).send('Missing ?code in callback.');
   // Verify the state matches one we issued and is within TTL.
   const issued = _oauthStates.get(state);
   if (!issued || Date.now() - issued > STATE_TTL_MS) {
+    console.warn(`[ae-oauth] state rejected: issued=${issued} known=${[..._oauthStates.keys()].map(k => k.slice(0,12)).join(',')}`);
     return res.status(400).send('Invalid or expired OAuth state — retry from /admin/aliexpress/oauth/start.');
   }
   _oauthStates.delete(state);
   try {
     await exchangeCodeForToken(cfg, code);
+    console.log('[ae-oauth] token exchange OK, redirecting to admin');
   } catch (err) {
     const e = err as AliExpressOAuthError;
-    return res.status(502).type('text/plain').send(
-      `AE OAuth token exchange failed.\n\nCode: ${e.code ?? 'unknown'}\nMessage: ${e.message}\nRaw: ${JSON.stringify(e.raw)}`,
+    console.error(`[ae-oauth] token exchange FAILED: code=${e.code} msg=${e.message} raw=${JSON.stringify(e.raw)}`);
+    // 400 (not 502) so Cloudflare doesn't replace our body with its
+    // generic "Bad Gateway" page. Our text gives the real diagnostic.
+    return res.status(400).type('text/plain').send(
+      `AE OAuth token exchange failed.\n\nCode: ${e.code ?? 'unknown'}\nMessage: ${e.message}\nRaw: ${JSON.stringify(e.raw)}\n\nCheck server logs ([ae-oauth] tag) for the full AE response.`,
     );
   }
   return res.redirect('/admin/aliexpress?oauth=ok');

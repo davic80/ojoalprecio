@@ -86,13 +86,27 @@ interface TokenResponseRaw {
 
 async function postRest(path: string, params: Record<string, string>, secret: string): Promise<TokenResponseRaw> {
   const withSign = { ...params, sign: signRestRequest(path, params, secret) };
-  const res = await fetch(AUTH_HOST + '/rest' + path, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body:    new URLSearchParams(withSign).toString(),
-  });
-  // AE returns HTTP 200 even on errors and embeds { code, message } in the JSON.
-  const json = await res.json() as TokenResponseRaw;
+  const url = AUTH_HOST + '/rest' + path;
+  console.log(`[ae-oauth] POST ${url} params=${Object.keys(withSign).filter(k => k !== 'sign').join(',')}`);
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body:    new URLSearchParams(withSign).toString(),
+    });
+  } catch (err) {
+    console.error(`[ae-oauth] fetch failed for ${path}: ${(err as Error).message}`);
+    throw new AliExpressOAuthError(`Network error talking to AE: ${(err as Error).message}`, 'network');
+  }
+  const text = await res.text();
+  console.log(`[ae-oauth] ${path} → HTTP ${res.status} body=${text.slice(0, 400)}`);
+  let json: TokenResponseRaw;
+  try {
+    json = JSON.parse(text) as TokenResponseRaw;
+  } catch {
+    throw new AliExpressOAuthError(`AE returned non-JSON: ${text.slice(0, 200)}`, String(res.status));
+  }
   if (json.code && json.code !== '0' && json.code !== 'success') {
     throw new AliExpressOAuthError(json.message ?? 'AE OAuth error', String(json.code), json);
   }
