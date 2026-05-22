@@ -313,6 +313,14 @@ a:hover { text-decoration: none; }
 /* ── Filter bar ──────────────────────────────────────────────────────────── */
 .filter-bar { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin: var(--sp-3) 0; }
 .filter-bar .input-sm { height: 34px; }
+/* Mobile: 5 filter controls in a flex-wrap row produce a chaotic 2-3
+   row mess on 375 px. Stack vertically with full-width children — much
+   easier to scan, and the search box stops being the only big element. */
+@media (max-width: 639px) {
+  .filter-bar { flex-direction: column; align-items: stretch; }
+  .filter-bar > * { width: 100%; min-width: 0; flex: none; }
+  .filter-bar .input-sm { height: 40px; }
+}
 
 /* ── Pagination ──────────────────────────────────────────────────────────── */
 .pagination { display: flex; gap: var(--sp-2); justify-content: center; align-items: center; margin-top: var(--sp-5); flex-wrap: wrap; }
