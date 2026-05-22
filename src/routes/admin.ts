@@ -9,7 +9,18 @@ import { scrapeUrlForAsins, extractAsin, normaliseAmazonUrl } from '../scraper/a
 import { getScraperStatus, triggerScrape } from '../scheduler';
 import { getBestUnpostedDeal, postDailyDeal, POST_HOURS } from '../scheduler/social';
 import { refreshAllAETracks, refreshAEEquivalents, refreshAEHotProducts } from '../scheduler/aliexpress';
-import { getAliExpressClient, discoverAndPersistEquivalent } from '../marketplaces/aliexpress';
+import {
+  getAliExpressClient,
+  discoverAndPersistEquivalent,
+  getOAuthConfig,
+  getCurrentAccessToken,
+  getOAuthStatus,
+  buildAuthorizeUrl,
+  exchangeCodeForToken,
+  AliExpressOAuthRequiredError,
+  AliExpressOAuthError,
+} from '../marketplaces/aliexpress';
+import { randomBytes } from 'crypto';
 import { importAmazonCsv } from '../marketplaces/amazon-affiliates/csv-import';
 import { getAllSettings, setSetting } from '../db/settings';
 
@@ -1266,20 +1277,21 @@ router.post('/admin/aliexpress/equivalent/:amazonProductId/recheck',
 
 // ── GET /admin/aliexpress/sku-probe/:productId — DS API permission check ────
 // Calls aliexpress.ds.product.get for a known productId and dumps the variant
-// breakdown as JSON. Sole purpose: validate that the SKU Dimension API perm
-// is actually granted on our app key before designing schema migrations.
-// Remove once the SKU integration is shipped.
+// breakdown as JSON. Validates both that the SKU Dimension API perm is granted
+// AND that the OAuth access_token flow is wired correctly end-to-end.
 router.get('/admin/aliexpress/sku-probe/:productId', requireAuth, requireAdmin, async (req: Request, res: Response) => {
   const productId = String(req.params.productId || '').trim();
   if (!/^\d{10,16}$/.test(productId)) {
     return res.status(400).json({ error: 'productId must be 10-16 digits' });
   }
   const client = getAliExpressClient();
-  if (!client) {
+  const oauthCfg = getOAuthConfig();
+  if (!client || !oauthCfg) {
     return res.status(503).json({ error: 'AliExpress not configured' });
   }
   try {
-    const out = await client.dsProductGet(productId);
+    const accessToken = await getCurrentAccessToken(oauthCfg);
+    const out = await client.dsProductGet(productId, accessToken);
     if (!out) return res.status(404).json({ error: 'product not found via DS endpoint' });
     return res.json({
       productId,
@@ -1289,13 +1301,66 @@ router.get('/admin/aliexpress/sku-probe/:productId', requireAuth, requireAdmin, 
     });
   } catch (err) {
     const e = err as { name?: string; message?: string; code?: string; raw?: unknown };
-    return res.status(502).json({
-      error: e.message ?? 'unknown error',
+    const status = err instanceof AliExpressOAuthRequiredError ? 401 : 502;
+    return res.status(status).json({
+      error:     e.message ?? 'unknown error',
       errorName: e.name,
       errorCode: e.code,
-      raw: e.raw,
+      raw:       e.raw,
+      hint:      err instanceof AliExpressOAuthRequiredError
+        ? 'Visit /admin/aliexpress/oauth/start to authorize.'
+        : undefined,
     });
   }
+});
+
+// ── OAuth flow for AE Dropshipping namespace ────────────────────────────────
+// Single admin runs this once; resulting tokens land in aliexpress_oauth_tokens
+// (single-row, id=1) and getCurrentAccessToken() handles refresh-on-read.
+
+// In-memory `state` store. OAuth code exchange takes seconds and the admin is
+// a single human — a tiny Map with TTL is fine without dragging in a session
+// store. Server restart invalidates pending flows; admin retries.
+const _oauthStates = new Map<string, number>();
+const STATE_TTL_MS = 10 * 60 * 1000;
+
+router.get('/admin/aliexpress/oauth/start', requireAuth, requireAdmin, (_req: Request, res: Response) => {
+  const cfg = getOAuthConfig();
+  if (!cfg) return res.status(503).send('AliExpress not configured (ALIEXPRESS_APP_KEY/_APP_SECRET).');
+  // Sweep expired states opportunistically.
+  const now = Date.now();
+  for (const [k, ts] of _oauthStates) if (now - ts > STATE_TTL_MS) _oauthStates.delete(k);
+  const state = randomBytes(16).toString('hex');
+  _oauthStates.set(state, now);
+  return res.redirect(buildAuthorizeUrl(cfg, state));
+});
+
+router.get('/admin/aliexpress/oauth/callback', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const cfg   = getOAuthConfig();
+  if (!cfg) return res.status(503).send('AliExpress not configured.');
+  const code  = String(req.query.code  || '');
+  const state = String(req.query.state || '');
+  if (!code)  return res.status(400).send('Missing ?code in callback.');
+  // Verify the state matches one we issued and is within TTL.
+  const issued = _oauthStates.get(state);
+  if (!issued || Date.now() - issued > STATE_TTL_MS) {
+    return res.status(400).send('Invalid or expired OAuth state — retry from /admin/aliexpress/oauth/start.');
+  }
+  _oauthStates.delete(state);
+  try {
+    await exchangeCodeForToken(cfg, code);
+  } catch (err) {
+    const e = err as AliExpressOAuthError;
+    return res.status(502).type('text/plain').send(
+      `AE OAuth token exchange failed.\n\nCode: ${e.code ?? 'unknown'}\nMessage: ${e.message}\nRaw: ${JSON.stringify(e.raw)}`,
+    );
+  }
+  return res.redirect('/admin/aliexpress?oauth=ok');
+});
+
+// Light JSON endpoint the admin UI can poll to render OAuth status.
+router.get('/admin/aliexpress/oauth/status', requireAuth, requireAdmin, async (_req: Request, res: Response) => {
+  return res.json(await getOAuthStatus());
 });
 
 // ── GET /admin/affiliates — Amazon affiliate stats dashboard ────────────────

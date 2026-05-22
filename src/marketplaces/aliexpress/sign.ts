@@ -47,6 +47,44 @@ export function systemParams(appKey: string, method: string, timestamp: Date = n
   };
 }
 
+/**
+ * Sign a request to the `/rest/*` gateway (used by the OAuth + DS-namespace
+ * endpoints). The shape differs from the legacy `/sync` gateway in two ways:
+ *
+ *   1. The API path itself is PREPENDED to the param-concat string. This is
+ *      where every AE OAuth SDK gets it wrong; without the path prefix the
+ *      gateway silently returns InvalidSignature or even just empty bodies.
+ *      Example path: "/auth/token/create".
+ *   2. The timestamp is UTC, not Beijing — see `formatRestTimestamp`.
+ *
+ * The `sign` field itself is excluded from the signed string (same as
+ * `signRequest`). HMAC-SHA256, hex, uppercase.
+ */
+export function signRestRequest(
+  apiPath: string,
+  params: Record<string, string | number | boolean>,
+  secret: string,
+): string {
+  if (!secret)  throw new Error('signRestRequest: missing App Secret');
+  if (!apiPath) throw new Error('signRestRequest: missing API path');
+  // AE normalises the path to start with a single leading slash before signing.
+  const path = apiPath.startsWith('/') ? apiPath : '/' + apiPath;
+  const sortedKeys = Object.keys(params).filter(k => k !== 'sign').sort();
+  const concat = path + sortedKeys.map(k => `${k}${params[k]}`).join('');
+  return createHmac('sha256', secret).update(concat, 'utf8').digest('hex').toUpperCase();
+}
+
+/** "yyyy-MM-dd HH:mm:ss" in UTC — required timestamp shape for the /rest gateway. */
+export function formatRestTimestamp(d: Date = new Date()): string {
+  const fmt = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'UTC',
+    year:   'numeric', month:  '2-digit', day:    '2-digit',
+    hour:   '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false,
+  });
+  return fmt.format(d);
+}
+
 /** "yyyy-MM-dd HH:mm:ss" in Asia/Shanghai (Beijing) time. */
 export function formatBeijingTimestamp(d: Date): string {
   // Intl with timeZone is the cleanest cross-platform way; AliExpress

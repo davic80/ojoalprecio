@@ -763,6 +763,31 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX IF NOT EXISTS idx_aliexpress_products_hot_rank
     ON aliexpress_products(hot_rank) WHERE is_hot = TRUE;
   `,
+
+  // 52: OAuth token storage for the AliExpress Dropshipping namespace.
+  // The DS endpoints (aliexpress.ds.*) — including ds.product.get, which
+  // is the only AE method that returns per-variant sku_info — reject
+  // app-key+sign-only requests with "MissingParameter: access_token".
+  // The app owner runs the authorize-code dance once via /admin/
+  // aliexpress/oauth/start; we persist the resulting tokens here and a
+  // refresh worker keeps access_token fresh (AE access_token TTL = 24 h,
+  // refresh_token TTL = ~60 days and rotates per refresh).
+  //
+  // Single-row table: this is an app-level OAuth, not per-user. The id=1
+  // sentinel UNIQUE constraint keeps INSERT ... ON CONFLICT (id) sane.
+  `
+  CREATE TABLE IF NOT EXISTS aliexpress_oauth_tokens (
+    id                     INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+    access_token           TEXT NOT NULL,
+    refresh_token          TEXT NOT NULL,
+    expires_at             TIMESTAMP NOT NULL,
+    refresh_expires_at     TIMESTAMP NOT NULL,
+    ae_user_id             TEXT,
+    ae_account             TEXT,
+    created_at             TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at             TIMESTAMP NOT NULL DEFAULT NOW()
+  );
+  `,
 ];
 
 export async function migrate(pool: Pool = defaultPool): Promise<void> {

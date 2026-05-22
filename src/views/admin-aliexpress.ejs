@@ -33,6 +33,60 @@
   <% if (typeof refresh !== 'undefined' || (typeof url !== 'undefined' && /refresh=started/.test(url))) { /* ignore — placeholder */ } %>
   <% if (typeof query !== 'undefined') { /* no-op */ } %>
 
+  <%# OAuth panel — required for the Dropshipping (ds.*) namespace, which is
+     the only AE namespace that exposes per-variant SKU data. Connect once,
+     getCurrentAccessToken() handles refresh. -%>
+  <% if (aeConfigured) { %>
+  <div class="card" id="oauth-panel" style="margin-bottom:var(--sp-4);border-left:3px solid var(--gray-300)">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);flex-wrap:wrap">
+      <div>
+        <strong>OAuth Dropshipping</strong>
+        <span class="hint" id="oauth-status" style="margin-left:var(--sp-2)">Cargando…</span>
+      </div>
+      <div style="display:flex;gap:var(--sp-2)">
+        <a id="oauth-connect-btn" href="/admin/aliexpress/oauth/start" class="btn btn-sm btn-outline">Conectar / re-autorizar</a>
+      </div>
+    </div>
+    <% if (typeof url !== 'undefined' && /oauth=ok/.test(url) || typeof oauthOk !== 'undefined') { %>
+      <div class="alert-box" style="background:#dcfce7;border:1px solid #86efac;color:#166534;margin-top:var(--sp-2);padding:var(--sp-2) var(--sp-3);border-radius:var(--radius-sm);font-size:var(--fs-sm)">
+        ✓ OAuth completado.
+      </div>
+    <% } %>
+    <p class="hint" style="margin-top:var(--sp-2);font-size:var(--fs-sm)">
+      Necesario para el endpoint <code>aliexpress.ds.product.get</code> (variantes / SKU).
+      Token de acceso vive 24h, refresh token 60 días (rota en cada refresh, mantenido automáticamente).
+    </p>
+  </div>
+  <script>
+    (async function() {
+      try {
+        const r = await fetch('/admin/aliexpress/oauth/status');
+        const s = await r.json();
+        const el = document.getElementById('oauth-status');
+        if (!s.connected) {
+          el.textContent = 'No conectado';
+          el.style.color = 'var(--red)';
+          return;
+        }
+        const hoursLeft = s.accessSecondsLeft > 0 ? Math.round(s.accessSecondsLeft / 3600) : 0;
+        const daysLeft  = s.refreshSecondsLeft > 0 ? Math.round(s.refreshSecondsLeft / 86400) : 0;
+        if (s.refreshSecondsLeft <= 0) {
+          el.textContent = '⚠ Refresh token expirado — re-autoriza';
+          el.style.color = 'var(--red)';
+        } else if (s.accessSecondsLeft <= 0) {
+          el.textContent = '· access expirado, se refrescará al primer uso · refresh válido ' + daysLeft + 'd';
+          el.style.color = 'var(--gray-700)';
+        } else {
+          el.textContent = '✓ conectado' + (s.account ? ' (' + s.account + ')' : '') + ' · access ' + hoursLeft + 'h · refresh ' + daysLeft + 'd';
+          el.style.color = 'var(--green)';
+        }
+      } catch (e) {
+        document.getElementById('oauth-status').textContent = 'Error consultando estado';
+      }
+    })();
+  </script>
+  <% } %>
+
   <!-- Stats overview -->
   <div class="stats-bar" style="margin-bottom:var(--sp-4)">
     <div class="stat-pill">

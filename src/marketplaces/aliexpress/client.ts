@@ -179,17 +179,21 @@ export class AliExpressClient {
    * Full product detail INCLUDING per-variant SKU data — price/stock/image
    * per Color × Size combo. Uses the Dropshipping endpoint, which is the
    * only AE method that exposes `ae_item_sku_info_dtos[]`. Requires the
-   * "SKU Dimension API" permission. Permission errors throw
-   * AliExpressPermissionError so the caller can downgrade gracefully.
+   * "SKU Dimension API" permission AND a live OAuth access_token (the DS
+   * namespace rejects app-key-only calls). The caller supplies the token
+   * via `accessToken` — typically resolved from getCurrentAccessToken()
+   * in oauth.ts, which also handles refresh-when-near-expiry.
    *
    * Returns null if the productId isn't found.
    */
-  async dsProductGet(productId: string): Promise<AliExpressProductWithSkus | null> {
+  async dsProductGet(productId: string, accessToken: string): Promise<AliExpressProductWithSkus | null> {
+    if (!accessToken) throw new AliExpressError('dsProductGet: accessToken required', 'missing_access_token');
     const r = await this.call<any>('aliexpress.ds.product.get', {
       product_id:       productId,
       ship_to_country:  this.cfg.shipToCountry  ?? 'ES',
       target_currency:  this.cfg.targetCurrency ?? 'EUR',
       target_language:  this.cfg.targetLanguage ?? 'ES',
+      access_token:     accessToken,
     });
     const result = r?.result;
     if (!result) return null;
