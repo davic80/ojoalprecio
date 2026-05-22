@@ -1,0 +1,92 @@
+<%_
+  // Public Amazon product card used by /ofertas and /categoria/:slug.
+  //
+  // Locals:
+  //   d                  : deal/product row from the route — required fields:
+  //                          asin, name, imageUrl, extraImages[],
+  //                          currentPrice, minPrice?, maxPrice?,
+  //                          amazonUrl, discountFromMax?, sparkline?[],
+  //                          isAtLow?, saleTier?, isOnSale?
+  //   showOfferFallback  : boolean — render a plain "Oferta" badge when the
+  //                          row isn't on a tier (deals page shows it on
+  //                          everything, category page only shows when
+  //                          d.isOnSale is true)
+  //   isAdmin            : boolean (optional) — render the "Destacado /
+  //                          No destacado" toggle (used by category page)
+  //
+  // Keep this partial pure markup + the shared sparkline math. Anything
+  // that varies per-product (badge logic, prices, actions) is conditional
+  // here, NOT branched at call sites. AE-specific cards live elsewhere.
+  const allImages = [d.imageUrl, ...(d.extraImages || [])].filter(Boolean).slice(0, 3);
+  const hasCarousel = allImages.length > 1;
+  const productHref = '/p/' + d.asin;
+  const showAdminToggle = typeof isAdmin !== 'undefined' && isAdmin;
+  const _tierLabels = {
+    oferta:           'Oferta',
+    'super-oferta':   'Super Oferta',
+    'mega-oferta':    'Mega Oferta',
+    broooooferton:    'Brooooofertón',
+    '67oferta':       '67oferta',
+  };
+_%>
+<div class="product-card">
+  <a href="<%= productHref %>" class="product-card-link">
+    <div class="product-img-wrap"<% if (hasCarousel) { %> data-images="<%- JSON.stringify(allImages).replace(/"/g, '&quot;') %>"<% } %>>
+      <% if (d.imageUrl) { %>
+        <img src="<%= d.imageUrl %>" alt="<%= d.name ?? d.asin %>" class="product-img" loading="lazy">
+      <% } else { %>
+        <div class="product-img-placeholder">📦</div>
+      <% } %>
+      <% if (d.isAtLow) { %>
+        <span class="badge-low">Precio mínimo</span>
+      <% } else if (d.saleTier) { %>
+        <span class="badge-sale badge-tier-<%= d.saleTier %>" title="-<%= d.dealScore ? parseFloat(d.dealScore).toFixed(1) : '?' %>% vs máx."><%= _tierLabels[d.saleTier] || 'Oferta' %></span>
+      <% } else if (showOfferFallback || d.isOnSale) { %>
+        <span class="badge-sale">Oferta</span>
+      <% } %>
+    </div>
+    <div class="product-info">
+      <p class="product-name"><%= d.name ?? d.asin %></p>
+    </div>
+  </a>
+  <div class="product-prices">
+    <div class="price-row">
+      <div class="price-current"><%= parseFloat(d.currentPrice).toFixed(2) %> €</div>
+      <% if (d.discountFromMax > 0) { %>
+        <span class="trend-down">↓ <%= d.discountFromMax %>% vs max</span>
+      <% } %>
+    </div>
+    <% if (d.minPrice && d.maxPrice) { %>
+      <div class="price-range">
+        <span class="price-min">↓ <%= parseFloat(d.minPrice).toFixed(2) %> €</span>
+        <span class="price-max">↑ <%= parseFloat(d.maxPrice).toFixed(2) %> €</span>
+      </div>
+    <% } %>
+    <% if (d.sparkline && d.sparkline.length >= 2) {
+      const pts = [...d.sparkline].reverse();
+      const mn = Math.min(...pts), mx = Math.max(...pts), rng = mx - mn || 1;
+      const W = 120, H = 36, pad = 3;
+      const svgPts = pts.map(function(v, i) {
+        return (pad + (i / (pts.length - 1)) * (W - 2*pad)).toFixed(1) + ',' +
+               (H - pad - ((v - mn) / rng) * (H - 2*pad)).toFixed(1);
+      }).join(' ');
+      const color = pts[pts.length-1] < pts[0] ? '#22c55e' : pts[pts.length-1] > pts[0] ? '#ef4444' : '#94a3b8';
+    %>
+    <svg class="sparkline-svg" viewBox="0 0 <%= W %> <%= H %>" width="<%= W %>" height="<%= H %>" aria-hidden="true">
+      <polyline points="<%= svgPts %>" fill="none" stroke="<%= color %>" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <% } %>
+  </div>
+  <div class="product-actions">
+    <a href="<%= productHref %>" class="btn btn-sm btn-outline">Ver historial</a>
+    <a href="<%= d.amazonUrl %>" target="_blank" rel="noopener sponsored" class="btn btn-sm btn-amazon">Amazon ↗</a>
+    <% if (showAdminToggle) { %>
+      <button
+        class="btn btn-sm public-toggle"
+        data-id="<%= d.id %>"
+        title="Destacado en /ofertas"
+        style="<%= d.isPublic ? 'background:#16a34a;color:#fff;border-color:#16a34a' : 'opacity:.6' %>"
+      ><%= d.isPublic ? 'Destacado' : 'No destacado' %></button>
+    <% } %>
+  </div>
+</div>
