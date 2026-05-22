@@ -74,15 +74,13 @@ export function signRestRequest(
   return createHmac('sha256', secret).update(concat, 'utf8').digest('hex').toUpperCase();
 }
 
-/** "yyyy-MM-dd HH:mm:ss" in UTC — required timestamp shape for the /rest gateway. */
+/** Epoch milliseconds as a string — required timestamp shape for the /rest
+   gateway (the OAuth + ds.* endpoints). Documented inconsistently across
+   AE's own docs: some pages show UTC "yyyy-MM-dd HH:mm:ss", but the live
+   server rejects that with `IllegalTimestamp` and only accepts epoch ms.
+   Sticking with epoch ms matches every working OSS AE OAuth SDK. */
 export function formatRestTimestamp(d: Date = new Date()): string {
-  const fmt = new Intl.DateTimeFormat('sv-SE', {
-    timeZone: 'UTC',
-    year:   'numeric', month:  '2-digit', day:    '2-digit',
-    hour:   '2-digit', minute: '2-digit', second: '2-digit',
-    hour12: false,
-  });
-  return fmt.format(d);
+  return String(d.getTime());
 }
 
 /** "yyyy-MM-dd HH:mm:ss" in Asia/Shanghai (Beijing) time. */
