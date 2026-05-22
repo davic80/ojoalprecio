@@ -74,14 +74,21 @@ export function buildAuthorizeUrl(cfg: AliExpressOAuthConfig, state: string): st
 }
 
 interface TokenResponseRaw {
-  access_token?:        string;
-  refresh_token?:       string;
-  expires_in?:          number;   // seconds
-  refresh_expires_in?:  number;   // seconds
-  user_id?:             string;
-  account?:             string;
-  code?:                string;   // present on error
-  message?:             string;
+  access_token?:             string;
+  refresh_token?:            string;
+  // AE actually returns absolute epoch-ms timestamps (`expire_time`,
+  // `refresh_token_valid_time`). The relative `expires_in`/_expires_in_
+  // names appear in some doc examples but the live SG endpoint omits them
+  // OR truncates them in some responses. Prefer the absolute fields.
+  expire_time?:              number;   // epoch ms when access_token dies
+  refresh_token_valid_time?: number;   // epoch ms when refresh_token dies
+  expires_in?:               number;   // seconds (legacy/fallback)
+  refresh_expires_in?:       number;   // seconds (legacy/fallback)
+  user_id?:                  string;
+  account?:                  string;
+  user_nick?:                string;   // AE often returns this instead of `account`
+  code?:                     string;   // present on error
+  message?:                  string;
 }
 
 async function postRest(path: string, params: Record<string, string>, secret: string): Promise<TokenResponseRaw> {
@@ -162,17 +169,27 @@ export async function refreshAccessToken(cfg: AliExpressOAuthConfig, refreshToke
 }
 
 async function persistTokens(t: TokenResponseRaw): Promise<void> {
-  // expires_in is seconds — convert to absolute timestamps so we can sort
-  // refresh decisions by clock instead of by relative-seconds-at-fetch.
-  const accessExpAt  = new Date(Date.now() + (Number(t.expires_in)         ?? 0) * 1000);
-  const refreshExpAt = new Date(Date.now() + (Number(t.refresh_expires_in) ?? 0) * 1000);
+  // Prefer absolute epoch-ms timestamps (`expire_time`,
+  // `refresh_token_valid_time`); fall back to relative seconds-from-now
+  // (`expires_in`, `refresh_expires_in`) if AE doesn't return the
+  // absolute form (some doc snippets show only the relative form).
+  const now = Date.now();
+  const accessExpAt = t.expire_time
+    ? new Date(Number(t.expire_time))
+    : new Date(now + (Number(t.expires_in) || 86400) * 1000);                   // default 24h
+  const refreshExpAt = t.refresh_token_valid_time
+    ? new Date(Number(t.refresh_token_valid_time))
+    : new Date(now + (Number(t.refresh_expires_in) || 60 * 86400) * 1000);      // default 60d
+  if (!Number.isFinite(accessExpAt.getTime()) || !Number.isFinite(refreshExpAt.getTime())) {
+    throw new AliExpressOAuthError('AE returned no usable expiry timestamps', 'bad_expiry', t);
+  }
   await db.execute(sql`
     INSERT INTO aliexpress_oauth_tokens (
       id, access_token, refresh_token, expires_at, refresh_expires_at,
       ae_user_id, ae_account, updated_at
     ) VALUES (
       1, ${t.access_token!}, ${t.refresh_token!}, ${accessExpAt}, ${refreshExpAt},
-      ${t.user_id ?? null}, ${t.account ?? null}, NOW()
+      ${t.user_id ?? null}, ${t.account ?? t.user_nick ?? null}, NOW()
     )
     ON CONFLICT (id) DO UPDATE SET
       access_token       = EXCLUDED.access_token,
@@ -195,6 +212,15 @@ export interface OAuthStatus {
   refreshSecondsLeft: number | null;
 }
 
+/** Postgres TIMESTAMP columns come back as Date with node-pg's default
+   parser, but the underlying driver config (or a future bump) may flip
+   to string. Normalise so callers never have to guess. */
+function toDate(v: unknown): Date {
+  if (v instanceof Date) return v;
+  if (typeof v === 'string' || typeof v === 'number') return new Date(v);
+  throw new Error(`expected Date/string/number, got ${typeof v}`);
+}
+
 export async function getOAuthStatus(): Promise<OAuthStatus> {
   const r = await db.execute(sql`
     SELECT access_token, refresh_token, expires_at, refresh_expires_at, ae_account
@@ -202,19 +228,21 @@ export async function getOAuthStatus(): Promise<OAuthStatus> {
   `);
   const row = r.rows[0] as undefined | {
     access_token: string; refresh_token: string;
-    expires_at: Date; refresh_expires_at: Date; ae_account: string | null;
+    expires_at: Date | string; refresh_expires_at: Date | string; ae_account: string | null;
   };
   if (!row) {
     return { connected: false, account: null, expiresAt: null, refreshExpiresAt: null, accessSecondsLeft: null, refreshSecondsLeft: null };
   }
   const now = Date.now();
+  const exp   = toDate(row.expires_at);
+  const rexp  = toDate(row.refresh_expires_at);
   return {
     connected: true,
     account:   row.ae_account,
-    expiresAt: row.expires_at,
-    refreshExpiresAt: row.refresh_expires_at,
-    accessSecondsLeft:  Math.floor((row.expires_at.getTime()         - now) / 1000),
-    refreshSecondsLeft: Math.floor((row.refresh_expires_at.getTime() - now) / 1000),
+    expiresAt: exp,
+    refreshExpiresAt: rexp,
+    accessSecondsLeft:  Math.floor((exp.getTime()  - now) / 1000),
+    refreshSecondsLeft: Math.floor((rexp.getTime() - now) / 1000),
   };
 }
 
@@ -233,14 +261,16 @@ export async function getCurrentAccessToken(cfg: AliExpressOAuthConfig): Promise
   `);
   const row = r.rows[0] as undefined | {
     access_token: string; refresh_token: string;
-    expires_at: Date; refresh_expires_at: Date;
+    expires_at: Date | string; refresh_expires_at: Date | string;
   };
   if (!row) throw new AliExpressOAuthRequiredError('No AE OAuth token — admin must connect');
   const now = Date.now();
-  if (row.refresh_expires_at.getTime() <= now) {
+  const exp  = toDate(row.expires_at);
+  const rexp = toDate(row.refresh_expires_at);
+  if (rexp.getTime() <= now) {
     throw new AliExpressOAuthRequiredError('AE refresh_token expired — admin must reauthorize');
   }
-  if (row.expires_at.getTime() - now > REFRESH_SKEW_MS) {
+  if (exp.getTime() - now > REFRESH_SKEW_MS) {
     return row.access_token;
   }
   // About to expire (or already) — refresh before returning.
