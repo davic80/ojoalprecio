@@ -1379,6 +1379,7 @@ router.get('/admin/aliexpress/equivalents/dry-run', requireAuth, requireAdmin, a
   const { textSimilarity } = await import('../marketplaces/aliexpress/text');
   const TEXT_SCORE_MIN  = 0.25;   // mirror equivalents.ts
   const PCT_CHEAPER_MIN = 10.00;
+  const PCT_CHEAPER_MAX = 80.00;
 
   const rows = (await db.execute(sql`
     SELECT
@@ -1409,7 +1410,9 @@ router.get('/admin/aliexpress/equivalents/dry-run', requireAuth, requireAdmin, a
 
   for (const r of rows) {
     const newScore = textSimilarity(r.amazonTitle, r.aeTitle);
-    const newEligible = newScore >= TEXT_SCORE_MIN && r.pctCheaper >= PCT_CHEAPER_MIN;
+    const newEligible = newScore >= TEXT_SCORE_MIN
+                     && r.pctCheaper >= PCT_CHEAPER_MIN
+                     && r.pctCheaper <= PCT_CHEAPER_MAX;
     scoreDeltaSum += (newScore - r.oldScore);
     if (newEligible) newEligibleNow++;
     if (newEligible && !r.wasEligible) {

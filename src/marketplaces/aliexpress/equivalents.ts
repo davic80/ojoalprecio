@@ -30,6 +30,15 @@ import { upsertAEProductSql } from './persist';
 
 const TEXT_SCORE_MIN  = 0.25;
 const PCT_CHEAPER_MIN = 10.00;
+// Upper bound on saving %. Legit cross-marketplace cases (same product on
+// Amazon vs AE) land in the 10-60% range, occasionally up to ~75%. A 90%+
+// "discount" almost always means we matched the Amazon product to an
+// accessory or a much smaller SKU of the same brand — e.g. €500 MacBook
+// → €5 tempered glass for MacBook, €200 dron → €5 screen protector for
+// dron, €150 router → €15 different-model router. Dry-run on the prod
+// catalog (2026-05-22) showed ~50% of >80%-cheaper "matches" were
+// accessories. Reject them so we don't erode user trust with bogus banners.
+const PCT_CHEAPER_MAX = 80.00;
 const QUERY_PAGE_SIZE = 20;
 const TTL_HOURS       = 24;
 
@@ -88,7 +97,9 @@ export async function findAEEquivalent(
   const pctCheaper = amazonProduct.price > 0
     ? ((amazonProduct.price - best.p.salePrice) / amazonProduct.price) * 100
     : 0;
-  const isEligible = best.score >= TEXT_SCORE_MIN && pctCheaper >= PCT_CHEAPER_MIN;
+  const isEligible = best.score >= TEXT_SCORE_MIN
+                  && pctCheaper >= PCT_CHEAPER_MIN
+                  && pctCheaper <= PCT_CHEAPER_MAX;
 
   return {
     candidate:  best.p,
