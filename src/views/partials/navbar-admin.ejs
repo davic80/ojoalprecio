@@ -97,12 +97,29 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     anyOpen = false;
   }
+  function positionPanel(trigger, panel) {
+    // The panel is position:fixed (to escape navbar-actions' overflow
+    // clipping), so we compute viewport coords from the trigger each open.
+    // Right-align if it'd spill off the right edge of the viewport.
+    const r = trigger.getBoundingClientRect();
+    const minW = 200;
+    panel.style.top = (r.bottom + 4) + 'px';
+    if (r.left + minW > window.innerWidth) {
+      panel.style.left = 'auto';
+      panel.style.right = Math.max(4, window.innerWidth - r.right) + 'px';
+    } else {
+      panel.style.left = r.left + 'px';
+      panel.style.right = 'auto';
+    }
+  }
+
   for (const { trigger, panel } of menus) {
     trigger.addEventListener('click', e => {
       e.stopPropagation();
       const wasOpen = !panel.hasAttribute('hidden');
       closeAll();
       if (!wasOpen) {
+        positionPanel(trigger, panel);
         panel.removeAttribute('hidden');
         trigger.setAttribute('aria-expanded', 'true');
         anyOpen = true;

@@ -794,9 +794,11 @@ body.auth-page {
 .admin-menu-trigger:hover         { background: var(--gray-100); }
 .admin-menu-trigger-active        { background: var(--gray-100); color: var(--gray-900); }
 .admin-menu-panel {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
+  /* fixed (not absolute) because .navbar-actions has overflow-x:auto, which
+     computes overflow-y to auto too — that clips absolutely-positioned
+     children that fall outside the navbar height. position:fixed escapes
+     all ancestor scroll contexts. Inline top/left set by JS at open time. */
+  position: fixed;
   min-width: 190px;
   background: var(--white);
   border: 1px solid var(--gray-200);
