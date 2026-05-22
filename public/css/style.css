@@ -215,15 +215,18 @@ a:hover { text-decoration: none; }
   padding: var(--sp-3);
   margin: var(--sp-4) 0 var(--sp-2);
   background: var(--white);
-  border: 1px solid var(--aliexpress);
+  /* Neutral border — the AE accent color now lives only on the small tag
+     and saving %, where it's actually informative. Loud orange border was
+     out of place with the camelcamelcamel monochrome direction. */
+  border: 1px solid var(--gray-200);
   border-radius: var(--radius);
   text-decoration: none;
   color: var(--gray-900);
   transition: background .15s, border-color .15s;
 }
 .ae-nudge:hover {
-  background: #fff7f5;
-  border-color: var(--aliexpress-hover);
+  background: var(--gray-50);
+  border-color: var(--gray-400);
   text-decoration: none;
 }
 .ae-nudge-img {
@@ -720,12 +723,12 @@ body.auth-page {
   vertical-align: middle;
 }
 
-/* Strong — these need to grab attention */
-.badge-sale               { background: rgba(181,  56,  71, 0.92); }
-.badge-tier-super-oferta  { background: rgba(202,  67,  26, 0.92); }
-.badge-tier-mega-oferta   { background: rgba(109,  40, 217, 0.90); }
-.badge-tier-broooooferton { background: rgba(157,  23,  77, 0.95); }
-.badge-tier-67oferta      { background: rgba(120,  53,  15, 0.95); }
+/* Strong — these need to grab attention. Per the camelcamelcamel aesthetic
+   the user wants, all sale badges share the same red accent — the tier
+   *name* in the badge text ("Super Oferta" / "Mega Oferta" / etc.) carries
+   the differentiation. Rainbow per-tier hues were noise without info gain. */
+.badge-sale,
+[class*="badge-tier-"]    { background: rgba(181, 56, 71, 0.92); }
 
 /* Pastel — informational, not a call to action */
 .badge-low         { background: rgba(167, 220, 196, 0.95); color: #14532d; }
@@ -981,6 +984,11 @@ body.auth-page {
   scrollbar-width: none;
   margin-bottom: var(--sp-5);
   padding-bottom: var(--sp-1);
+  /* Fade-out on the right edge as a visual hint that the nav scrolls — the
+     scrollbar is hidden on mobile and users were missing the off-screen
+     categories. mask only, no extra DOM. */
+  -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 28px), transparent 100%);
+          mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 28px), transparent 100%);
 }
 .category-nav::-webkit-scrollbar { display: none; }
 .category-nav-link {
@@ -998,11 +1006,44 @@ body.auth-page {
   flex-shrink: 0;
   transition: background .15s, color .15s;
 }
+/* ── Telegram promo banner (monochrome, low-noise) ───────────────────── */
+.telegram-promo {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  margin-bottom: var(--sp-4);
+  background: var(--gray-50);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius);
+  text-decoration: none;
+  color: var(--gray-900);
+  font-size: var(--fs-base);
+  transition: background .15s, border-color .15s;
+}
+.telegram-promo:hover {
+  background: var(--white);
+  border-color: var(--gray-400);
+  text-decoration: none;
+}
+.telegram-promo-icon {
+  font-size: 16px;
+  color: var(--gray-500);
+  flex-shrink: 0;
+}
+.telegram-promo-text { flex: 1; min-width: 0; }
+.telegram-promo-cta {
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--gray-700);
+  font-size: var(--fs-sm);
+}
+
 .category-nav-link:hover,
 .category-nav-link.active {
-  background: var(--green);
+  background: var(--gray-900);
   color: #fff;
-  border-color: var(--green);
+  border-color: var(--gray-900);
 }
 a.category-tag { text-decoration: none; cursor: pointer; }
 a.category-tag:hover { background: var(--green); color: #fff; border-color: var(--green); }
