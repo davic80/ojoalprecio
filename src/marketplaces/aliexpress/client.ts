@@ -177,13 +177,23 @@ export class AliExpressClient {
 
   /** "You may also like" given a productId (strategy C fallback). EXTRA permission. */
   async smartMatch(productId: string, pageSize = 10): Promise<AliExpressProduct[]> {
+    // device_id is documented as optional ("supply product_id OR device_id")
+    // but the API actually demands it on every call — bombs with
+    // "The input parameter 'device_id' that is mandatory…" if absent.
+    // We derive a stable per-product id from the productId so AE's
+    // personalisation layer (whatever it does with the field) at least
+    // varies output per master rather than always seeing the same
+    // sentinel. Also pass app/device so AE knows we're a web caller.
     const r = await this.call<any>('aliexpress.affiliate.product.smartmatch', {
+      app:              'web',
+      device:           'web',
+      device_id:        `oap-${productId}`,
       product_id:       productId,
       tracking_id:      this.cfg.trackingId,
       page_size:        pageSize,
       target_currency:  this.cfg.targetCurrency ?? 'EUR',
       target_language:  this.cfg.targetLanguage ?? 'ES',
-      ship_to_country:  this.cfg.shipToCountry ?? 'ES',
+      country:          this.cfg.shipToCountry  ?? 'ES',
     });
     const items = r?.resp_result?.result?.products?.product ?? [];
     return items.map(mapProduct);
