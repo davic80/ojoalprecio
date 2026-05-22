@@ -63,25 +63,44 @@ export async function findAEEquivalent(
   const emptyNegative: EquivalentResult = { candidate: null, textScore: 0, pctCheaper: 0, isEligible: false };
   if (!keywords) return emptyNegative;
 
+  // Cap candidates at the same Amazon price — anything more expensive on AE
+  // is never a useful equivalent to surface. Round UP to the next integer
+  // because AE rejects float values for this param with the (cryptic) error
+  // "null#max_sale_price" — they expect whole-euro integers, not decimals.
+  const maxSalePrice = amazonProduct.price > 0 ? Math.ceil(amazonProduct.price) : undefined;
+
+  // Tier 1: full 4-word query (brand + model + product type). Most precise.
+  // Tier 2: 2-word fallback (just brand + model code) when tier 1 returns
+  //         nothing. The 4-word query was responsible for 61% (871/1420) of
+  //         "no candidate" rows on the prod catalog 2026-05-22 — AE often
+  //         has the product but the long query is too narrow. The 2-word
+  //         fallback widens the net; the same downstream scoring + 80%
+  //         saving cap protect us from accessory false-positives.
   let queryRes;
   try {
-    queryRes = await client.productQuery({
-      keywords,
-      // Cap candidates at the same Amazon price — anything more expensive
-      // on AE is never a useful equivalent to surface. Round UP to the next
-      // integer because AE rejects float values for this param with the
-      // (cryptic) error "null#max_sale_price" — they expect whole-euro
-      // integers, not decimals. The intra-AE similars code (ingest.ts,
-      // scheduler) already uses Math.ceil(...); mirror that pattern here.
-      maxSalePrice: amazonProduct.price > 0 ? Math.ceil(amazonProduct.price) : undefined,
-      pageSize:     QUERY_PAGE_SIZE,
-    });
+    queryRes = await client.productQuery({ keywords, maxSalePrice, pageSize: QUERY_PAGE_SIZE });
   } catch (err) {
     if (err instanceof AliExpressError) {
-      console.warn(`[ae-equivalent] productQuery failed: ${err.message}`);
+      console.warn(`[ae-equivalent] productQuery (4-word) failed: ${err.message}`);
       return emptyNegative;
     }
     throw err;
+  }
+
+  if (queryRes.products.length === 0) {
+    const shortKeywords = extractBrandModel(amazonProduct.title, 2);
+    if (shortKeywords && shortKeywords !== keywords) {
+      try {
+        const tier2 = await client.productQuery({ keywords: shortKeywords, maxSalePrice, pageSize: QUERY_PAGE_SIZE });
+        if (tier2.products.length > 0) {
+          console.log(`[ae-equivalent] tier-2 fallback succeeded for "${keywords}" → "${shortKeywords}" (${tier2.products.length} results)`);
+          queryRes = tier2;
+        }
+      } catch (err) {
+        if (err instanceof AliExpressError) console.warn(`[ae-equivalent] productQuery (2-word fallback) failed: ${err.message}`);
+        else throw err;
+      }
+    }
   }
 
   // Score every candidate, pick the highest. Ties broken by lowest price.

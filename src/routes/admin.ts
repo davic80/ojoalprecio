@@ -1103,23 +1103,51 @@ router.get('/admin/aliexpress', requireAuth, requireAdmin, async (req: Request, 
     LIMIT 10
   `);
 
-  // Top manual-search clicks (source='search') in the last 7 days. Different
-  // surface, different denominator — own table. No CTR yet because the
-  // denominator (page_views for /p/:asin) needs a join we'll add later.
+  // Top manual-search clicks (source='search') in the last 7 days. The
+  // denominator (page_views for /p/:asin) gives us the search-button CTR
+  // per product, comparable to the banner CTR table above. The button
+  // shows on EVERY /p/:asin page, so views = SUM(count) where path =
+  // '/p/' || asin within the same 7-day window.
   const topSearchClickedRes = await db.execute(sql`
+    WITH
+      sclicks7d AS (
+        SELECT amazon_product_id, COUNT(*)::int AS n, MAX(clicked_at) AS last_clicked
+        FROM ae_nudge_clicks
+        WHERE source = 'search' AND clicked_at >= NOW() - INTERVAL '7 days'
+        GROUP BY amazon_product_id
+      )
     SELECT
-      c.amazon_product_id   AS "amazonId",
-      p.asin                AS "amazonAsin",
-      p.name                AS "amazonName",
-      COUNT(*)::int         AS "clicks",
-      MAX(c.clicked_at)     AS "lastClickedAt"
-    FROM ae_nudge_clicks c
+      c.amazon_product_id  AS "amazonId",
+      p.asin               AS "amazonAsin",
+      p.name               AS "amazonName",
+      c.n                  AS "clicks",
+      COALESCE(v.views, 0) AS "views",
+      CASE WHEN COALESCE(v.views, 0) > 0
+           THEN ROUND((c.n::numeric / v.views) * 100, 1)::float
+           ELSE NULL END   AS "ctr",
+      c.last_clicked       AS "lastClickedAt"
+    FROM sclicks7d c
     LEFT JOIN products p ON p.id = c.amazon_product_id
-    WHERE c.source = 'search' AND c.clicked_at >= NOW() - INTERVAL '7 days'
-    GROUP BY c.amazon_product_id, p.asin, p.name
-    ORDER BY clicks DESC
+    LEFT JOIN LATERAL (
+      SELECT SUM(count)::int AS views FROM page_views
+      WHERE path = '/p/' || p.asin
+        AND day >= TO_CHAR(NOW() - INTERVAL '7 days', 'YYYY-MM-DD')
+    ) v ON TRUE
+    ORDER BY c.n DESC
     LIMIT 10
   `);
+
+  // Global search CTR — sum search clicks over sum /p/:asin views in 7d.
+  // Single-number sanity check that complements the per-product table.
+  const globalSearchCTRRes = await db.execute(sql`
+    SELECT
+      (SELECT COUNT(*)::int FROM ae_nudge_clicks
+        WHERE source = 'search' AND clicked_at >= NOW() - INTERVAL '7 days') AS clicks,
+      (SELECT COALESCE(SUM(count), 0)::int FROM page_views
+        WHERE path LIKE '/p/%' AND day >= TO_CHAR(NOW() - INTERVAL '7 days', 'YYYY-MM-DD')) AS views
+  `);
+  const gsc = globalSearchCTRRes.rows[0] as { clicks: number; views: number };
+  const searchCTR7d = gsc.views > 0 ? Number(((gsc.clicks / gsc.views) * 100).toFixed(2)) : null;
 
   const aeConfigured = getAliExpressClient() !== null;
 
@@ -1129,6 +1157,7 @@ router.get('/admin/aliexpress', requireAuth, requireAdmin, async (req: Request, 
     topEquivalents: topEquivalentsRes.rows,
     topClicked: topClickedRes.rows,
     topSearchClicked: topSearchClickedRes.rows,
+    searchCTR7d,
     aeConfigured,
   });
 });

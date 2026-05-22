@@ -235,6 +235,10 @@
         <span class="stat-pill-value"><%= stats.searchClicks24h %></span>
         <span class="stat-pill-label">últimas 24 h</span>
       </div>
+      <div class="stat-pill <%= (searchCTR7d ?? 0) >= 1 ? 'stat-pill-green' : '' %>">
+        <span class="stat-pill-value"><%= searchCTR7d != null ? searchCTR7d.toFixed(2) + '%' : '—' %></span>
+        <span class="stat-pill-label">CTR botón 7d (clicks / vistas /p/:asin)</span>
+      </div>
     </div>
 
     <p class="hint" style="margin-top:var(--sp-3)">
@@ -250,7 +254,9 @@
           <thead>
             <tr>
               <th>Producto Amazon</th>
+              <th style="text-align:right">Vistas</th>
               <th style="text-align:right">Búsquedas</th>
+              <th style="text-align:right">CTR</th>
               <th style="text-align:right">Último click</th>
             </tr>
           </thead>
@@ -258,7 +264,9 @@
             <% topSearchClicked.forEach(function(c) { %>
               <tr>
                 <td data-label="Producto"><a href="/p/<%= c.amazonAsin %>" style="font-size:13px"><%= (c.amazonName || '').slice(0, 60) %><%= (c.amazonName || '').length > 60 ? '…' : '' %></a></td>
+                <td data-label="Vistas" style="text-align:right;font-variant-numeric:tabular-nums"><%= c.views %></td>
                 <td data-label="Búsquedas" style="text-align:right;font-weight:600;font-variant-numeric:tabular-nums"><%= c.clicks %></td>
+                <td data-label="CTR" style="text-align:right;font-variant-numeric:tabular-nums;color:<%= (c.ctr ?? 0) >= 2 ? 'var(--green)' : 'var(--gray-700)' %>"><%= c.ctr != null ? c.ctr.toFixed(1) + '%' : '—' %></td>
                 <td data-label="Último click" style="text-align:right;font-size:12px;color:var(--gray-500)"><%= c.lastClickedAt ? new Date(c.lastClickedAt).toLocaleString('es-ES') : '—' %></td>
               </tr>
             <% }); %>

@@ -144,6 +144,11 @@ describe('discoverAndPersistEquivalent (cache layer)', () => {
 
     const r2 = await discoverAndPersistEquivalent(client, 7779, { title: 'Acme Niche Product 9000', price: 50 });
     expect(r2?.candidate).toBeNull();
-    expect(client.productQuery).toHaveBeenCalledTimes(1);  // negative cached
+    // First discoverAndPersist call: tier-1 (4-word "Acme Niche Product 9000")
+    // returns empty → tier-2 (2-word "Acme Niche") fallback retries and also
+    // returns empty → negative cached. Second discoverAndPersist call: pure
+    // cache hit, no extra API. Total productQuery invocations = 2, which
+    // proves the cache works — without it we'd see 4.
+    expect(client.productQuery).toHaveBeenCalledTimes(2);
   });
 });
