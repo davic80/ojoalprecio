@@ -94,4 +94,22 @@ describe('textSimilarity (Jaccard)', () => {
     expect(textSimilarity('anything', '')).toBe(0);
     expect(textSimilarity('', '')).toBe(0);
   });
+
+  it('lifts short-vs-long matches above raw jaccard (Amazon vs verbose AE)', () => {
+    // Real-world shape: Amazon's short branded title vs an AE listing that
+    // stuffs the same brand+model inside a marketing-tail string.
+    const amazon = 'Sonos Era 100 altavoz';
+    const ae     = 'Original Sonos Era 100 altavoz inteligente bluetooth wifi 2025 venta hogar';
+    const score = textSimilarity(amazon, ae);
+    // Pure jaccard would have been ~0.25-0.30 (intersection 4 / union 10ish).
+    // With the min-coverage boost it lands well above 0.30.
+    expect(score).toBeGreaterThanOrEqual(0.55);
+  });
+
+  it('does NOT boost single-token overlaps (generic noise stays low)', () => {
+    // "Cable" alone must not pull AE noise above the eligibility threshold.
+    const amazon = 'Cable USB';
+    const ae     = 'Cable HDMI 4K alta velocidad oro';
+    expect(textSimilarity(amazon, ae)).toBeLessThan(0.30);
+  });
 });
