@@ -1264,6 +1264,40 @@ router.post('/admin/aliexpress/equivalent/:amazonProductId/recheck',
   },
 );
 
+// ── GET /admin/aliexpress/sku-probe/:productId — DS API permission check ────
+// Calls aliexpress.ds.product.get for a known productId and dumps the variant
+// breakdown as JSON. Sole purpose: validate that the SKU Dimension API perm
+// is actually granted on our app key before designing schema migrations.
+// Remove once the SKU integration is shipped.
+router.get('/admin/aliexpress/sku-probe/:productId', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const productId = String(req.params.productId || '').trim();
+  if (!/^\d{10,16}$/.test(productId)) {
+    return res.status(400).json({ error: 'productId must be 10-16 digits' });
+  }
+  const client = getAliExpressClient();
+  if (!client) {
+    return res.status(503).json({ error: 'AliExpress not configured' });
+  }
+  try {
+    const out = await client.dsProductGet(productId);
+    if (!out) return res.status(404).json({ error: 'product not found via DS endpoint' });
+    return res.json({
+      productId,
+      master: out.master,
+      skuCount: out.skus.length,
+      skus: out.skus,
+    });
+  } catch (err) {
+    const e = err as { name?: string; message?: string; code?: string; raw?: unknown };
+    return res.status(502).json({
+      error: e.message ?? 'unknown error',
+      errorName: e.name,
+      errorCode: e.code,
+      raw: e.raw,
+    });
+  }
+});
+
 // ── GET /admin/affiliates — Amazon affiliate stats dashboard ────────────────
 router.get('/admin/affiliates', requireAuth, requireAdmin, async (req: Request, res: Response) => {
   const summaryRows = await db.execute(sql`

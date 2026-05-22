@@ -1,5 +1,5 @@
 import { signRequest, systemParams } from './sign';
-import type { AliExpressProduct, AliExpressListResponse } from './types';
+import type { AliExpressProduct, AliExpressListResponse, AliExpressSku, AliExpressProductWithSkus } from './types';
 import { canonicalUrl } from './url';
 
 /**
@@ -173,6 +173,98 @@ export class AliExpressClient {
       pageNo:     Number(r?.resp_result?.result?.current_page_no ?? opts.pageNo ?? 1),
       pageSize:   Number(r?.resp_result?.result?.page_size ?? opts.pageSize ?? 50),
     };
+  }
+
+  /**
+   * Full product detail INCLUDING per-variant SKU data — price/stock/image
+   * per Color × Size combo. Uses the Dropshipping endpoint, which is the
+   * only AE method that exposes `ae_item_sku_info_dtos[]`. Requires the
+   * "SKU Dimension API" permission. Permission errors throw
+   * AliExpressPermissionError so the caller can downgrade gracefully.
+   *
+   * Returns null if the productId isn't found.
+   */
+  async dsProductGet(productId: string): Promise<AliExpressProductWithSkus | null> {
+    const r = await this.call<any>('aliexpress.ds.product.get', {
+      product_id:       productId,
+      ship_to_country:  this.cfg.shipToCountry  ?? 'ES',
+      target_currency:  this.cfg.targetCurrency ?? 'EUR',
+      target_language:  this.cfg.targetLanguage ?? 'ES',
+    });
+    const result = r?.result;
+    if (!result) return null;
+
+    // Master is split across nested DTOs on the DS endpoint — multimedia +
+    // base info live under different keys than the Affiliate flat shape.
+    const base   = result.ae_item_base_info_dto   ?? {};
+    const multi  = result.ae_multimedia_info_dto  ?? {};
+    const store  = result.ae_store_info           ?? {};
+    const trade  = result.ae_item_properties      ?? {};
+    const skuArr = Array.isArray(result.ae_item_sku_info_dtos?.ae_item_sku_info_d_t_o)
+      ? result.ae_item_sku_info_dtos.ae_item_sku_info_d_t_o
+      : Array.isArray(result.ae_item_sku_info_dtos)
+        ? result.ae_item_sku_info_dtos
+        : [];
+
+    const master: AliExpressProduct = {
+      productId:    String(base.product_id ?? productId),
+      title:        String(base.subject ?? ''),
+      imageUrl:     multi.image_urls?.split(';')?.[0] ?? null,
+      productUrl:   canonicalUrl(productId),
+      promotionUrl: null,                       // DS endpoint doesn't return promo links
+      salePrice:    toFloat(base.sale_price ?? base.target_sale_price ?? 0),
+      originalPrice: maybeFloat(base.original_price ?? base.target_original_price),
+      discountPct:  maybeInt(base.discount),
+      currency:     String(base.currency_code ?? this.cfg.targetCurrency ?? 'EUR'),
+      rating:       maybeFloat(store.communication_rating ?? store.item_as_described_rating),
+      ordersCount:  maybeInt(base.evaluation_count),
+      categoryId:   maybeInt(base.category_id),
+      categoryName: null,
+      shopId:       maybeInt(store.store_id),
+      shopName:     store.store_name ?? null,
+    };
+
+    const skus: AliExpressSku[] = skuArr.map((s: any): AliExpressSku => {
+      // SKU properties: AE serialises camelCase keys with embedded underscores
+      // around each capital letter, so `skuPropertys` becomes `s_k_u_propertys`.
+      const propsArr: any[] = Array.isArray(s.ae_sku_property_dtos?.ae_sku_property_d_t_o)
+        ? s.ae_sku_property_dtos.ae_sku_property_d_t_o
+        : Array.isArray(s.aeop_s_k_u_propertys?.aeop_sku_property)
+          ? s.aeop_s_k_u_propertys.aeop_sku_property
+          : Array.isArray(s.aeop_s_k_u_propertys)
+            ? s.aeop_s_k_u_propertys
+            : [];
+      const attrs = propsArr.map(p => ({
+        name:  String(p.sku_property_name ?? ''),
+        value: String(p.property_value_definition_name ?? p.sku_property_value ?? ''),
+        image: p.sku_image ?? null,
+      }));
+      const displayLabel = attrs
+        .filter(a => a.name && a.value)
+        .map(a => `${a.name}: ${a.value}`)
+        .join(' · ');
+      const firstImage = attrs.find(a => a.image)?.image ?? null;
+      // sku_stock is the boolean "in-stock?" flag; ipm_sku_stock is the int qty.
+      const stockQty = maybeInt(s.ipm_sku_stock ?? s.sku_available_stock);
+      const inStock  = stockQty == null
+        ? (s.sku_stock === true || s.sku_stock === 'true')
+        : stockQty > 0;
+      return {
+        skuId:         String(s.sku_id ?? s.id ?? ''),
+        skuAttr:       String(s.sku_attr ?? ''),
+        attrs,
+        displayLabel,
+        salePrice:     toFloat(s.offer_sale_price ?? s.sku_price ?? master.salePrice),
+        originalPrice: maybeFloat(s.sku_price !== s.offer_sale_price ? s.sku_price : null),
+        currency:      String(s.currency_code ?? master.currency),
+        inStock,
+        stockQty,
+        image:         firstImage,
+        barcode:       s.barcode ?? null,
+      };
+    });
+
+    return { master, skus };
   }
 
   /** "You may also like" given a productId (strategy C fallback). EXTRA permission. */
