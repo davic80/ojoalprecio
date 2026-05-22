@@ -1369,6 +1369,73 @@ router.get('/admin/aliexpress/oauth/status', requireAuth, requireAdmin, async (_
   return res.json(await getOAuthStatus());
 });
 
+// ── GET /admin/aliexpress/equivalents/dry-run ───────────────────────────────
+// Replays the current textSimilarity() function (the version compiled into
+// this binary) against every stored amazon_ae_equivalents row that already
+// has an AE candidate, and reports the delta vs the score we persisted at
+// discovery time. Lets us preview the impact of a scoring change before
+// re-running the cron over the whole catalog. No writes.
+router.get('/admin/aliexpress/equivalents/dry-run', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const { textSimilarity } = await import('../marketplaces/aliexpress/text');
+  const TEXT_SCORE_MIN  = 0.25;   // mirror equivalents.ts
+  const PCT_CHEAPER_MIN = 10.00;
+
+  const rows = (await db.execute(sql`
+    SELECT
+      e.amazon_product_id           AS "amazonProductId",
+      e.ae_product_id               AS "aeProductId",
+      e.text_score::float           AS "oldScore",
+      e.pct_cheaper::float          AS "pctCheaper",
+      e.is_eligible                 AS "wasEligible",
+      p.name                        AS "amazonTitle",
+      aep.title                     AS "aeTitle"
+    FROM amazon_ae_equivalents e
+    JOIN products p              ON p.id = e.amazon_product_id
+    LEFT JOIN aliexpress_products aep ON aep.product_id = e.ae_product_id
+    WHERE e.ae_product_id IS NOT NULL
+      AND p.name IS NOT NULL
+      AND aep.title IS NOT NULL
+  `)).rows as Array<{
+    amazonProductId: number; aeProductId: string;
+    oldScore: number;        pctCheaper: number;
+    wasEligible: boolean;
+    amazonTitle: string;     aeTitle: string;
+  }>;
+
+  let newEligibleNow = 0, becameEligible = 0, lostEligibility = 0;
+  const flippedOn:  Array<{ amazonId: number; amazonTitle: string; aeTitle: string; oldScore: number; newScore: number; pctCheaper: number }> = [];
+  const flippedOff: Array<{ amazonId: number; amazonTitle: string; aeTitle: string; oldScore: number; newScore: number; pctCheaper: number }> = [];
+  let scoreDeltaSum = 0;
+
+  for (const r of rows) {
+    const newScore = textSimilarity(r.amazonTitle, r.aeTitle);
+    const newEligible = newScore >= TEXT_SCORE_MIN && r.pctCheaper >= PCT_CHEAPER_MIN;
+    scoreDeltaSum += (newScore - r.oldScore);
+    if (newEligible) newEligibleNow++;
+    if (newEligible && !r.wasEligible) {
+      becameEligible++;
+      if (flippedOn.length < 25) flippedOn.push({ amazonId: r.amazonProductId, amazonTitle: r.amazonTitle.slice(0, 80), aeTitle: r.aeTitle.slice(0, 80), oldScore: r.oldScore, newScore: Number(newScore.toFixed(3)), pctCheaper: r.pctCheaper });
+    }
+    if (!newEligible && r.wasEligible) {
+      lostEligibility++;
+      if (flippedOff.length < 25) flippedOff.push({ amazonId: r.amazonProductId, amazonTitle: r.amazonTitle.slice(0, 80), aeTitle: r.aeTitle.slice(0, 80), oldScore: r.oldScore, newScore: Number(newScore.toFixed(3)), pctCheaper: r.pctCheaper });
+    }
+  }
+
+  return res.json({
+    sampledRows:     rows.length,
+    currentEligible: rows.filter(r => r.wasEligible).length,
+    newEligible:     newEligibleNow,
+    delta:           newEligibleNow - rows.filter(r => r.wasEligible).length,
+    becameEligible,
+    lostEligibility,
+    avgScoreDelta:   rows.length > 0 ? Number((scoreDeltaSum / rows.length).toFixed(3)) : 0,
+    flippedOn,
+    flippedOff,
+    note:            'Read-only preview. Run the cron (or POST /admin/aliexpress/refresh-now) to actually re-score and persist.',
+  });
+});
+
 // ── GET /admin/affiliates — Amazon affiliate stats dashboard ────────────────
 router.get('/admin/affiliates', requireAuth, requireAdmin, async (req: Request, res: Response) => {
   const summaryRows = await db.execute(sql`
