@@ -215,7 +215,7 @@ function trendBadge(current, previous) {
     </select>
     <% const isFiltered = filters.q || filters.category || filters.status !== 'all' || filters.sort !== 'recent'; %>
     <% if (isFiltered) { %>
-      <a href="/" class="btn btn-sm btn-ghost" title="Limpiar filtros" style="padding:0 8px;font-size:16px;line-height:1">×</a>
+      <a href="/" class="btn btn-sm btn-ghost" title="Limpiar filtros" style="min-width:40px;font-size:18px;line-height:1">×</a>
     <% } %>
   </form>
   <script>

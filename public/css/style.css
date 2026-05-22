@@ -281,6 +281,14 @@ a:hover { text-decoration: none; }
 .btn-danger   { background: transparent; color: #dc2626; border: 1px solid var(--red-border); }
 .btn-danger:hover { background: var(--red-light); text-decoration: none; }
 .btn-sm { min-height: 32px; padding: 6px 12px; font-size: var(--fs-base); }
+/* Bump the small-button tap area on phones — 32 px is below Apple's 44 px
+   HIG floor and misses are noticeable on the product-card actions row
+   ("Ver historial" / "Amazon ↗") and history range pickers. 40 px is a
+   compromise that keeps button rows visually distinct from full .btn
+   while staying thumb-friendly. Desktop precision is fine at 32 px. */
+@media (max-width: 639px) {
+  .btn-sm { min-height: 40px; padding: 8px 12px; }
+}
 .btn-full { width: 100%; }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
 
@@ -725,8 +733,11 @@ body.auth-page {
   position: absolute;
   bottom: 0; left: 0; right: 0;
   border-radius: 0;
-  padding: 3px 4px;
-  font-size: 9px;
+  /* Bumped 9 → 11 px: the overlay sits on a 100+ px image and the old
+     size was unreadable at arm's length on phones. */
+  padding: 4px 6px;
+  font-size: 11px;
+  letter-spacing: .25px;
   text-align: center;
 }
 
