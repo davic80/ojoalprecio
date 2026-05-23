@@ -36,6 +36,13 @@ export interface ScrapeResult {
   url: string;
   wasPrice: number | null;
   variants: VariantRef[];
+  /** Best Seller Rank — null if Amazon doesn't show one for this product. */
+  bsrValue: number | null;
+  bsrCategory: string | null;
+  /** Total customer review count; null when not present. */
+  reviewCount: number | null;
+  /** "Comprado +X veces el último mes" badge count; null when no badge. */
+  boughtLastMonth: number | null;
 }
 
 // ── Gestión Global de Captcha ────────────────────────────────────────────────
@@ -541,7 +548,7 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
         if (wasPrice) console.log(`[scraper] ${asin} → PVP ${wasPrice.toFixed(2)} € (${wasPriceSrc})`);
         else if (wasPriceRaw && wasPriceRaw > price * 4) console.log(`[scraper] ${asin} → PVP descartado (${wasPriceRaw.toFixed(2)} € = ${(wasPriceRaw/price).toFixed(1)}x — probable falso positivo)`);
 
-        const [extraImages, variants] = await Promise.all([
+        const [extraImages, variants, metadata] = await Promise.all([
           page.evaluate((mainSrc: string | null): string[] => {
             const normalize = (s: string) => s.replace(/\._[^.]+_\./, '.').split('/I/')[1] ?? '';
             const mainKey = normalize(mainSrc ?? '');
@@ -569,9 +576,63 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
             });
             return [...seen.values()];
           }, asin).catch(() => [] as VariantRef[]),
+          // Popularity metadata — captured best-effort on the same page load.
+          // All three signals are optional; the auto-cleanup cron uses
+          // their COMBINATION (no badge + few reviews + bad BSR) to decide
+          // whether an unowned auto-imported product is dead weight. A
+          // missed selector returns null and the product stays untouched.
+          page.evaluate((): { bsrValue: number | null; bsrCategory: string | null; reviewCount: number | null; boughtLastMonth: number | null } => {
+            const out: any = { bsrValue: null, bsrCategory: null, reviewCount: null, boughtLastMonth: null };
+            try {
+              // BSR appears as a list-item inside one of these containers, in
+              // formats like "Nº1.234 en Hogar y cocina" or
+              // "#5,678 in Home & Kitchen". We pick the FIRST rank line —
+              // typically the most specific subcategory.
+              const detailsRoot = document.querySelector('#detailBulletsWrapper_feature_div, #productDetails_detailBullets_sections1, #productDetails_db_sections, #SalesRank, #productDetails_techSpec_section_1');
+              if (detailsRoot) {
+                const text = detailsRoot.textContent || '';
+                // Spanish: "nº 12.345" / "n.º 12,345" / "Nº 12345"
+                // English: "#12,345"  fallback
+                const m = text.match(/n[°ºº]\.?\s*([\d.,]+)\s*en\s+([^\(\n]+?)(?:\s*\(|$)/i)
+                       || text.match(/#\s*([\d,]+)\s+in\s+([^\(\n]+?)(?:\s*\(|$)/i);
+                if (m) {
+                  out.bsrValue    = parseInt(m[1].replace(/[.,]/g, ''), 10) || null;
+                  out.bsrCategory = m[2].trim().slice(0, 200);
+                }
+              }
+              // Review count: "1.234 valoraciones" / "1,234 ratings"
+              const reviewsEl = document.querySelector('#acrCustomerReviewText, [data-hook="total-review-count"]');
+              if (reviewsEl) {
+                const m = (reviewsEl.textContent || '').match(/([\d.,]+)/);
+                if (m) out.reviewCount = parseInt(m[1].replace(/[.,]/g, ''), 10) || null;
+              }
+              // "Comprados X veces el último mes" social-proof badge — only
+              // top-volume listings get it. Selectors changed twice in 2025;
+              // we match the wrapper id, the data-csa attr, AND fall back to
+              // text scan to survive minor markup changes.
+              const proofEl = document.querySelector('#social-proofing-faceout-title-tk_bought, [data-csa-c-content-id*="bought"], #socialProofingAsinFaceout_feature_div');
+              if (proofEl) {
+                const m = (proofEl.textContent || '').match(/([\d.,]+)\s*(?:K|k|mil)?\s*(?:comprad|bought|purchase)/i);
+                if (m) {
+                  const raw = m[1].replace(/[.,]/g, '');
+                  let n = parseInt(raw, 10);
+                  if (/k|K|mil/i.test(m[0])) n *= 1000;
+                  if (Number.isFinite(n) && n > 0) out.boughtLastMonth = n;
+                }
+              }
+            } catch { /* swallow — metadata is opportunistic */ }
+            return out;
+          }).catch(() => ({ bsrValue: null, bsrCategory: null, reviewCount: null, boughtLastMonth: null })),
         ]);
 
-        return { asin, name, price, currency: 'EUR', imageUrl, extraImages, url: canonicalUrl, wasPrice, variants };
+        return {
+          asin, name, price, currency: 'EUR', imageUrl, extraImages,
+          url: canonicalUrl, wasPrice, variants,
+          bsrValue:        metadata.bsrValue,
+          bsrCategory:     metadata.bsrCategory,
+          reviewCount:     metadata.reviewCount,
+          boughtLastMonth: metadata.boughtLastMonth,
+        };
       })(),
       hardTimeout,
     ]);

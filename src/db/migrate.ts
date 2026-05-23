@@ -788,6 +788,61 @@ export const MIGRATIONS: string[] = [
     updated_at             TIMESTAMP NOT NULL DEFAULT NOW()
   );
   `,
+
+  // 53: Product popularity metadata + auto-cleanup infrastructure.
+  // Auto-pause cron uses three Amazon-side signals to decide whether an
+  // auto-imported, unowned, alert-less product is dead weight:
+  //   bsr_value          — Best Sellers Rank number (lower = better)
+  //   review_count       — total customer reviews
+  //   bought_last_month  — count from "+X comprados último mes" badge,
+  //                        NULL when no badge (only top sellers get it)
+  // Scraper captures all three best-effort each scrape; missing data
+  // stays NULL so a missed scrape doesn't trigger a purge.
+  //
+  // last_metadata_at = freshness gate; we only consider a product for
+  // auto-pause if we've successfully captured metadata at least once
+  // AND it's >24 h old (so a fresh scrape can't pause something we
+  // just learned about).
+  `
+  ALTER TABLE products
+    ADD COLUMN IF NOT EXISTS bsr_value          INTEGER,
+    ADD COLUMN IF NOT EXISTS bsr_category       TEXT,
+    ADD COLUMN IF NOT EXISTS review_count       INTEGER,
+    ADD COLUMN IF NOT EXISTS bought_last_month  INTEGER,
+    ADD COLUMN IF NOT EXISTS last_metadata_at   TIMESTAMP;
+
+  CREATE INDEX IF NOT EXISTS idx_products_bsr        ON products(bsr_value);
+  CREATE INDEX IF NOT EXISTS idx_products_metadata_at ON products(last_metadata_at);
+
+  -- Audit log for the auto-pause cron. Lets us trace why any given
+  -- product disappeared from active scraping without searching app logs.
+  -- 30-day retention enforced by maintenance housekeeping (not here).
+  CREATE TABLE IF NOT EXISTS auto_cleanup_log (
+    id            SERIAL PRIMARY KEY,
+    product_id    INTEGER NOT NULL,
+    asin          VARCHAR(20) NOT NULL,
+    name          TEXT,
+    action        VARCHAR(20) NOT NULL,                 -- 'paused' | 'resumed'
+    reason        TEXT,                                  -- human-readable why
+    bsr_value     INTEGER,
+    review_count  INTEGER,
+    bought_last_month INTEGER,
+    at            TIMESTAMP NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_auto_cleanup_log_at      ON auto_cleanup_log(at DESC);
+  CREATE INDEX IF NOT EXISTS idx_auto_cleanup_log_product ON auto_cleanup_log(product_id);
+
+  -- Feature flag + cap. Defaults: disabled, 100/hour. Toggle via
+  -- /admin/settings.
+  INSERT INTO app_settings (key, value, value_type, label, hint) VALUES
+    ('auto_cleanup_enabled', 'false', 'boolean',
+     'Auto-pause de productos irrelevantes',
+     'Cuando está activo, cada hora se pausan (is_active=FALSE) hasta N productos auto-importados que no tienen reviews, BSR malo, sin badge de ventas, sin alertas ni follows. Reversible: si un usuario añade el producto, se reanuda automáticamente.'),
+    ('auto_cleanup_cap_per_hour', '100', 'integer',
+     'Máximo de productos a pausar por hora (1–500)',
+     'Tope de seguridad: el auto-cleanup nunca pausa más de N productos por ciclo, aunque haya más candidatos.')
+  ON CONFLICT (key) DO NOTHING;
+  `,
 ];
 
 export async function migrate(pool: Pool = defaultPool): Promise<void> {

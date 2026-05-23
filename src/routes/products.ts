@@ -273,12 +273,12 @@ router.post(
     // we attach this user via user_products instead of duplicating the row.
     // Pick the canonical row by most price history (resolves legacy duplicates).
     const existingRows = await db.execute(sql`
-      SELECT id, asin FROM products
+      SELECT id, asin, name FROM products
       WHERE asin = ${asin}
       ORDER BY (SELECT COUNT(*) FROM price_history ph WHERE ph.product_id = products.id) DESC
       LIMIT 1
     `);
-    let product = (existingRows.rows as any[])[0] as { id: number; asin: string } | undefined;
+    let product = (existingRows.rows as any[])[0] as { id: number; asin: string; name: string | null } | undefined;
     let isNewProduct = false;
 
     if (product) {
@@ -293,8 +293,13 @@ router.post(
         }
         return res.status(409).json({ error: 'Ya estás siguiendo este producto.' });
       }
-      // Attach the user
+      // Attach the user. If the product was auto-paused by the cleanup
+      // cron, a user re-adding it is a strong "still relevant" signal —
+      // resume it transparently (flips is_active back to TRUE + writes a
+      // 'resumed' row to auto_cleanup_log for traceability).
       await db.insert(userProducts).values({ userId, productId: product.id });
+      const { autoResumeIfPaused } = await import('../scheduler/auto-cleanup');
+      await autoResumeIfPaused(product.id, product.asin, product.name);
     } else {
       // Brand-new product — insert with this user as creator + immediate user_products row
       const [created] = await db

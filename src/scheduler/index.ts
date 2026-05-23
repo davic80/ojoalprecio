@@ -250,6 +250,16 @@ export async function persistScrapeResult(
       isPublic:   nextIsPublic,
       featuredAt: nextFeaturedAt,
       categoryId: nextCategoryId,
+      // Popularity metadata — only overwrite when the scraper actually
+      // captured something. A null from the scraper means "didn't find the
+      // selector this time"; preserving the previous value is safer than
+      // wiping it (auto-cleanup uses these to decide pause-eligibility).
+      ...(result.bsrValue        != null ? { bsrValue:        result.bsrValue }        : {}),
+      ...(result.bsrCategory     != null ? { bsrCategory:     result.bsrCategory }     : {}),
+      ...(result.reviewCount     != null ? { reviewCount:     result.reviewCount }     : {}),
+      ...(result.boughtLastMonth != null ? { boughtLastMonth: result.boughtLastMonth } : {}),
+      ...(result.bsrValue != null || result.reviewCount != null || result.boughtLastMonth != null
+          ? { lastMetadataAt: new Date() } : {}),
     }).where(eq(products.id, productId));
   });
 
@@ -903,6 +913,15 @@ export function startScheduler(): void {
     runHourlyMaintenance().catch(err => console.error('[maintenance] failed:', err));
   });
   console.log('[maintenance] Housekeeping scheduled at :15 each hour (featured cap, anomaly TTL, blacklist TTL).');
+
+  // Auto-cleanup at :20 — fires after maintenance so we operate on the most
+  // recent metadata. Reads its own feature flag from app_settings; a no-op
+  // when disabled. See src/scheduler/auto-cleanup.ts for the eligibility rule.
+  const { runAutoCleanupTick } = require('./auto-cleanup');
+  cron.schedule('20 * * * *', () => {
+    runAutoCleanupTick().catch((err: Error) => console.error('[auto-cleanup] failed:', err.message));
+  });
+  console.log('[auto-cleanup] Scheduled at :20 each hour (gated by auto_cleanup_enabled app setting).');
 
   const { startCategoryImportScheduler } = require('./category-import');
   startCategoryImportScheduler();

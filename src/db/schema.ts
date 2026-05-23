@@ -83,6 +83,14 @@ export const products = pgTable('products', {
   // Counter of consecutive ProductUnavailableError scrapes. Reset to 0 on
   // any successful capture. ≥3 + no alerts + no non-system follower ⇒ purged.
   consecutiveUnavailable: integer('consecutive_unavailable').default(0).notNull(),
+  // Popularity metadata captured best-effort on each scrape (migration 53).
+  // Used by the hourly auto-cleanup cron to identify dead-weight catalog
+  // entries: low BSR + few reviews + no "bought last month" badge.
+  bsrValue:         integer('bsr_value'),
+  bsrCategory:      text('bsr_category'),
+  reviewCount:      integer('review_count'),
+  boughtLastMonth:  integer('bought_last_month'),
+  lastMetadataAt:   timestamp('last_metadata_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 

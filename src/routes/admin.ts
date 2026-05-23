@@ -22,7 +22,7 @@ import {
 } from '../marketplaces/aliexpress';
 import { randomBytes } from 'crypto';
 import { importAmazonCsv } from '../marketplaces/amazon-affiliates/csv-import';
-import { getAllSettings, setSetting } from '../db/settings';
+import { getAllSettings, setSetting, getSetting } from '../db/settings';
 
 const SYSTEM_EMAIL = 'system@ojoalprecio.local';
 
@@ -1316,9 +1316,35 @@ router.get('/admin/cleanup', requireAuth, requireAdmin, async (req: Request, res
     LIMIT 500
   `);
 
+  // Auto-cleanup status + recent activity for the UI banner.
+  const autoCleanupEnabled = (await getSetting('auto_cleanup_enabled', false)) === true;
+  const autoCleanupCap     = Number(await getSetting('auto_cleanup_cap_per_hour', 100));
+  const recentLog = await db.execute(sql`
+    SELECT id, asin, name, action, reason, at
+    FROM auto_cleanup_log
+    ORDER BY at DESC
+    LIMIT 50
+  `);
+  const lastRunSummary = (await db.execute(sql`
+    SELECT
+      COUNT(*) FILTER (WHERE action = 'paused')  AS "lastRunPaused",
+      COUNT(*) FILTER (WHERE action = 'resumed') AS "lastRunResumed",
+      MAX(at) AS "lastRunAt"
+    FROM auto_cleanup_log
+    WHERE at >= NOW() - INTERVAL '24 hours'
+  `)).rows[0] as { lastRunPaused: string | number; lastRunResumed: string | number; lastRunAt: Date | null };
+
   res.render('admin-cleanup', {
     user: { email: req.session.userEmail },
     candidates: rows.rows,
+    autoCleanup: {
+      enabled:     autoCleanupEnabled,
+      cap:         autoCleanupCap,
+      pausedLast24h:  Number(lastRunSummary?.lastRunPaused  ?? 0),
+      resumedLast24h: Number(lastRunSummary?.lastRunResumed ?? 0),
+      lastRunAt:   lastRunSummary?.lastRunAt ?? null,
+      recentLog:   recentLog.rows,
+    },
   });
 });
 

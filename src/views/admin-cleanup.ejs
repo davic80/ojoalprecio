@@ -20,6 +20,30 @@
     </p>
   </div>
 
+  <%# Auto-cleanup status banner — gated by app_settings.auto_cleanup_enabled.
+     Independent of this manual candidates list (different criteria: this
+     uses datapoints-density, auto-cleanup uses BSR + reviews + bought-badge). -%>
+  <div class="card" style="margin-bottom:var(--sp-3);border-left:3px solid <%= autoCleanup.enabled ? 'var(--green)' : 'var(--gray-400)' %>">
+    <div style="display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap">
+      <div>
+        <strong>Auto-pause horaria</strong>
+        <span class="hint" style="margin-left:var(--sp-2);color:<%= autoCleanup.enabled ? 'var(--green)' : 'var(--gray-500)' %>">
+          <%= autoCleanup.enabled ? '✓ activa' : '⏸ desactivada' %> · cap <%= autoCleanup.cap %>/hora
+        </span>
+      </div>
+      <a href="/admin/settings" class="hint-link" style="margin-left:auto;font-size:var(--fs-sm)">Configurar →</a>
+    </div>
+    <p class="hint" style="margin-top:var(--sp-2);font-size:var(--fs-sm)">
+      <% if (autoCleanup.lastRunAt) { %>
+        Últimas 24h: <strong><%= autoCleanup.pausedLast24h %></strong> pausados ·
+        <strong><%= autoCleanup.resumedLast24h %></strong> reanudados (por usuarios re-añadiendo).
+        Último evento: <%= new Date(autoCleanup.lastRunAt).toLocaleString('es-ES') %>.
+      <% } else { %>
+        Aún sin actividad. Productos elegibles: <code>created_by</code> sistema, sin alertas, sin follows, &gt;7 días, metadatos &gt;24h, <strong>sin badge ventas + reviews &lt;10 + BSR ausente o &gt;100k</strong>.
+      <% } %>
+    </p>
+  </div>
+
   <% if (candidates.length === 0) { %>
     <div class="empty-state">
       <div class="empty-icon">✨</div>
@@ -96,6 +120,40 @@
         </tbody>
       </table>
     </div>
+  <% } %>
+
+  <% if (autoCleanup.recentLog && autoCleanup.recentLog.length > 0) { %>
+  <details style="margin-top:var(--sp-4)" class="card">
+    <summary style="cursor:pointer;font-weight:600">Auto-cleanup log · últimos <%= autoCleanup.recentLog.length %> eventos</summary>
+    <table class="price-table" style="margin-top:var(--sp-3)">
+      <thead>
+        <tr>
+          <th>Cuándo</th>
+          <th>Acción</th>
+          <th>ASIN</th>
+          <th>Producto</th>
+          <th>Razón</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% autoCleanup.recentLog.forEach(function(e) { %>
+        <tr>
+          <td style="font-size:11px;color:var(--gray-500);white-space:nowrap"><%= new Date(e.at).toLocaleString('es-ES') %></td>
+          <td>
+            <% if (e.action === 'paused') { %>
+              <span class="alert-badge" style="background:#fef3c7;color:#854d0e">⏸ pausado</span>
+            <% } else { %>
+              <span class="alert-badge" style="background:#dcfce7;color:#166534">▶ reanudado</span>
+            <% } %>
+          </td>
+          <td><code><%= e.asin %></code></td>
+          <td style="font-size:12px;max-width:300px"><a href="/p/<%= e.asin %>" target="_blank" rel="noopener"><%= (e.name || e.asin).slice(0,60) %></a></td>
+          <td style="font-size:11px;color:var(--gray-500)"><%= e.reason || '—' %></td>
+        </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </details>
   <% } %>
 
 </main>
