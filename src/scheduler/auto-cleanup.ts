@@ -12,8 +12,10 @@ const SYSTEM_EMAIL = 'system@ojoalprecio.local';
  *   2. NO alerts (active OR inactive) — alerts are permanent intent
  *   3. NO follows from non-system users (user_products)
  *   4. created_at < NOW() − 7 days (grace period for new arrivals)
- *   5. last_metadata_at IS NOT NULL AND > 24 h old
- *      (we DID scrape metadata at least once, with enough age to trust it)
+ *   5. last_metadata_at IS NOT NULL
+ *      (we DID scrape metadata at least once — the 7-day created_at gate
+ *      already protects new arrivals; no need for a separate freshness
+ *      window since the bottleneck is scraper throughput, not min_age)
  *   6. **Irrelevant** per the three popularity signals:
  *        bought_last_month IS NULL                 -- no top-seller badge
  *        AND COALESCE(review_count, 0) < 10        -- almost no social proof
@@ -49,7 +51,6 @@ export async function runAutoCleanupTick(): Promise<{ enabled: boolean; eligible
     WHERE p.is_active = TRUE
       AND p.created_at < NOW() - INTERVAL '7 days'
       AND p.last_metadata_at IS NOT NULL
-      AND p.last_metadata_at < NOW() - INTERVAL '24 hours'
       AND p.bought_last_month IS NULL
       AND COALESCE(p.review_count, 0) < 10
       AND (p.bsr_value IS NULL OR p.bsr_value > 100000)
