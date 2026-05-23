@@ -606,19 +606,31 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
                 const m = (reviewsEl.textContent || '').match(/([\d.,]+)/);
                 if (m) out.reviewCount = parseInt(m[1].replace(/[.,]/g, ''), 10) || null;
               }
-              // "Comprados X veces el último mes" social-proof badge — only
-              // top-volume listings get it. Selectors changed twice in 2025;
-              // we match the wrapper id, the data-csa attr, AND fall back to
-              // text scan to survive minor markup changes.
-              const proofEl = document.querySelector('#social-proofing-faceout-title-tk_bought, [data-csa-c-content-id*="bought"], #socialProofingAsinFaceout_feature_div');
-              if (proofEl) {
-                const m = (proofEl.textContent || '').match(/([\d.,]+)\s*(?:K|k|mil)?\s*(?:comprad|bought|purchase)/i);
-                if (m) {
-                  const raw = m[1].replace(/[.,]/g, '');
-                  let n = parseInt(raw, 10);
-                  if (/k|K|mil/i.test(m[0])) n *= 1000;
-                  if (Number.isFinite(n) && n > 0) out.boughtLastMonth = n;
-                }
+              // "Comprados X veces el último mes" / "X+ bought in past month"
+              // social-proof badge — only top-volume listings get it. Selectors
+              // changed twice in 2025; we match wrapper id + faceout + the new
+              // pqv- id, plus a body-text fallback for layout changes.
+              const proofEl = document.querySelector(
+                '#social-proofing-faceout-title-tk_bought, ' +
+                '#socialProofingAsinFaceout_feature_div, ' +
+                '#pqv-bought-in-last-month, ' +
+                '[data-csa-c-content-id*="bought"]',
+              );
+              const proofText = proofEl?.textContent ?? '';
+              // Match patterns Amazon actually serves:
+              //   "50+ bought in past month"
+              //   "1K+ bought in past month"
+              //   "Más de 1000 comprado(s) el último mes"
+              //   "1.5 mil comprados el mes pasado"
+              // The `+` after the digit was the bug v1: original regex didn't
+              // tolerate it so every "50+ bought" listing scored 0.
+              // Allow the "+" sign either between digit and K/mil ("50+ bought")
+              // OR after K/mil ("1K+ bought"). Both shapes occur in production.
+              const m = proofText.match(/([\d.,]+)\s*(K|k|mil)?\+?\s*(?:comprad|bought|purchase)/i);
+              if (m) {
+                let n = parseInt(m[1].replace(/[.,]/g, ''), 10);
+                if (m[2] && /k|mil/i.test(m[2])) n *= 1000;
+                if (Number.isFinite(n) && n > 0) out.boughtLastMonth = n;
               }
             } catch { /* swallow — metadata is opportunistic */ }
             return out;
