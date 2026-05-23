@@ -41,6 +41,14 @@ export async function runAutoCleanupTick(): Promise<{ enabled: boolean; eligible
   const reviewMax    = Math.max(1, Math.min(50,     Number(await getSetting('auto_cleanup_review_threshold',   5))));
   const bsrMin       = Math.max(10000, Math.min(500000, Number(await getSetting('auto_cleanup_bsr_threshold',  100000))));
   const graceDays    = Math.max(1, Math.min(60,     Number(await getSetting('auto_cleanup_grace_days',          7))));
+  // Brand protection — CSV of "Apple,Sony,Amazon,…". Empty list = no
+  // brand-based protection. Comparison is lowercased so the user can
+  // type freely. Products with brand IS NULL stay unprotected by design
+  // (fail-open) since most "no brand captured" are still genuine
+  // candidates; if a real brand goes uncaught, it'll be picked up on the
+  // next successful scrape and become protected then.
+  const brandsCsv = String(await getSetting('auto_cleanup_protected_brands', '') || '');
+  const protectedBrands = brandsCsv.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 
   // Single-query candidate selection. Returns ONLY the LIMIT cap rows we
   // would pause; we DON'T do a separate COUNT-then-UPDATE because that's
@@ -64,6 +72,10 @@ export async function runAutoCleanupTick(): Promise<{ enabled: boolean; eligible
         SELECT 1 FROM user_products up
         WHERE up.product_id = p.id
           AND (su.id IS NULL OR up.user_id <> su.id)
+      )
+      AND (
+        p.brand IS NULL
+        OR ${protectedBrands.length === 0 ? sql`TRUE` : sql`LOWER(p.brand) <> ALL(${protectedBrands}::text[])`}
       )
     ORDER BY p.last_metadata_at ASC   -- pause oldest-known-irrelevant first
     LIMIT ${cap}

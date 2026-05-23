@@ -91,6 +91,10 @@ export const products = pgTable('products', {
   reviewCount:      integer('review_count'),
   boughtLastMonth:  integer('bought_last_month'),
   lastMetadataAt:   timestamp('last_metadata_at'),
+  /** Manufacturer/brand text scraped from #bylineInfo / #productOverview;
+      used by auto-cleanup to protect listings from known-popular brands
+      (Amazon, Apple, etc.) that often ship without BSR. */
+  brand:            varchar('brand', { length: 100 }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 

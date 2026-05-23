@@ -258,7 +258,8 @@ export async function persistScrapeResult(
       ...(result.bsrCategory     != null ? { bsrCategory:     result.bsrCategory }     : {}),
       ...(result.reviewCount     != null ? { reviewCount:     result.reviewCount }     : {}),
       ...(result.boughtLastMonth != null ? { boughtLastMonth: result.boughtLastMonth } : {}),
-      ...(result.bsrValue != null || result.reviewCount != null || result.boughtLastMonth != null
+      ...(result.brand           != null ? { brand:           result.brand }           : {}),
+      ...(result.bsrValue != null || result.reviewCount != null || result.boughtLastMonth != null || result.brand != null
           ? { lastMetadataAt: new Date() } : {}),
     }).where(eq(products.id, productId));
   });

@@ -43,6 +43,9 @@ export interface ScrapeResult {
   reviewCount: number | null;
   /** "Comprado +X veces el último mes" badge count; null when no badge. */
   boughtLastMonth: number | null;
+  /** Manufacturer/brand text — captured from #bylineInfo or product
+      details table. Null when neither selector matched. */
+  brand: string | null;
 }
 
 // ── Gestión Global de Captcha ────────────────────────────────────────────────
@@ -581,8 +584,8 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
           // their COMBINATION (no badge + few reviews + bad BSR) to decide
           // whether an unowned auto-imported product is dead weight. A
           // missed selector returns null and the product stays untouched.
-          page.evaluate((): { bsrValue: number | null; bsrCategory: string | null; reviewCount: number | null; boughtLastMonth: number | null } => {
-            const out: any = { bsrValue: null, bsrCategory: null, reviewCount: null, boughtLastMonth: null };
+          page.evaluate((): { bsrValue: number | null; bsrCategory: string | null; reviewCount: number | null; boughtLastMonth: number | null; brand: string | null } => {
+            const out: any = { bsrValue: null, bsrCategory: null, reviewCount: null, boughtLastMonth: null, brand: null };
             try {
               // BSR appears as a list-item inside one of these containers, in
               // formats like "Nº1.234 en Hogar y cocina" or
@@ -632,9 +635,34 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
                 if (m[2] && /k|mil/i.test(m[2])) n *= 1000;
                 if (Number.isFinite(n) && n > 0) out.boughtLastMonth = n;
               }
+              // Brand capture. Amazon serves this in three different places
+              // depending on the layout, so we try each in priority order:
+              //   1. #bylineInfo link — "Visita la Tienda de Apple" / "Brand: Apple"
+              //      (most reliable, present on ~90% of listings)
+              //   2. Product overview table — first row often "Marca: ..."
+              //   3. Detail bullets table — fallback for layouts without #bylineInfo
+              // We strip the "Visit", "Brand", "Marca" prefixes and trim. Keep
+              // null when none match; auto-cleanup treats null brand as
+              // unprotected (fail-open).
+              const byline = document.querySelector('#bylineInfo');
+              if (byline) {
+                const t = (byline.textContent || '').trim();
+                let bm = t.match(/(?:Visita la Tienda de|Visit the|Marca:|Brand:|Marca|Brand)\s+([^\n|]{2,60})/i);
+                if (!bm) bm = t.match(/^\s*([A-Za-zÀ-ÿ0-9][^\n|]{0,60})$/);
+                if (bm) out.brand = bm[1].trim().slice(0, 100);
+              }
+              if (!out.brand) {
+                const overviewRows = document.querySelectorAll('#productOverview_feature_div tr, #detailBullets_feature_div li');
+                for (const row of Array.from(overviewRows)) {
+                  const txt = (row.textContent || '').trim();
+                  const m2 = txt.match(/^\s*Marca\s*[:\s]\s*([^\n]{2,60})/i)
+                          || txt.match(/^\s*Brand\s*[:\s]\s*([^\n]{2,60})/i);
+                  if (m2) { out.brand = m2[1].trim().slice(0, 100); break; }
+                }
+              }
             } catch { /* swallow — metadata is opportunistic */ }
             return out;
-          }).catch(() => ({ bsrValue: null, bsrCategory: null, reviewCount: null, boughtLastMonth: null })),
+          }).catch(() => ({ bsrValue: null, bsrCategory: null, reviewCount: null, boughtLastMonth: null, brand: null })),
         ]);
 
         return {
@@ -644,6 +672,7 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
           bsrCategory:     metadata.bsrCategory,
           reviewCount:     metadata.reviewCount,
           boughtLastMonth: metadata.boughtLastMonth,
+          brand:           metadata.brand,
         };
       })(),
       hardTimeout,

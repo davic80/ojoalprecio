@@ -862,6 +862,28 @@ export const MIGRATIONS: string[] = [
      'Período de gracia para productos recién añadidos. No se pausan hasta haber estado N días en el catálogo.')
   ON CONFLICT (key) DO NOTHING;
   `,
+
+  // 55: Brand capture + protected-brands list. Big brands' products
+  // (Apple, Sony, Kindle, etc.) sell well even when Amazon doesn't
+  // expose BSR on their page — without this gate they end up as
+  // false-positive purge candidates. Brand text comes from the
+  // scraper (best-effort, NULL on miss). The protected list is a
+  // simple CSV in app_settings so the admin can edit from /admin/settings
+  // without code changes.
+  `
+  ALTER TABLE products
+    ADD COLUMN IF NOT EXISTS brand VARCHAR(100);
+
+  CREATE INDEX IF NOT EXISTS idx_products_brand ON products(LOWER(brand));
+
+  INSERT INTO app_settings (key, value, value_type, label, hint) VALUES
+    ('auto_cleanup_protected_brands',
+     'Amazon,Apple,Sony,Samsung,LG,Bose,Sonos,Logitech,Microsoft,Google,Nintendo,Xiaomi,Dyson,Philips,Lego,Kindle,JBL,Sennheiser,Anker,Razer,Corsair,SteelSeries,HyperX,ASUS,Lenovo,HP,Dell,Acer,MSI,Garmin,Fitbit,GoPro,DJI,Bosch,De Longhi,Nespresso,Tefal,Brita,Roomba,iRobot,Tineco,Roborock,Tado,Shelly,TP-Link,Netgear,Synology',
+     'string',
+     'Auto-pause: marcas protegidas (CSV)',
+     'Lista de marcas que nunca se pausan, sin importar reviews/BSR/badge. Productos cuya brand capturada (case-insensitive) coincide con cualquier entrada quedan a salvo. Si la marca no se ha capturado todavía (brand IS NULL en BD), el producto NO está protegido — espera al siguiente scrape o bájalo manualmente.')
+  ON CONFLICT (key) DO NOTHING;
+  `,
 ];
 
 export async function migrate(pool: Pool = defaultPool): Promise<void> {
