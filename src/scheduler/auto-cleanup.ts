@@ -37,7 +37,10 @@ export async function runAutoCleanupTick(): Promise<{ enabled: boolean; eligible
   const enabled = (await getSetting('auto_cleanup_enabled', false)) === true;
   if (!enabled) return { enabled: false, eligible: 0, paused: 0, cap: 0 };
 
-  const cap = Math.max(1, Math.min(500, Number(await getSetting('auto_cleanup_cap_per_hour', 100))));
+  const cap          = Math.max(1, Math.min(500,    Number(await getSetting('auto_cleanup_cap_per_hour',     100))));
+  const reviewMax    = Math.max(1, Math.min(50,     Number(await getSetting('auto_cleanup_review_threshold',   5))));
+  const bsrMin       = Math.max(10000, Math.min(500000, Number(await getSetting('auto_cleanup_bsr_threshold',  100000))));
+  const graceDays    = Math.max(1, Math.min(60,     Number(await getSetting('auto_cleanup_grace_days',          7))));
 
   // Single-query candidate selection. Returns ONLY the LIMIT cap rows we
   // would pause; we DON'T do a separate COUNT-then-UPDATE because that's
@@ -49,11 +52,11 @@ export async function runAutoCleanupTick(): Promise<{ enabled: boolean; eligible
     FROM products p
     LEFT JOIN sys_user su ON TRUE
     WHERE p.is_active = TRUE
-      AND p.created_at < NOW() - INTERVAL '7 days'
+      AND p.created_at < NOW() - (${graceDays} || ' days')::interval
       AND p.last_metadata_at IS NOT NULL
       AND p.bought_last_month IS NULL
-      AND COALESCE(p.review_count, 0) < 10
-      AND (p.bsr_value IS NULL OR p.bsr_value > 100000)
+      AND COALESCE(p.review_count, 0) < ${reviewMax}
+      AND (p.bsr_value IS NULL OR p.bsr_value > ${bsrMin})
       AND (p.created_by_user_id IS NULL
            OR (su.id IS NOT NULL AND p.created_by_user_id = su.id))
       AND NOT EXISTS (SELECT 1 FROM alerts a WHERE a.product_id = p.id)

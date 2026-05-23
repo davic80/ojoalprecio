@@ -843,6 +843,25 @@ export const MIGRATIONS: string[] = [
      'Tope de seguridad: el auto-cleanup nunca pausa más de N productos por ciclo, aunque haya más candidatos.')
   ON CONFLICT (key) DO NOTHING;
   `,
+
+  // 54: Tunable thresholds for the auto-cleanup rule. Originally hardcoded
+  // in SQL (review_count<10, bsr>100k, created_at<NOW()-7days). Pulling
+  // them into app_settings lets us tune purge aggressiveness without code
+  // changes — useful when first-week observation shows we're catching too
+  // many borderline products (or too few).
+  `
+  INSERT INTO app_settings (key, value, value_type, label, hint) VALUES
+    ('auto_cleanup_review_threshold', '5', 'integer',
+     'Auto-pause: máx. reviews para considerar irrelevante (1–50)',
+     'Productos con menos de N reviews son candidatos a pausar (combinado con sin badge + BSR malo). Por defecto 5: solo productos prácticamente sin tracción. Sube a 10–20 para purga más agresiva.'),
+    ('auto_cleanup_bsr_threshold', '100000', 'integer',
+     'Auto-pause: BSR mínimo para considerar irrelevante (10000–500000)',
+     'Productos con Best Sellers Rank por encima de este número se consideran de bajo volumen. NULL (Amazon no asigna rank) también cuenta como irrelevante.'),
+    ('auto_cleanup_grace_days', '7', 'integer',
+     'Auto-pause: días mínimos desde creación antes de pausar (1–60)',
+     'Período de gracia para productos recién añadidos. No se pausan hasta haber estado N días en el catálogo.')
+  ON CONFLICT (key) DO NOTHING;
+  `,
 ];
 
 export async function migrate(pool: Pool = defaultPool): Promise<void> {
