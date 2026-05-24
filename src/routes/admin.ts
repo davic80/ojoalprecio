@@ -1062,12 +1062,18 @@ router.delete('/admin/lists/:id', requireAuth, requireAdmin, async (req: Request
 router.get('/admin/settings', requireAuth, requireAdmin, async (req: Request, res: Response) => {
   const settings = await getAllSettings();
   const envDefaults: Record<string, string> = {
-    category_import_enabled:  'true',
-    scraper_concurrency:      '2',
-    retry_failed_per_cycle:   '30',
-    scraper_timeout_seconds:  '30',
-    min_age_minutes:          '59',
-    telegram_public_channel:  '',
+    category_import_enabled:        'true',
+    scraper_concurrency:            '2',
+    retry_failed_per_cycle:         '30',
+    scraper_timeout_seconds:        '30',
+    min_age_minutes:                '59',
+    telegram_public_channel:        '',
+    auto_cleanup_enabled:           'false',
+    auto_cleanup_cap_per_hour:      '100',
+    auto_cleanup_review_threshold:  '5',
+    auto_cleanup_bsr_threshold:     '100000',
+    auto_cleanup_grace_days:        '7',
+    auto_cleanup_protected_brands:  '',
   };
   res.render('admin-settings', { user: { email: req.session.userEmail }, settings, envDefaults });
 });
@@ -1080,6 +1086,12 @@ const SETTINGS_WHITELIST = new Set([
   'scraper_timeout_seconds',
   'min_age_minutes',
   'telegram_public_channel',
+  'auto_cleanup_enabled',
+  'auto_cleanup_cap_per_hour',
+  'auto_cleanup_review_threshold',
+  'auto_cleanup_bsr_threshold',
+  'auto_cleanup_grace_days',
+  'auto_cleanup_protected_brands',
 ]);
 
 router.post('/admin/settings/:key', requireAuth, requireAdmin, async (req: Request, res: Response) => {
