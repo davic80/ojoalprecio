@@ -645,29 +645,52 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
                 if (m[2] && /k|mil/i.test(m[2])) n *= 1000;
                 if (Number.isFinite(n) && n > 0) out.boughtLastMonth = n;
               }
-              // Brand capture. Amazon serves this in three different places
-              // depending on the layout, so we try each in priority order:
-              //   1. #bylineInfo link — "Visita la Tienda de Apple" / "Brand: Apple"
-              //      (most reliable, present on ~90% of listings)
-              //   2. Product overview table — first row often "Marca: ..."
-              //   3. Detail bullets table — fallback for layouts without #bylineInfo
-              // We strip the "Visit", "Brand", "Marca" prefixes and trim. Keep
-              // null when none match; auto-cleanup treats null brand as
-              // unprotected (fail-open).
+              // Brand capture. Amazon serves brand text in 4 different shapes
+              // across layouts; first probe revealed prod hit-rate was 5.6%
+              // (242/4315) because the original code missed two of them.
+              //
+              //   1. #bylineInfo link — "Visita la Tienda de Apple",
+              //      "Visit the Apple Store", "Apple Store", "Marca: Apple"
+              //   2. #productOverview_feature_div table — "Marca | Apple"
+              //   3. #detailBullets_feature_div li — "Marca ‏ : ‎ Apple" /
+              //      "Manufacturer ‏ : ‎ HP" / "Brand ‏ : ‎ X"
+              //   4. Schema.org meta — last resort, sometimes present in
+              //      JSON-LD <script> blocks but parsing JSON in the
+              //      sandboxed evaluate is brittle. Skip for now.
+              const cleanBrand = (s: string): string => s
+                .replace(/^Visita la Tienda de\s+/i, '')
+                .replace(/^Visit the\s+/i, '')
+                .replace(/\s+Store$/i, '')
+                .replace(/\s+Tienda$/i, '')
+                .replace(/^(?:Marca|Brand|Manufacturer|Fabricante)\s*[:\s]\s*/i, '')
+                .replace(/[‏‎]/g, '')        // strip the U+200F / U+200E direction marks
+                .trim()
+                .slice(0, 100);
+              // Tier 1: byline
               const byline = document.querySelector('#bylineInfo');
               if (byline) {
                 const t = (byline.textContent || '').trim();
-                let bm = t.match(/(?:Visita la Tienda de|Visit the|Marca:|Brand:|Marca|Brand)\s+([^\n|]{2,60})/i);
-                if (!bm) bm = t.match(/^\s*([A-Za-zÀ-ÿ0-9][^\n|]{0,60})$/);
-                if (bm) out.brand = bm[1].trim().slice(0, 100);
+                if (t && t.length < 120 && !/^\s*$/.test(t)) {
+                  const c = cleanBrand(t);
+                  if (c && !/^Visit|^Visita/i.test(c)) out.brand = c;
+                }
               }
+              // Tier 2 + 3: scan ALL likely table rows for label-like prefixes
               if (!out.brand) {
-                const overviewRows = document.querySelectorAll('#productOverview_feature_div tr, #detailBullets_feature_div li');
-                for (const row of Array.from(overviewRows)) {
-                  const txt = (row.textContent || '').trim();
-                  const m2 = txt.match(/^\s*Marca\s*[:\s]\s*([^\n]{2,60})/i)
-                          || txt.match(/^\s*Brand\s*[:\s]\s*([^\n]{2,60})/i);
-                  if (m2) { out.brand = m2[1].trim().slice(0, 100); break; }
+                const rowSelectors = [
+                  '#productOverview_feature_div tr',
+                  '#detailBullets_feature_div li',
+                  '#detailBulletsWrapper_feature_div li',
+                  '#productDetails_detailBullets_sections1 tr',
+                  '#productDetails_techSpec_section_1 tr',
+                ];
+                for (const sel of rowSelectors) {
+                  for (const row of Array.from(document.querySelectorAll(sel))) {
+                    const txt = (row.textContent || '').replace(/[‏‎ ]/g, ' ').replace(/\s+/g, ' ').trim();
+                    const m = txt.match(/^(?:Marca|Brand|Manufacturer|Fabricante)\s*[:\s]\s+([^|\n]{2,80})$/i);
+                    if (m) { out.brand = cleanBrand(m[1]); break; }
+                  }
+                  if (out.brand) break;
                 }
               }
             } catch { /* swallow — metadata is opportunistic */ }

@@ -42,13 +42,18 @@ export async function runAutoCleanupTick(): Promise<{ enabled: boolean; eligible
   const bsrMin       = Math.max(10000, Math.min(500000, Number(await getSetting('auto_cleanup_bsr_threshold',  100000))));
   const graceDays    = Math.max(1, Math.min(60,     Number(await getSetting('auto_cleanup_grace_days',          7))));
   // Brand protection — CSV of "Apple,Sony,Amazon,…". Empty list = no
-  // brand-based protection. Comparison is lowercased so the user can
-  // type freely. Products with brand IS NULL stay unprotected by design
-  // (fail-open) since most "no brand captured" are still genuine
-  // candidates; if a real brand goes uncaught, it'll be picked up on the
-  // next successful scrape and become protected then.
+  // brand-based protection. Comparison is lowercased PREFIX match so a
+  // listed brand "Apple" also protects products whose captured brand is
+  // "Apple Computer" or "Amazon Kindle" (where the captured string often
+  // includes the parent or sub-brand). Without prefix matching, an exact-
+  // string rule would miss most of these. NULL brand stays unprotected
+  // (fail-open) — see commit message for rationale.
   const brandsCsv = String(await getSetting('auto_cleanup_protected_brands', '') || '');
-  const protectedBrands = brandsCsv.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+  const protectedPrefixes = brandsCsv
+    .split(',')
+    .map(s => s.trim().toLowerCase())
+    .filter(Boolean)
+    .map(s => s + '%');   // SQL LIKE wildcard suffix
 
   // Single-query candidate selection. Returns ONLY the LIMIT cap rows we
   // would pause; we DON'T do a separate COUNT-then-UPDATE because that's
@@ -75,7 +80,7 @@ export async function runAutoCleanupTick(): Promise<{ enabled: boolean; eligible
       )
       AND (
         p.brand IS NULL
-        OR ${protectedBrands.length === 0 ? sql`TRUE` : sql`LOWER(p.brand) <> ALL(${protectedBrands}::text[])`}
+        OR ${protectedPrefixes.length === 0 ? sql`TRUE` : sql`NOT (LOWER(p.brand) LIKE ANY(${protectedPrefixes}::text[]))`}
       )
     ORDER BY p.last_metadata_at ASC   -- pause oldest-known-irrelevant first
     LIMIT ${cap}
