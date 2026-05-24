@@ -64,7 +64,11 @@ router.get('/admin', requireAuth, requireAdmin, async (req: Request, res: Respon
         COUNT(*) FILTER (WHERE feature_lock = 'mute')        AS featured_mute,
         COUNT(*) FILTER (WHERE is_failed  = TRUE)            AS failed,
         COUNT(*) FILTER (WHERE is_available = FALSE)         AS unavailable,
-        COUNT(*) FILTER (WHERE last_error IS NOT NULL)       AS with_error,
+        COUNT(*) FILTER (
+          WHERE last_error IS NOT NULL
+            AND is_available = TRUE
+            AND last_error NOT LIKE 'Buybox no cualificado%'
+        )                                                    AS with_error,
         (SELECT COUNT(*) FROM users WHERE email != 'system@ojoalprecio.local') AS users_total,
         (SELECT COUNT(*) FROM page_views WHERE day = TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD')) AS views_today
       FROM products WHERE is_active = TRUE
@@ -80,7 +84,15 @@ router.get('/admin', requireAuth, requireAdmin, async (req: Request, res: Respon
     db.execute(sql`
       SELECT id, asin, name, last_error, is_failed, consecutive_failures, total_failures
       FROM products
-      WHERE is_active = TRUE AND (is_failed = TRUE OR last_error IS NOT NULL)
+      WHERE is_active = TRUE
+        AND (
+          is_failed = TRUE
+          OR (
+            last_error IS NOT NULL
+            AND is_available = TRUE
+            AND last_error NOT LIKE 'Buybox no cualificado%'
+          )
+        )
       ORDER BY is_failed DESC, consecutive_failures DESC
       LIMIT 8
     `),

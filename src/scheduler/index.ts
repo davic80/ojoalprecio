@@ -567,23 +567,35 @@ async function checkProduct(productId: number, url: string, label: string, timeo
       console.log(`[scheduler] ${label} → No disponible${err.reason ? ` (${err.reason})` : ''}${transient && !markUnavailable ? ` [transient ${newCu}/3, keeping available]` : ''}`);
 
       if (markUnavailable) {
+        // Persist any partial metadata captured before the throw (typically
+        // the product title from Promise 1 of the scrape). Without this,
+        // products that fail before persistScrapeResult never have a name
+        // for the admin UI and look like permanently-stuck rows.
+        const fillName = err.productName && err.productName.trim().length > 0
+          ? sql`, name = COALESCE(name, ${err.productName})`
+          : sql``;
         await db.execute(sql`
           UPDATE products SET
             is_available = FALSE,
-            last_error   = NULL,
+            last_error   = ${err.message},
             is_on_sale   = FALSE,
             sale_tier    = NULL,
             deal_score   = NULL,
             consecutive_unavailable = ${newCu},
             is_public    = CASE WHEN feature_lock = 'auto' THEN FALSE ELSE is_public END,
             featured_at  = CASE WHEN feature_lock = 'auto' THEN NULL  ELSE featured_at END
+            ${fillName}
           WHERE id = ${productId}
         `);
       } else {
+        const fillName = err.productName && err.productName.trim().length > 0
+          ? sql`, name = COALESCE(name, ${err.productName})`
+          : sql``;
         await db.execute(sql`
           UPDATE products SET
             last_error = ${`Buybox no cualificado (${newCu}/3) — esperando confirmación`},
             consecutive_unavailable = ${newCu}
+            ${fillName}
           WHERE id = ${productId}
         `);
       }

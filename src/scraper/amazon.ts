@@ -5,11 +5,16 @@ export class ProductUnavailableError extends Error {
   // anomaly review queue (used / unqualified buybox cases).
   reason?: 'used' | 'unqualified';
   snippet?: string;
-  constructor(message: string, reason?: 'used' | 'unqualified', snippet?: string) {
+  // Product title captured before the throw, when available. The scheduler
+  // persists this so products that fail before reaching persistScrapeResult
+  // still have a name for the admin UI / dashboards.
+  productName?: string;
+  constructor(message: string, reason?: 'used' | 'unqualified', snippet?: string, productName?: string) {
     super(message);
     this.name = 'ProductUnavailableError';
     this.reason = reason;
     this.snippet = snippet;
+    this.productName = productName;
   }
 }
 
@@ -403,7 +408,7 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
             lowerBody.includes('suscribirse a luna') ||
             lowerBody.includes('audible plus');
           if (isNonPhysicalAmazon) {
-            throw new ProductUnavailableError(`Producto no físico (servicio digital Amazon — "${pageTitle}")`);
+            throw new ProductUnavailableError(`Producto no físico (servicio digital Amazon — "${pageTitle}")`, undefined, undefined, pageTitle || undefined);
           }
 
           // Try clicking through Amazon's interstitial ("Haz clic en el botón de abajo para seguir")
@@ -460,7 +465,7 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
           page.locator('#availability').first().textContent({ timeout: 5000 }).catch(() => ''),
         ]);
         if (!name) throw new Error('Título no encontrado');
-        if (availabilityText?.toLowerCase().includes('no disponible')) throw new ProductUnavailableError('Producto no disponible');
+        if (availabilityText?.toLowerCase().includes('no disponible')) throw new ProductUnavailableError('Producto no disponible', undefined, undefined, name);
 
         // Detect pages where Amazon has no qualifying offer of its own:
         //  - 'used'        — main buybox has been replaced by a used/refurbished
@@ -495,10 +500,10 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
           return null;
         }).catch(() => null);
         if (offerState?.state === 'used') {
-          throw new ProductUnavailableError('Solo segunda mano / reacondicionado disponible', 'used', offerState.snippet);
+          throw new ProductUnavailableError('Solo segunda mano / reacondicionado disponible', 'used', offerState.snippet, name);
         }
         if (offerState?.state === 'unqualified') {
-          throw new ProductUnavailableError('Sin oferta de Amazon — solo terceros vendedores', 'unqualified', offerState.snippet);
+          throw new ProductUnavailableError('Sin oferta de Amazon — solo terceros vendedores', 'unqualified', offerState.snippet, name);
         }
 
         // Phase 2: price + wasPrice + image all in parallel
@@ -525,7 +530,12 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
           page.locator('#imgTagWrappingLink img, #landingImage').first().getAttribute('src', { timeout: 5000 }).catch(() => null),
         ]);
 
-        if (!rawPrice) throw new Error('Precio no encontrado');
+        // Treated as unavailability rather than a generic scrape error: when
+        // Amazon renders a product page with no price selector matching, the
+        // product effectively has no offer to show. Carrying the name through
+        // lets the scheduler persist basic display info even though we never
+        // reached persistScrapeResult.
+        if (!rawPrice) throw new ProductUnavailableError('Sin precio disponible en Amazon', undefined, undefined, name);
         const price = parseSpanishPrice(rawPrice);
         if (!isFinite(price) || price < 0.5) throw new Error(`Precio inválido: "${rawPrice}" → ${price}`);
 
