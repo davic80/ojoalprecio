@@ -1290,22 +1290,25 @@ body:has(.bottom-nav) {
    ║  STICKY CTA — product page "Comprar en Amazon", mobile only            ║
    ╚════════════════════════════════════════════════════════════════════════╝ */
 
-/* On mobile we pin the CTA bar above the bottom-nav so the affiliate button
-   stays one tap away while users scroll through chart/history. On ≥640px
-   the bar stays in normal flow. */
+/* On mobile (/p/:asin) we pin the CTA bar to the very bottom and hide the
+   bottom-nav for this page. Conversion > navigation on the page that exists
+   to convert — bottom-nav cedes its 60px to the affiliate CTA. On ≥640px
+   the bar stays in normal flow and the bottom-nav is already hidden by the
+   media query above. */
 @media (max-width: 639px) {
+  .product-page .bottom-nav { display: none; }
+
   .cta-bar {
     position: fixed;
     left: 0;
     right: 0;
-    /* Sit just above the bottom-nav + iPhone safe area */
-    bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px));
+    bottom: 0;
     margin: 0;
-    padding: var(--sp-2) var(--sp-3);
+    padding: var(--sp-2) var(--sp-3) calc(var(--sp-2) + env(safe-area-inset-bottom, 0px));
     background: var(--white);
     border-top: 1px solid var(--gray-200);
     box-shadow: 0 -1px 2px rgba(0,0,0,.04);
-    z-index: 95;  /* below bottom-nav (110), above page content */
+    z-index: 110;
     gap: var(--sp-2);
   }
   .cta-bar .btn {
@@ -1326,8 +1329,12 @@ body:has(.bottom-nav) {
      label stays one line ("Comprar en Amazon.es") instead of being
      truncated mid-word in a 175 px flex slot. */
   .cta-bar .cta-price { display: none; }
-  /* Add extra bottom space on the product page so the last lines of
-     content aren't hidden behind the stacked sticky CTA + bottom-nav.
-     Roughly 60px CTA + bottom-nav-h already added by body:has(.bottom-nav). */
-  body:has(.cta-bar) { padding-bottom: calc(var(--bottom-nav-h) + 60px + env(safe-area-inset-bottom, 0px)); }
+
+  /* Reserve room for the sticky CTA at the bottom of the page. Overrides
+     the generic body:has(.bottom-nav) rule on .product-page since the
+     bottom-nav is hidden here and only the CTA consumes space. */
+  body.product-page,
+  body.product-page:has(.bottom-nav) {
+    padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px));
+  }
 }
