@@ -584,14 +584,32 @@ router.post('/admin/anomalies/bulk', requireAuth, requireAdmin, express.json(), 
 
 // ── POST /admin/products/bulk-pause — set is_active=FALSE on N products ───
 // Alternative to outright delete: keeps history + DB row, just stops the
-// scheduler from picking it up. Reversible via /admin/products/:id/resume
-// (TODO) or direct SQL toggle. Used from /admin/cleanup as a soft action.
+// scheduler from picking it up. Reversible via POST /admin/products/:id/resume
+// or direct SQL toggle. Used from /admin/cleanup as a soft action.
 router.post('/admin/products/bulk-pause', requireAuth, requireAdmin, express.json(), async (req: Request, res: Response) => {
   const body = req.body as { ids?: unknown } | undefined;
   const ids = Array.isArray(body?.ids) ? body!.ids.map((v) => parseInt(String(v), 10)).filter((n) => Number.isFinite(n) && n > 0) : [];
   if (!ids.length) return res.status(400).json({ error: 'ids vacíos.' });
-  const r = await db.execute(sql`UPDATE products SET is_active = FALSE WHERE id = ANY(${ids}::int[])`);
+  const r = await db.execute(sql`
+    UPDATE products SET is_active = FALSE
+    WHERE id IN (${sql.join(ids.map(i => sql`${i}`), sql`, `)})
+  `);
   res.json({ paused: (r as unknown as { rowCount?: number }).rowCount ?? 0, total: ids.length });
+});
+
+// ── POST /admin/products/:id/resume — flip is_active back to TRUE ─────────
+// Symmetric to bulk-pause for one product; writes a 'resumed' row to
+// auto_cleanup_log so the pause/resume sequence stays traceable. No-op
+// (404-shaped 200) when the product is already active or doesn't exist.
+router.post('/admin/products/:id/resume', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params.id), 10);
+  if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });
+  const rows = await db.execute(sql`SELECT asin, name FROM products WHERE id = ${id} LIMIT 1`);
+  const row = (rows.rows as Array<{ asin: string; name: string | null }>)[0];
+  if (!row) return res.status(404).json({ error: 'producto no encontrado' });
+  const { autoResumeIfPaused } = await import('../scheduler/auto-cleanup');
+  const resumed = await autoResumeIfPaused(id, row.asin, row.name, 'admin manual');
+  res.json({ resumed, asin: row.asin });
 });
 
 // ── GET /admin/import-url ─────────────────────────────────────────────────────
@@ -1344,7 +1362,7 @@ router.get('/admin/cleanup', requireAuth, requireAdmin, async (req: Request, res
   const autoCleanupEnabled = (await getSetting('auto_cleanup_enabled', false)) === true;
   const autoCleanupCap     = Number(await getSetting('auto_cleanup_cap_per_hour', 100));
   const recentLog = await db.execute(sql`
-    SELECT id, asin, name, action, reason, at
+    SELECT id, product_id AS "productId", asin, name, action, reason, at
     FROM auto_cleanup_log
     ORDER BY at DESC
     LIMIT 50

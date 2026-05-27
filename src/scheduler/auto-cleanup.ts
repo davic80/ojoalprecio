@@ -133,17 +133,24 @@ export async function runAutoCleanupTick(): Promise<{ enabled: boolean; eligible
  *
  * No-op when the product is already active.
  */
-export async function autoResumeIfPaused(productId: number, asin: string, name: string | null): Promise<void> {
+export async function autoResumeIfPaused(
+  productId: number,
+  asin: string,
+  name: string | null,
+  reason: string = 'user re-add',
+): Promise<boolean> {
   const r = await db.execute(sql`
     UPDATE products SET is_active = TRUE
     WHERE id = ${productId} AND is_active = FALSE
     RETURNING id
   `);
-  if ((r as unknown as { rowCount?: number }).rowCount) {
+  const resumed = ((r as unknown as { rowCount?: number }).rowCount ?? 0) > 0;
+  if (resumed) {
     await db.execute(sql`
       INSERT INTO auto_cleanup_log (product_id, asin, name, action, reason)
-      VALUES (${productId}, ${asin}, ${name}, 'resumed', 'user re-add')
+      VALUES (${productId}, ${asin}, ${name}, 'resumed', ${reason})
     `);
-    console.log(`[auto-cleanup] resumed ${asin} after user re-add`);
+    console.log(`[auto-cleanup] resumed ${asin} (${reason})`);
   }
+  return resumed;
 }

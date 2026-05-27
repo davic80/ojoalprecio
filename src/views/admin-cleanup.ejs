@@ -133,6 +133,7 @@
           <th>ASIN</th>
           <th>Producto</th>
           <th>Razón</th>
+          <th></th>
         </tr>
       </thead>
       <tbody>
@@ -149,6 +150,11 @@
           <td><code><%= e.asin %></code></td>
           <td style="font-size:12px;max-width:300px"><a href="/p/<%= e.asin %>" target="_blank" rel="noopener"><%= (e.name || e.asin).slice(0,60) %></a></td>
           <td style="font-size:11px;color:var(--gray-500)"><%= e.reason || '—' %></td>
+          <td style="text-align:right">
+            <% if (e.action === 'paused') { %>
+              <button type="button" class="btn btn-sm btn-outline" data-resume-product-id="<%= e.productId %>" data-asin="<%= e.asin %>" title="Reactivar (is_active=TRUE)">▶ Reanudar</button>
+            <% } %>
+          </td>
         </tr>
         <% }); %>
       </tbody>
@@ -200,6 +206,20 @@
 
   table.parentElement.parentElement.querySelectorAll('[data-bulk-action]').forEach(function (btn) {
     btn.addEventListener('click', function () { bulkAction(btn.dataset.bulkAction); });
+  });
+
+  document.querySelectorAll('[data-resume-product-id]').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      const id = btn.dataset.resumeProductId;
+      const asin = btn.dataset.asin;
+      if (!confirm(`¿Reanudar ${asin}? Vuelve a entrar en el catálogo activo (is_active=TRUE).`)) return;
+      btn.disabled = true;
+      try {
+        const res = await fetch('/admin/products/' + id + '/resume', { method: 'POST' });
+        if (!res.ok) { alert('Error: ' + res.statusText); btn.disabled = false; return; }
+        btn.textContent = '✓ reanudado';
+      } catch (e) { alert('Error de red'); btn.disabled = false; }
+    });
   });
 })();
 </script>
