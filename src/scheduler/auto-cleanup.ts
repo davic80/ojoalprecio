@@ -103,7 +103,8 @@ export async function runAutoCleanupTick(): Promise<{ enabled: boolean; eligible
 
   await db.transaction(async (tx) => {
     await tx.execute(sql`
-      UPDATE products SET is_active = FALSE WHERE id = ANY(${ids}::int[])
+      UPDATE products SET is_active = FALSE
+      WHERE id IN (${sql.join(ids.map(i => sql`${i}`), sql`, `)})
     `);
     // Bulk INSERT INTO auto_cleanup_log using SELECT FROM VALUES
     for (const r of rows) {
