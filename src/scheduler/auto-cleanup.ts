@@ -37,7 +37,7 @@ export async function runAutoCleanupTick(): Promise<{ enabled: boolean; eligible
   const enabled = (await getSetting('auto_cleanup_enabled', false)) === true;
   if (!enabled) return { enabled: false, eligible: 0, paused: 0, cap: 0 };
 
-  const cap          = Math.max(1, Math.min(500,    Number(await getSetting('auto_cleanup_cap_per_hour',     100))));
+  const cap          = Math.max(1, Math.min(1000,   Number(await getSetting('auto_cleanup_cap_per_hour',     100))));
   const reviewMax    = Math.max(1, Math.min(50,     Number(await getSetting('auto_cleanup_review_threshold',   5))));
   const bsrMin       = Math.max(10000, Math.min(500000, Number(await getSetting('auto_cleanup_bsr_threshold',  100000))));
   const graceDays    = Math.max(1, Math.min(60,     Number(await getSetting('auto_cleanup_grace_days',          7))));

@@ -839,7 +839,7 @@ export const MIGRATIONS: string[] = [
      'Auto-pause de productos irrelevantes',
      'Cuando está activo, cada hora se pausan (is_active=FALSE) hasta N productos auto-importados que no tienen reviews, BSR malo, sin badge de ventas, sin alertas ni follows. Reversible: si un usuario añade el producto, se reanuda automáticamente.'),
     ('auto_cleanup_cap_per_hour', '100', 'integer',
-     'Máximo de productos a pausar por hora (1–500)',
+     'Máximo de productos a pausar por hora (1–1000)',
      'Tope de seguridad: el auto-cleanup nunca pausa más de N productos por ciclo, aunque haya más candidatos.')
   ON CONFLICT (key) DO NOTHING;
   `,
