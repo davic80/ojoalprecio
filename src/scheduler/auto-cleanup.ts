@@ -80,7 +80,14 @@ export async function runAutoCleanupTick(): Promise<{ enabled: boolean; eligible
       )
       AND (
         p.brand IS NULL
-        OR ${protectedPrefixes.length === 0 ? sql`TRUE` : sql`NOT (LOWER(p.brand) LIKE ANY(${protectedPrefixes}::text[]))`}
+        OR ${
+          protectedPrefixes.length === 0
+            ? sql`TRUE`
+            : sql`NOT (${sql.join(
+                protectedPrefixes.map(p => sql`LOWER(p.brand) LIKE ${p}`),
+                sql` OR `,
+              )})`
+        }
       )
     ORDER BY p.last_metadata_at ASC   -- pause oldest-known-irrelevant first
     LIMIT ${cap}
