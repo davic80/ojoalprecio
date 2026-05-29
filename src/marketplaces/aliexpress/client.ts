@@ -74,41 +74,6 @@ export class AliExpressClient {
     return this.parseResponse<T>(method, res);
   }
 
-  /**
-   * multipart/form-data variant. Required for TOP methods that take binary
-   * (`*_bytes`) parameters — `aliexpress.ds.image.search` is the only one
-   * we use. AE's TOP convention: the signature is computed over the TEXT
-   * params only (byte fields excluded), then the request is sent as
-   * multipart with text fields + binary parts side by side. Sign over the
-   * urlencoded shape would not match; sign over `all` after filling in the
-   * bytes-as-base64 also wouldn't (and exceeds practical URL length).
-   */
-  private async multipartCall<T = unknown>(
-    method: string,
-    businessParams: Record<string, string | number | boolean | null | undefined>,
-    byteParams: Record<string, { buffer: Buffer; filename: string; contentType?: string }>,
-  ): Promise<T> {
-    const sys = systemParams(this.cfg.appKey, method);
-    const all: Record<string, string> = {};
-    for (const [k, v] of Object.entries({ ...sys, ...businessParams })) {
-      if (v == null) continue;
-      if (typeof v === 'number' && !Number.isFinite(v)) continue;
-      all[k] = String(v);
-    }
-    const sign = signRequest(all, this.cfg.appSecret);
-
-    const form = new FormData();
-    for (const [k, v] of Object.entries(all)) form.append(k, v);
-    form.append('sign', sign);
-    for (const [k, { buffer, filename, contentType }] of Object.entries(byteParams)) {
-      const blob = new Blob([new Uint8Array(buffer)], { type: contentType ?? 'application/octet-stream' });
-      form.append(k, blob, filename);
-    }
-
-    const res = await fetch(ENDPOINT, { method: 'POST', body: form });
-    return this.parseResponse<T>(method, res);
-  }
-
   private async parseResponse<T>(method: string, res: Response): Promise<T> {
     if (!res.ok) throw new AliExpressError(`HTTP ${res.status} from ${method}`, String(res.status));
     const json = await res.json() as Record<string, any>;
@@ -235,56 +200,6 @@ export class AliExpressClient {
     return items.map(mapProduct);
   }
 
-  /**
-   * Image-based product discovery. Takes raw image bytes (jpg/png), returns
-   * AE products that visually match. Used to improve Amazon→AE equivalents
-   * matching where the keyword-based productQuery/smartMatch struggle —
-   * especially for accessories, clothing, generic items whose titles are
-   * too ambiguous to score reliably.
-   *
-   * Permission tier: "SKU Dimension API" group (one of the methods AE
-   * grants under that umbrella to Affiliates-category apps, alongside
-   * ds.text.search and ds.commissionorder.listbyindex; the namesake
-   * ds.product.get itself remains gated to Drop Shipping apps).
-   *
-   * Transport: multipart/form-data — TOP rejects this method via the
-   * normal urlencoded body shape with `MissingParameter: image_file_bytes`
-   * regardless of payload size, because the file content is supposed to
-   * sit in its own multipart part. The text params (and only those) form
-   * the signature.
-   */
-  async dsImageSearch(
-    image: Buffer,
-    accessToken: string,
-    opts: { pageSize?: number; pageNo?: number; sort?: string; filename?: string; mimeType?: string } = {},
-  ): Promise<AliExpressProduct[]> {
-    if (!accessToken) throw new AliExpressError('dsImageSearch: accessToken required', 'missing_access_token');
-    if (!image?.length) throw new AliExpressError('dsImageSearch: image buffer is empty', 'missing_image');
-    const r = await this.multipartCall<any>(
-      'aliexpress.ds.image.search',
-      {
-        shpt_to:         this.cfg.shipToCountry  ?? 'ES',
-        target_currency: this.cfg.targetCurrency ?? 'EUR',
-        target_language: this.cfg.targetLanguage ?? 'ES',
-        page_size:       opts.pageSize ?? 10,
-        page_no:         opts.pageNo   ?? 1,
-        sort:            opts.sort     ?? 'orders,desc',
-        access_token:    accessToken,
-      },
-      {
-        image_file_bytes: {
-          buffer:      image,
-          filename:    opts.filename ?? 'query.jpg',
-          contentType: opts.mimeType ?? 'image/jpeg',
-        },
-      },
-    );
-    const items = r?.resp_result?.result?.products?.product
-              ?? r?.result?.products?.product
-              ?? r?.products?.product
-              ?? [];
-    return Array.isArray(items) ? items.map(mapProduct) : [];
-  }
 }
 
 /** Map snake_case wire shape → camelCase domain type. Tolerant of missing fields. */
