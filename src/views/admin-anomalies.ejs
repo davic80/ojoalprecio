@@ -32,6 +32,27 @@
     <span class="hint" style="font-size:12px;align-self:center">por tipo pendiente · low: <%= counts.pending_low ?? 0 %> · high: <%= counts.pending_high ?? 0 %> · used: <%= counts.pending_used ?? 0 %> · unq: <%= counts.pending_unq ?? 0 %></span>
   </div>
 
+  <%# Auto-decider activity banner. Auto-decisions resolve routine anomalies
+     before they hit the human queue. Surfaces here so the operator can spot
+     a misbehaving rule (high revert rate) without digging into the log. -%>
+  <% const auto24 = parseInt(autoStats.auto_24h, 10) || 0;
+     const auto7  = parseInt(autoStats.auto_7d,  10) || 0;
+     const autoRev = parseInt(autoStats.auto_reverted_7d, 10) || 0;
+     const revPct = auto7 > 0 ? Math.round((autoRev / auto7) * 100) : 0; -%>
+  <div class="card" style="margin-bottom:14px;border-left:3px solid <%= revPct > 10 ? 'var(--red)' : 'var(--green)' %>;padding:8px 14px">
+    <strong>Auto-decisión</strong>
+    <span class="hint" style="margin-left:var(--sp-2);font-size:12px">
+      últimas 24h: <strong><%= auto24 %></strong> resueltas sin tu intervención ·
+      últimos 7d: <strong><%= auto7 %></strong> auto-decididas,
+      <% if (autoRev === 0) { %>
+        <strong style="color:var(--green)">0 revertidas</strong> (reglas estables).
+      <% } else { %>
+        <strong style="color:<%= revPct > 10 ? 'var(--red)' : 'inherit' %>"><%= autoRev %> revertidas (<%= revPct %>%)</strong>
+        <% if (revPct > 10) { %>· revisar reglas<% } %>
+      <% } %>
+    </span>
+  </div>
+
   <!-- Filters -->
   <form method="GET" class="card" style="margin-bottom:16px;display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
     <input type="hidden" name="status" value="<%= filters.status %>">
@@ -132,6 +153,11 @@
                 <%= new Date(a.detectedAt).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) %>
                 <span class="alert-badge" style="display:block;margin-top:3px;background:<%= stateBadge.bg %>;color:<%= stateBadge.fg %>;font-size:10px"><%= stateBadge.txt %></span>
                 <p class="hint" style="font-size:10px;margin:2px 0 0">prod: <%= parseInt(a.approvedCount,10) %>✓ <%= parseInt(a.deniedCount,10) %>✗</p>
+                <% if (a.decisionActor && a.decisionActor.startsWith('auto:')) { %>
+                  <p class="hint" style="font-size:10px;margin:2px 0 0;color:#7c3aed">⚙ <%= a.decisionRule %></p>
+                <% } else if (a.decisionActor) { %>
+                  <p class="hint" style="font-size:10px;margin:2px 0 0">👤 manual</p>
+                <% } %>
               </td>
               <td style="white-space:nowrap">
                 <% if (a.status === 'pending') { %>
@@ -158,6 +184,11 @@
                     hx-delete="/admin/anomalies/<%= a.id %>"
                     hx-target="#anom-<%= a.id %>" hx-swap="outerHTML"
                     hx-confirm="Borrar la anomalía sin decidir?">🗑</button>
+                <% } else if (a.decisionLogId) { %>
+                  <button class="btn btn-sm btn-ghost" style="font-size:11px"
+                    hx-post="/admin/anomalies/decision/<%= a.decisionLogId %>/revert"
+                    hx-confirm="Revertir esta decisión. La anomalía vuelve a pendiente y se deshacen los side-effects (precio insertado, flag is_available)."
+                    title="Deshace la decisión y deja la anomalía en pendiente">↩ Revertir</button>
                 <% } else { %>
                   <span class="hint" style="font-size:11px">—</span>
                 <% } %>
