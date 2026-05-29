@@ -178,7 +178,7 @@ router.get('/admin', requireAuth, requireAdmin, async (req: Request, res: Respon
 // Cards that answer "is everything fine right now?" in one screen. Distinct
 // from /admin/stats (user-facing analytics) — this one is for the operator.
 router.get('/admin/ops', requireAuth, requireAdmin, async (req: Request, res: Response) => {
-  const [scraperRow, anomaliesRow, cleanupRow, equivRow, alertsRow, catalogRow, autoRulesRow] = await Promise.all([
+  const [scraperRow, anomaliesRow, cleanupRow, equivRow, alertsRow, catalogRow, autoRulesRow, tuningLogRow, autoTuneSettingsRow] = await Promise.all([
     // 24h scrape success: a row in price_history is the successful tick;
     // last_error stamp is the latest failure signal per product.
     db.execute(sql`
@@ -232,6 +232,25 @@ router.get('/admin/ops', requireAuth, requireAdmin, async (req: Request, res: Re
       GROUP BY rule_name
       ORDER BY fired DESC
     `),
+    // V2 auto-tune audit: the 10 most recent threshold adjustments the
+    // calibration cron has decided. Empty until the auto-tune start date
+    // is reached and a rule crosses a revert-rate threshold.
+    db.execute(sql`
+      SELECT id,
+             rule_group   AS "ruleGroup",
+             prior_value  AS "priorValue",
+             new_value    AS "newValue",
+             reason,
+             decided_at   AS "decidedAt"
+      FROM rule_tuning_log
+      ORDER BY decided_at DESC
+      LIMIT 10
+    `),
+    // Current threshold values + auto-tune date so the UI shows live state.
+    db.execute(sql`
+      SELECT key, value FROM app_settings
+      WHERE key IN ('anomaly_streak_threshold', 'anomaly_known_bad_threshold', 'anomaly_auto_tune_starts_at')
+    `),
   ]);
 
   const scraper   = scraperRow.rows[0]   as any ?? {};
@@ -284,6 +303,18 @@ router.get('/admin/ops', requireAuth, requireAdmin, async (req: Request, res: Re
       priceRows: parseInt(catalog.price_rows ?? '0', 10),
     },
     autoRules: autoRulesRow.rows,
+    tuningLog: tuningLogRow.rows,
+    autoTune:  (() => {
+      const map = Object.fromEntries((autoTuneSettingsRow.rows as Array<{ key: string; value: string }>).map(r => [r.key, r.value]));
+      const startsAt = String(map.anomaly_auto_tune_starts_at ?? '').trim();
+      const todayIso = new Date().toISOString().slice(0, 10);
+      return {
+        streakThreshold:   parseInt(map.anomaly_streak_threshold ?? '3', 10),
+        knownBadThreshold: parseInt(map.anomaly_known_bad_threshold ?? '5', 10),
+        startsAt,
+        active:            startsAt.length > 0 && startsAt <= todayIso,
+      };
+    })(),
   });
 });
 

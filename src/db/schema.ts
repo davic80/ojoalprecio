@@ -155,6 +155,23 @@ export const anomalyDecisionLog = pgTable('anomaly_decision_log', {
 export type AnomalyDecision    = typeof anomalyDecisionLog.$inferSelect;
 export type NewAnomalyDecision = typeof anomalyDecisionLog.$inferInsert;
 
+// ── Rule Tuning Log (V2 auto-tune audit) ─────────────────────────────────────
+// One row per threshold adjustment performed by the calibration cron after the
+// auto-tune start date. Gives the operator full visibility into what the
+// system has decided to change and why — never silent.
+
+export const ruleTuningLog = pgTable('rule_tuning_log', {
+  id:          serial('id').primaryKey(),
+  ruleGroup:   varchar('rule_group', { length: 40 }).notNull(),   // 'streak' | 'known_bad'
+  priorValue:  integer('prior_value').notNull(),
+  newValue:    integer('new_value').notNull(),
+  reason:      text('reason').notNull(),
+  decidedAt:   timestamp('decided_at').defaultNow().notNull(),
+});
+
+export type RuleTuning    = typeof ruleTuningLog.$inferSelect;
+export type NewRuleTuning = typeof ruleTuningLog.$inferInsert;
+
 // ── User ↔ Product follows (many-to-many) ────────────────────────────────────
 // Composite PK (user_id, product_id). The legacy products.user_id is preserved
 // as "creator/added_by" only — actual ownership for dashboard/alerts purposes

@@ -143,11 +143,63 @@
       <% }); %>
       </tbody>
     </table>
-    <p class="hint" style="font-size:var(--fs-xs);margin-top:var(--sp-2)">
-      &gt;25% revert con ≥10 firings indica regla a revisar. Calibración automática V2 entra en 2 semanas.
-    </p>
   </div>
   <% } %>
+
+  <%# V2 auto-tune status + threshold tuning audit -%>
+  <div class="card" style="margin-top:var(--sp-4);padding:var(--sp-3) var(--sp-4);border-left:3px solid <%= autoTune.active ? 'var(--green)' : 'var(--gray-400)' %>">
+    <h2 style="margin:0 0 var(--sp-2);font-size:var(--fs-lg)">Auto-tune V2 · estado y ajustes</h2>
+    <div style="display:flex;gap:var(--sp-4);flex-wrap:wrap;margin-bottom:var(--sp-3)">
+      <div>
+        <div style="<%= labelStyle %>">Estado</div>
+        <div style="font-weight:600;color:<%= autoTune.active ? 'var(--green)' : 'var(--gray-500)' %>">
+          <%= autoTune.active ? '✓ activo (ajustando)' : (autoTune.startsAt ? '⏸ programado para ' + autoTune.startsAt : '✗ desactivado') %>
+        </div>
+      </div>
+      <div>
+        <div style="<%= labelStyle %>">Threshold streak</div>
+        <div style="font-weight:600;font-variant-numeric:tabular-nums"><%= autoTune.streakThreshold %></div>
+      </div>
+      <div>
+        <div style="<%= labelStyle %>">Threshold known_bad</div>
+        <div style="font-weight:600;font-variant-numeric:tabular-nums"><%= autoTune.knownBadThreshold %></div>
+      </div>
+    </div>
+    <% if (tuningLog && tuningLog.length > 0) { %>
+      <h3 style="margin:0 0 var(--sp-2);font-size:var(--fs-base);color:var(--gray-700)">Últimos ajustes</h3>
+      <table class="price-table" style="margin:0">
+        <thead>
+          <tr>
+            <th>Cuándo</th>
+            <th>Grupo</th>
+            <th style="text-align:right">Cambio</th>
+            <th>Razón</th>
+          </tr>
+        </thead>
+        <tbody>
+        <% tuningLog.forEach(function(t) { %>
+          <tr>
+            <td style="font-size:11px;color:var(--gray-500);white-space:nowrap"><%= new Date(t.decidedAt).toLocaleString('es-ES') %></td>
+            <td><code><%= t.ruleGroup %></code></td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums"><%= t.priorValue %> → <strong><%= t.newValue %></strong></td>
+            <td style="font-size:var(--fs-sm);color:var(--gray-500)"><%= t.reason %></td>
+          </tr>
+        <% }); %>
+        </tbody>
+      </table>
+    <% } else { %>
+      <p class="hint" style="font-size:var(--fs-sm);margin:0">
+        <% if (autoTune.active) { %>
+          Sin ajustes todavía — el cron de calibración (04:30 UTC diario) escribirá aquí cuando alguna regla cruce su umbral de revert.
+        <% } else if (autoTune.startsAt) { %>
+          Auto-tune empezará el <strong><%= autoTune.startsAt %></strong>. Hasta entonces solo se loguean warnings.
+          Cambia la fecha en <a href="/admin/settings" class="hint-link">Ajustes</a> para adelantarlo/retrasarlo.
+        <% } else { %>
+          Auto-tune deshabilitado (sin fecha de inicio). Pon una fecha en <a href="/admin/settings" class="hint-link">Ajustes</a> para activarlo.
+        <% } %>
+      </p>
+    <% } %>
+  </div>
 
 </main>
 

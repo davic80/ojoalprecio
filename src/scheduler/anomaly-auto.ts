@@ -1,6 +1,7 @@
 import { sql, eq } from 'drizzle-orm';
 import { db } from '../db/client';
-import { scrapeAnomalies, priceHistory, products, anomalyDecisionLog } from '../db/schema';
+import { scrapeAnomalies, priceHistory, products, anomalyDecisionLog, ruleTuningLog } from '../db/schema';
+import { getSetting, setSetting } from '../db/settings';
 
 /**
  * Auto-decider for scrape anomalies. Called by enqueueAnomaly() after a
@@ -19,17 +20,19 @@ import { scrapeAnomalies, priceHistory, products, anomalyDecisionLog } from '../
 export type AnomalyType = 'low' | 'high' | 'used' | 'unqualified';
 
 export interface AnomalyContext {
-  anomalyId:    number;
-  productId:    number;
-  type:         AnomalyType;
-  suspectPrice: number | null;
-  medianPrice:  number | null;
-  message:      string;
-  bypassFlag:   boolean;            // products.bypass_anomaly_guard
-  approvedSame: number;             // count for this product + same type
-  deniedSame:   number;
-  reviewedSame: number;             // approved + denied for this (product, type)
-  knownBad:     KnownBadCounts;     // cross-product counts for this message prefix
+  anomalyId:        number;
+  productId:        number;
+  type:             AnomalyType;
+  suspectPrice:     number | null;
+  medianPrice:      number | null;
+  message:          string;
+  bypassFlag:       boolean;          // products.bypass_anomaly_guard
+  approvedSame:     number;           // count for this product + same type
+  deniedSame:       number;
+  reviewedSame:     number;           // approved + denied for this (product, type)
+  knownBad:         KnownBadCounts;   // cross-product counts for this message prefix
+  streakThreshold:  number;           // runtime, from app_settings
+  knownBadThreshold: number;          // runtime, from app_settings
 }
 
 export interface AutoDecision {
@@ -41,16 +44,41 @@ export interface AutoDecision {
 
 type Rule = (ctx: AnomalyContext) => AutoDecision | null;
 
-/** Minimum samples before streak rules fire — protects new/rare products. */
-const STREAK_THRESHOLD = 3;
-/** Minimum cross-product denials before the known_bad_message rule fires. */
-const KNOWN_BAD_THRESHOLD = 5;
+/** Default minimum samples before streak rules fire — protects new/rare
+ *  products. Overridable at runtime via the `anomaly_streak_threshold`
+ *  app_setting; the calibration cron tweaks that setting from this default
+ *  once auto-tune kicks in. */
+const DEFAULT_STREAK_THRESHOLD = 3;
+const STREAK_THRESHOLD_FLOOR   = 2;
+const STREAK_THRESHOLD_CEILING = 10;
+
+/** Default minimum cross-product denials before the known_bad_message rule
+ *  fires. Same runtime / auto-tune story as the streak threshold. */
+const DEFAULT_KNOWN_BAD_THRESHOLD = 5;
+const KNOWN_BAD_THRESHOLD_FLOOR   = 2;
+const KNOWN_BAD_THRESHOLD_CEILING = 20;
+
 /** How many leading characters of scraper_message form the "pattern key" the
  *  known_bad_message rule matches against. Long enough to be specific, short
  *  enough to ignore trailing per-product variation (URL, asin, dynamic price). */
 const KNOWN_BAD_PREFIX_LEN = 80;
 
 export interface KnownBadCounts { deniedSamePattern: number; approvedSamePattern: number }
+
+/** Read the runtime thresholds from app_settings, clamping to the safe
+ *  bounds. Falls back to the default constant if the setting is missing,
+ *  out of range, or non-numeric. Pure read; never writes. */
+async function loadThresholds(): Promise<{ streak: number; knownBad: number }> {
+  const rawStreak = Number(await getSetting('anomaly_streak_threshold', DEFAULT_STREAK_THRESHOLD));
+  const rawKb     = Number(await getSetting('anomaly_known_bad_threshold', DEFAULT_KNOWN_BAD_THRESHOLD));
+  const streak = Number.isFinite(rawStreak)
+    ? Math.max(STREAK_THRESHOLD_FLOOR, Math.min(STREAK_THRESHOLD_CEILING, Math.round(rawStreak)))
+    : DEFAULT_STREAK_THRESHOLD;
+  const knownBad = Number.isFinite(rawKb)
+    ? Math.max(KNOWN_BAD_THRESHOLD_FLOOR, Math.min(KNOWN_BAD_THRESHOLD_CEILING, Math.round(rawKb)))
+    : DEFAULT_KNOWN_BAD_THRESHOLD;
+  return { streak, knownBad };
+}
 
 const RULES: Rule[] = [
   // 1. Product was previously flagged "always accept" by an admin via the
@@ -64,30 +92,30 @@ const RULES: Rule[] = [
     return { ruleName: 'bypass_flag', confidence: 1.00, newStatus: 'approved', applyAction: 'approve_with_price' };
   },
 
-  // 2. Approved streak: ≥3 admins-said-yes for (product, type) with 0 denials
+  // 2. Approved streak: ≥N admins-said-yes for (product, type) with 0 denials
   //    → the same shape of anomaly keeps showing up legitimately (product has
   //    naturally wide swings, e.g. flash sales). Apply the suspect price.
   function approvedStreak(ctx) {
-    if (ctx.approvedSame < STREAK_THRESHOLD || ctx.deniedSame > 0) return null;
+    if (ctx.approvedSame < ctx.streakThreshold || ctx.deniedSame > 0) return null;
     if (ctx.type === 'used' || ctx.type === 'unqualified') {
       return { ruleName: 'approved_streak', confidence: 1.00, newStatus: 'approved', applyAction: 'mark_unavailable' };
     }
     return { ruleName: 'approved_streak', confidence: 1.00, newStatus: 'approved', applyAction: 'approve_with_price' };
   },
 
-  // 3. Denied streak: ≥3 rejections for (product, type) with 0 approvals
+  // 3. Denied streak: ≥N rejections for (product, type) with 0 approvals
   //    → this product keeps producing the same kind of garbage. Auto-deny.
   function deniedStreak(ctx) {
-    if (ctx.deniedSame < STREAK_THRESHOLD || ctx.approvedSame > 0) return null;
+    if (ctx.deniedSame < ctx.streakThreshold || ctx.approvedSame > 0) return null;
     return { ruleName: 'denied_streak', confidence: 1.00, newStatus: 'denied', applyAction: 'deny' };
   },
 
   // 4. Known bad message: the same scraper_message prefix has been denied
-  //    ≥5 times CROSS-PRODUCT with zero approvals — a clear "bad" pattern
+  //    ≥N times CROSS-PRODUCT with zero approvals — a clear "bad" pattern
   //    (e.g. "Bloqueo Amazon (título: '500 - Se ha producido un error'…")
   //    that the operator has explicitly rejected before. Auto-deny.
   function knownBadMessage(ctx) {
-    if (ctx.knownBad.deniedSamePattern < KNOWN_BAD_THRESHOLD) return null;
+    if (ctx.knownBad.deniedSamePattern < ctx.knownBadThreshold) return null;
     if (ctx.knownBad.approvedSamePattern > 0) return null;
     return { ruleName: 'known_bad_message', confidence: 1.00, newStatus: 'denied', applyAction: 'deny' };
   },
@@ -152,57 +180,159 @@ export async function decideForAnomalyRow(input: {
     approvedSamePattern = Number(pr?.approved_pat ?? 0);
   }
 
+  const thresholds = await loadThresholds();
   return decideAnomaly({
-    anomalyId:    input.anomalyId,
-    productId:    input.productId,
-    type:         input.type,
-    suspectPrice: input.suspectPrice,
-    medianPrice:  input.medianPrice,
-    message:      input.message,
-    bypassFlag:   !!r.bypassFlag,
+    anomalyId:        input.anomalyId,
+    productId:        input.productId,
+    type:             input.type,
+    suspectPrice:     input.suspectPrice,
+    medianPrice:      input.medianPrice,
+    message:          input.message,
+    bypassFlag:       !!r.bypassFlag,
     approvedSame,
     deniedSame,
-    reviewedSame: approvedSame + deniedSame,
-    knownBad: { deniedSamePattern, approvedSamePattern },
+    reviewedSame:     approvedSame + deniedSame,
+    knownBad:         { deniedSamePattern, approvedSamePattern },
+    streakThreshold:  thresholds.streak,
+    knownBadThreshold: thresholds.knownBad,
   });
 }
 
 /**
- * Daily calibration tick. Computes per-rule revert rate over the last 7 days
- * and writes a console warning for any rule above CALIBRATION_THRESHOLD_PCT
- * (with at least CALIBRATION_MIN_SAMPLES applications to avoid noise).
+ * Daily calibration tick. Two modes, gated by the
+ * `anomaly_auto_tune_starts_at` app_setting:
  *
- * This is V1: surface signal, don't auto-disable. Operator decides whether
- * to adjust thresholds in code. Future versions could store these stats and
- * auto-tune.
+ *   • Before that date (or if the setting is empty): WARN ONLY — log per-rule
+ *     revert rates and flag any rule above CALIBRATION_RAISE_PCT.
+ *   • On or after that date: AUTO-TUNE — apply +1 / -1 adjustments to the
+ *     runtime thresholds, persist them to app_settings, and audit every
+ *     change in rule_tuning_log.
+ *
+ * The streak group bundles approved_streak + denied_streak under a single
+ * `anomaly_streak_threshold` setting; known_bad_message gets its own.
+ *
+ * Aggregation window is 7 days. We require at least RAISE_MIN_SAMPLES /
+ * LOWER_MIN_SAMPLES firings before doing anything so a few unlucky reverts
+ * can't flap the threshold up and down.
  */
-const CALIBRATION_THRESHOLD_PCT = 25;
-const CALIBRATION_MIN_SAMPLES   = 10;
+const CALIBRATION_RAISE_PCT  = 25;
+const CALIBRATION_LOWER_PCT  =  5;
+const CALIBRATION_RAISE_MIN  = 10;
+const CALIBRATION_LOWER_MIN  = 20;
 
-export async function runAnomalyCalibrationTick(): Promise<{ ruleName: string; applied: number; reverted: number; revertPct: number; warn: boolean }[]> {
-  const rows = await db.execute(sql`
-    SELECT
-      rule_name AS "ruleName",
-      COUNT(*)::int                              AS applied,
-      COUNT(*) FILTER (WHERE reverted_at IS NOT NULL)::int AS reverted
-    FROM anomaly_decision_log
-    WHERE actor LIKE 'auto:%'
-      AND decided_at > NOW() - INTERVAL '7 days'
-    GROUP BY rule_name
-    ORDER BY applied DESC
-  `);
+export async function runAnomalyCalibrationTick(): Promise<{
+  ruleName: string; applied: number; reverted: number; revertPct: number; warn: boolean
+}[]> {
+  // Pull both the per-rule rollup and the auto-tune start date in parallel.
+  const [rowsRes, startsAtRaw] = await Promise.all([
+    db.execute(sql`
+      SELECT
+        rule_name AS "ruleName",
+        COUNT(*)::int                                          AS applied,
+        COUNT(*) FILTER (WHERE reverted_at IS NOT NULL)::int   AS reverted
+      FROM anomaly_decision_log
+      WHERE actor LIKE 'auto:%'
+        AND decided_at > NOW() - INTERVAL '7 days'
+      GROUP BY rule_name
+      ORDER BY applied DESC
+    `),
+    getSetting('anomaly_auto_tune_starts_at', ''),
+  ]);
+
+  const rows = rowsRes.rows as Array<{ ruleName: string; applied: number; reverted: number }>;
+  const startsAt = String(startsAtRaw ?? '').trim();
+  const autoTuneActive = startsAt.length > 0 && startsAt <= new Date().toISOString().slice(0, 10);
+
+  // Always emit per-rule visibility.
   const out: { ruleName: string; applied: number; reverted: number; revertPct: number; warn: boolean }[] = [];
-  for (const r of rows.rows as Array<{ ruleName: string; applied: number; reverted: number }>) {
+  for (const r of rows) {
     const revertPct = r.applied > 0 ? Math.round((r.reverted / r.applied) * 100) : 0;
-    const warn = r.applied >= CALIBRATION_MIN_SAMPLES && revertPct > CALIBRATION_THRESHOLD_PCT;
+    const warn = r.applied >= CALIBRATION_RAISE_MIN && revertPct > CALIBRATION_RAISE_PCT;
     out.push({ ruleName: r.ruleName, applied: r.applied, reverted: r.reverted, revertPct, warn });
     if (warn) {
-      console.warn(`[anomaly-calibration] Rule '${r.ruleName}' has revert rate ${revertPct}% over ${r.applied} firings in 7d — consider raising its threshold or disabling.`);
+      console.warn(`[anomaly-calibration] Rule '${r.ruleName}' revert rate ${revertPct}% over ${r.applied} firings in 7d.`);
     } else if (r.applied > 0) {
       console.log(`[anomaly-calibration] Rule '${r.ruleName}': ${r.applied} fired, ${r.reverted} reverted (${revertPct}%)`);
     }
   }
+
+  if (!autoTuneActive) {
+    if (startsAt) console.log(`[anomaly-calibration] Auto-tune scheduled to start ${startsAt} — warn-only mode today.`);
+    else          console.log(`[anomaly-calibration] Auto-tune disabled (anomaly_auto_tune_starts_at empty).`);
+    return out;
+  }
+
+  // Aggregate the rules that share a tunable knob.
+  const byGroup = new Map<'streak' | 'known_bad', { fired: number; reverted: number }>([
+    ['streak',    { fired: 0, reverted: 0 }],
+    ['known_bad', { fired: 0, reverted: 0 }],
+  ]);
+  for (const r of rows) {
+    if (r.ruleName === 'approved_streak' || r.ruleName === 'denied_streak') {
+      const g = byGroup.get('streak')!;
+      g.fired += r.applied; g.reverted += r.reverted;
+    } else if (r.ruleName === 'known_bad_message') {
+      const g = byGroup.get('known_bad')!;
+      g.fired += r.applied; g.reverted += r.reverted;
+    }
+  }
+
+  const current = await loadThresholds();
+  await maybeAdjust({
+    group:  'streak',
+    setting: 'anomaly_streak_threshold',
+    current: current.streak,
+    floor:   STREAK_THRESHOLD_FLOOR,
+    ceiling: STREAK_THRESHOLD_CEILING,
+    stats:   byGroup.get('streak')!,
+  });
+  await maybeAdjust({
+    group:  'known_bad',
+    setting: 'anomaly_known_bad_threshold',
+    current: current.knownBad,
+    floor:   KNOWN_BAD_THRESHOLD_FLOOR,
+    ceiling: KNOWN_BAD_THRESHOLD_CEILING,
+    stats:   byGroup.get('known_bad')!,
+  });
+
   return out;
+}
+
+/** Internal: decide whether `current` needs +1, -1, or no change for one rule
+ *  group, then persist + log. Encodes the auto-tune policy in one place. */
+async function maybeAdjust(input: {
+  group:   'streak' | 'known_bad';
+  setting: string;
+  current: number;
+  floor:   number;
+  ceiling: number;
+  stats:   { fired: number; reverted: number };
+}): Promise<void> {
+  const { fired, reverted } = input.stats;
+  if (fired === 0) return;                       // nothing happened — skip
+  const pct = Math.round((reverted / fired) * 100);
+
+  let newValue = input.current;
+  let reason: string | null = null;
+
+  if (fired >= CALIBRATION_RAISE_MIN && pct > CALIBRATION_RAISE_PCT && input.current < input.ceiling) {
+    newValue = input.current + 1;
+    reason = `revert ${pct}% over ${fired} firings → raise to ${newValue}`;
+  } else if (fired >= CALIBRATION_LOWER_MIN && pct < CALIBRATION_LOWER_PCT && input.current > input.floor) {
+    newValue = input.current - 1;
+    reason = `revert ${pct}% over ${fired} firings → lower to ${newValue}`;
+  }
+
+  if (!reason || newValue === input.current) return;
+
+  await setSetting(input.setting, String(newValue));
+  await db.insert(ruleTuningLog).values({
+    ruleGroup:  input.group,
+    priorValue: input.current,
+    newValue,
+    reason,
+  });
+  console.log(`[anomaly-calibration] Auto-tuned ${input.group}: ${input.current} → ${newValue} (${reason})`);
 }
 
 /**

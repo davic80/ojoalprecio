@@ -912,6 +912,35 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX IF NOT EXISTS idx_anomaly_decision_log_decided  ON anomaly_decision_log(decided_at DESC);
   CREATE INDEX IF NOT EXISTS idx_anomaly_decision_log_auto     ON anomaly_decision_log(rule_name) WHERE actor LIKE 'auto:%';
   `,
+
+  // Migration 59 (V2 anomaly auto-tune): rule_tuning_log table + three
+  // app_settings rows so the calibration cron can adjust thresholds at
+  // runtime instead of via code change. Date-gated by
+  // anomaly_auto_tune_starts_at: until that date the cron only logs
+  // warnings (V1 behavior). From that date on, it auto-applies +/-1
+  // adjustments within bounds and audits every change here.
+  `
+  CREATE TABLE IF NOT EXISTS rule_tuning_log (
+    id           SERIAL PRIMARY KEY,
+    rule_group   VARCHAR(40) NOT NULL,    -- 'streak' | 'known_bad'
+    prior_value  INTEGER NOT NULL,
+    new_value    INTEGER NOT NULL,
+    reason       TEXT NOT NULL,
+    decided_at   TIMESTAMP DEFAULT NOW() NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_rule_tuning_log_decided ON rule_tuning_log(decided_at DESC);
+  INSERT INTO app_settings (key, value, value_type, label, hint) VALUES
+    ('anomaly_streak_threshold',      '3',          'integer',
+     'Anomalías: umbral streak (approved/denied)',
+     'Mínimo de aprobaciones/denegaciones consecutivas para que approved_streak / denied_streak dispare (rango 2–10). El auto-tune V2 ajusta este valor a partir de anomaly_auto_tune_starts_at.'),
+    ('anomaly_known_bad_threshold',   '5',          'integer',
+     'Anomalías: umbral known_bad_message',
+     'Mínimo de denegaciones cross-product de un mismo prefijo de mensaje para que known_bad_message dispare (rango 2–20). El auto-tune V2 ajusta este valor.'),
+    ('anomaly_auto_tune_starts_at',   '2026-06-13', 'string',
+     'Anomalías: fecha de inicio del auto-tune V2',
+     'Hasta esta fecha el cron de calibración solo loguea warnings. Desde esa fecha (incluida), auto-ajusta los thresholds de arriba según revert rate observado en últimos 7d. Formato YYYY-MM-DD. Déjalo en blanco para desactivar el auto-tune indefinidamente.')
+  ON CONFLICT (key) DO NOTHING;
+  `,
 ];
 
 export async function migrate(pool: Pool = defaultPool): Promise<void> {
