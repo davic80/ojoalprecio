@@ -29,6 +29,7 @@ export interface AnomalyContext {
   approvedSame: number;             // count for this product + same type
   deniedSame:   number;
   reviewedSame: number;             // approved + denied for this (product, type)
+  knownBad:     KnownBadCounts;     // cross-product counts for this message prefix
 }
 
 export interface AutoDecision {
@@ -42,6 +43,14 @@ type Rule = (ctx: AnomalyContext) => AutoDecision | null;
 
 /** Minimum samples before streak rules fire — protects new/rare products. */
 const STREAK_THRESHOLD = 3;
+/** Minimum cross-product denials before the known_bad_message rule fires. */
+const KNOWN_BAD_THRESHOLD = 5;
+/** How many leading characters of scraper_message form the "pattern key" the
+ *  known_bad_message rule matches against. Long enough to be specific, short
+ *  enough to ignore trailing per-product variation (URL, asin, dynamic price). */
+const KNOWN_BAD_PREFIX_LEN = 80;
+
+export interface KnownBadCounts { deniedSamePattern: number; approvedSamePattern: number }
 
 const RULES: Rule[] = [
   // 1. Product was previously flagged "always accept" by an admin via the
@@ -71,6 +80,16 @@ const RULES: Rule[] = [
   function deniedStreak(ctx) {
     if (ctx.deniedSame < STREAK_THRESHOLD || ctx.approvedSame > 0) return null;
     return { ruleName: 'denied_streak', confidence: 1.00, newStatus: 'denied', applyAction: 'deny' };
+  },
+
+  // 4. Known bad message: the same scraper_message prefix has been denied
+  //    ≥5 times CROSS-PRODUCT with zero approvals — a clear "bad" pattern
+  //    (e.g. "Bloqueo Amazon (título: '500 - Se ha producido un error'…")
+  //    that the operator has explicitly rejected before. Auto-deny.
+  function knownBadMessage(ctx) {
+    if (ctx.knownBad.deniedSamePattern < KNOWN_BAD_THRESHOLD) return null;
+    if (ctx.knownBad.approvedSamePattern > 0) return null;
+    return { ruleName: 'known_bad_message', confidence: 1.00, newStatus: 'denied', applyAction: 'deny' };
   },
 ];
 
@@ -110,6 +129,29 @@ export async function decideForAnomalyRow(input: {
   if (!r) return null;
   const approvedSame = Number(r.approved_same) || 0;
   const deniedSame   = Number(r.denied_same)   || 0;
+
+  // Cross-product message-pattern lookup. The pattern key is the LEFT
+  // KNOWN_BAD_PREFIX_LEN chars of scraper_message — long enough to be
+  // specific, short enough to ignore trailing per-product variation. We
+  // skip the query entirely for short / null messages since they can't
+  // meaningfully match anything.
+  const pattern = (input.message ?? '').slice(0, KNOWN_BAD_PREFIX_LEN);
+  let deniedSamePattern = 0;
+  let approvedSamePattern = 0;
+  if (pattern.length >= 20) {
+    const patternRows = await db.execute(sql`
+      SELECT
+        COUNT(*) FILTER (WHERE status = 'denied')   AS denied_pat,
+        COUNT(*) FILTER (WHERE status = 'approved') AS approved_pat
+      FROM scrape_anomalies
+      WHERE LEFT(scraper_message, ${KNOWN_BAD_PREFIX_LEN}) = ${pattern}
+        AND id <> ${input.anomalyId}
+    `);
+    const pr = patternRows.rows[0] as { denied_pat: string | number; approved_pat: string | number } | undefined;
+    deniedSamePattern   = Number(pr?.denied_pat   ?? 0);
+    approvedSamePattern = Number(pr?.approved_pat ?? 0);
+  }
+
   return decideAnomaly({
     anomalyId:    input.anomalyId,
     productId:    input.productId,
@@ -121,7 +163,46 @@ export async function decideForAnomalyRow(input: {
     approvedSame,
     deniedSame,
     reviewedSame: approvedSame + deniedSame,
+    knownBad: { deniedSamePattern, approvedSamePattern },
   });
+}
+
+/**
+ * Daily calibration tick. Computes per-rule revert rate over the last 7 days
+ * and writes a console warning for any rule above CALIBRATION_THRESHOLD_PCT
+ * (with at least CALIBRATION_MIN_SAMPLES applications to avoid noise).
+ *
+ * This is V1: surface signal, don't auto-disable. Operator decides whether
+ * to adjust thresholds in code. Future versions could store these stats and
+ * auto-tune.
+ */
+const CALIBRATION_THRESHOLD_PCT = 25;
+const CALIBRATION_MIN_SAMPLES   = 10;
+
+export async function runAnomalyCalibrationTick(): Promise<{ ruleName: string; applied: number; reverted: number; revertPct: number; warn: boolean }[]> {
+  const rows = await db.execute(sql`
+    SELECT
+      rule_name AS "ruleName",
+      COUNT(*)::int                              AS applied,
+      COUNT(*) FILTER (WHERE reverted_at IS NOT NULL)::int AS reverted
+    FROM anomaly_decision_log
+    WHERE actor LIKE 'auto:%'
+      AND decided_at > NOW() - INTERVAL '7 days'
+    GROUP BY rule_name
+    ORDER BY applied DESC
+  `);
+  const out: { ruleName: string; applied: number; reverted: number; revertPct: number; warn: boolean }[] = [];
+  for (const r of rows.rows as Array<{ ruleName: string; applied: number; reverted: number }>) {
+    const revertPct = r.applied > 0 ? Math.round((r.reverted / r.applied) * 100) : 0;
+    const warn = r.applied >= CALIBRATION_MIN_SAMPLES && revertPct > CALIBRATION_THRESHOLD_PCT;
+    out.push({ ruleName: r.ruleName, applied: r.applied, reverted: r.reverted, revertPct, warn });
+    if (warn) {
+      console.warn(`[anomaly-calibration] Rule '${r.ruleName}' has revert rate ${revertPct}% over ${r.applied} firings in 7d — consider raising its threshold or disabling.`);
+    } else if (r.applied > 0) {
+      console.log(`[anomaly-calibration] Rule '${r.ruleName}': ${r.applied} fired, ${r.reverted} reverted (${revertPct}%)`);
+    }
+  }
+  return out;
 }
 
 /**

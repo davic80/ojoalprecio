@@ -962,6 +962,16 @@ export function startScheduler(): void {
   });
   console.log('[auto-cleanup] Scheduled at :20 each hour (gated by auto_cleanup_enabled app setting).');
 
+  // Anomaly auto-decider calibration — once a day at 04:30 UTC. Computes per-
+  // rule revert rate over the last 7 days and warns to console when any rule
+  // crosses the threshold. Read-only: no state changes, just signal. The
+  // banner on /admin/anomalies surfaces the same info aggregated.
+  const { runAnomalyCalibrationTick } = require('./anomaly-auto');
+  cron.schedule('30 4 * * *', () => {
+    runAnomalyCalibrationTick().catch((err: Error) => console.error('[anomaly-calibration] failed:', err.message));
+  });
+  console.log('[anomaly-calibration] Scheduled daily at 04:30 UTC.');
+
   const { startCategoryImportScheduler } = require('./category-import');
   startCategoryImportScheduler();
 }
