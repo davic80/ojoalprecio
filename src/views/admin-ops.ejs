@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<%- include('partials/head', { title: 'Ops — Admin OjoAlPrecio' }) %>
+</head>
+<body>
+
+<%- include('partials/navbar-admin', { user, activePage: 'ops', showHubLink: true }) %>
+
+<main class="container-wide">
+
+  <div class="page-header">
+    <h1>Operaciones</h1>
+    <p class="subtitle">Salud del sistema en una pantalla. KPIs últimas 24h salvo donde se indica.</p>
+  </div>
+
+  <%_
+    const fmtAgo = (d) => {
+      if (!d) return '—';
+      const ms = Date.now() - new Date(d).getTime();
+      const m = Math.round(ms / 60000);
+      if (m < 1) return 'ahora mismo';
+      if (m < 60) return m + ' min';
+      const h = Math.round(m / 60);
+      if (h < 24) return h + 'h';
+      return Math.round(h / 24) + 'd';
+    };
+    const fmtUptime = (ms) => {
+      const s = Math.floor(ms / 1000);
+      if (s < 60) return s + 's';
+      const m = Math.floor(s / 60);
+      if (m < 60) return m + 'm';
+      const h = Math.floor(m / 60);
+      if (h < 24) return h + 'h ' + (m % 60) + 'm';
+      return Math.floor(h / 24) + 'd ' + (h % 24) + 'h';
+    };
+    const cardStyle = 'padding:var(--sp-3) var(--sp-4)';
+    const labelStyle = 'font-size:var(--fs-xs);color:var(--gray-500);text-transform:uppercase;letter-spacing:.5px';
+    const valueStyle = 'font-size:var(--fs-2xl);font-weight:600;font-variant-numeric:tabular-nums';
+    const subStyle  = 'font-size:var(--fs-sm);color:var(--gray-500);margin-top:2px';
+    const auto7d = anomalies.auto7d;
+    const revPct = auto7d > 0 ? Math.round((anomalies.autoReverted7d / auto7d) * 100) : 0;
+  _%>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:var(--sp-3)">
+
+    <%# Deployment card -%>
+    <div class="card" style="<%= cardStyle %>;border-left:3px solid var(--green)">
+      <div style="<%= labelStyle %>">Despliegue</div>
+      <div style="<%= valueStyle %>;font-size:var(--fs-xl)"><%= deployment.version %></div>
+      <div style="<%= subStyle %>">commit <code><%= deployment.commit || 'dev' %></code></div>
+      <div style="<%= subStyle %>">uptime <%= fmtUptime(deployment.uptimeMs) %> · <%= deployment.nodeMem %> MB RSS</div>
+    </div>
+
+    <%# Scraper card -%>
+    <% const scraperOk = scraper.scrapes24h > 0 && scraper.lastScrapeAt && (Date.now() - new Date(scraper.lastScrapeAt).getTime()) < 2 * 60 * 60 * 1000; %>
+    <div class="card" style="<%= cardStyle %>;border-left:3px solid <%= scraperOk ? 'var(--green)' : 'var(--red)' %>">
+      <div style="<%= labelStyle %>">Scraper 24h</div>
+      <div style="<%= valueStyle %>"><%= scraper.scrapes24h.toLocaleString('es-ES') %></div>
+      <div style="<%= subStyle %>">datapoints capturados</div>
+      <div style="<%= subStyle %>">
+        último: <%= fmtAgo(scraper.lastScrapeAt) %>
+        <% if (scraper.withErrorNow > 0) { %>· <span style="color:var(--red)"><%= scraper.withErrorNow %> con error ahora</span><% } %>
+      </div>
+    </div>
+
+    <%# Anomalies auto-decider card -%>
+    <div class="card" style="<%= cardStyle %>;border-left:3px solid <%= revPct > 25 ? 'var(--red)' : (revPct > 10 ? 'var(--amazon)' : 'var(--green)') %>">
+      <div style="<%= labelStyle %>">Anomalías auto 24h</div>
+      <div style="<%= valueStyle %>"><%= anomalies.auto24h %></div>
+      <div style="<%= subStyle %>">resueltas sin operador (<%= anomalies.human24h %> manuales)</div>
+      <div style="<%= subStyle %>">
+        <% if (anomalies.pending > 0) { %><span style="color:#854d0e"><strong><%= anomalies.pending %></strong> pendientes</span> · <% } %>
+        7d revert: <%= revPct %>% (<%= anomalies.autoReverted7d %>/<%= anomalies.auto7d %>)
+      </div>
+      <a href="/admin/anomalies" class="hint-link" style="font-size:var(--fs-sm);margin-top:var(--sp-2);display:inline-block">Ver cola →</a>
+    </div>
+
+    <%# Auto-cleanup card -%>
+    <div class="card" style="<%= cardStyle %>;border-left:3px solid <%= cleanup.enabled ? 'var(--green)' : 'var(--gray-400)' %>">
+      <div style="<%= labelStyle %>">Auto-cleanup 24h</div>
+      <div style="<%= valueStyle %>"><%= cleanup.paused24h %></div>
+      <div style="<%= subStyle %>">productos pausados (<%= cleanup.resumed24h %> reanudados)</div>
+      <div style="<%= subStyle %>">estado: <strong style="color:<%= cleanup.enabled ? 'var(--green)' : 'var(--gray-500)' %>"><%= cleanup.enabled ? '✓ activo' : '⏸ desactivado' %></strong></div>
+      <a href="/admin/cleanup" class="hint-link" style="font-size:var(--fs-sm);margin-top:var(--sp-2);display:inline-block">Ver candidatos →</a>
+    </div>
+
+    <%# AE equivalents card -%>
+    <div class="card" style="<%= cardStyle %>;border-left:3px solid <%= equiv.activeBanners > 0 ? 'var(--green)' : 'var(--gray-400)' %>">
+      <div style="<%= labelStyle %>">AE equivalentes</div>
+      <div style="<%= valueStyle %>"><%= equiv.activeBanners %></div>
+      <div style="<%= subStyle %>">banners activos (Amazon→AE)</div>
+      <div style="<%= subStyle %>">24h refresh: <%= equiv.refreshed24h %> · último: <%= fmtAgo(equiv.lastRefreshAt) %></div>
+      <a href="/admin/aliexpress" class="hint-link" style="font-size:var(--fs-sm);margin-top:var(--sp-2);display:inline-block">Ver AE →</a>
+    </div>
+
+    <%# Alerts card -%>
+    <div class="card" style="<%= cardStyle %>;border-left:3px solid <%= alerts.fired24h > 0 ? 'var(--amazon)' : 'var(--gray-300)' %>">
+      <div style="<%= labelStyle %>">Alertas 24h</div>
+      <div style="<%= valueStyle %>"><%= alerts.fired24h %></div>
+      <div style="<%= subStyle %>">disparadas (<%= alerts.armed %> armadas)</div>
+      <div style="<%= subStyle %>">último: <%= fmtAgo(alerts.lastFiredAt) %></div>
+      <a href="/admin/alerts" class="hint-link" style="font-size:var(--fs-sm);margin-top:var(--sp-2);display:inline-block">Ver alertas →</a>
+    </div>
+
+    <%# Catalog card -%>
+    <div class="card" style="<%= cardStyle %>;border-left:3px solid var(--gray-300)">
+      <div style="<%= labelStyle %>">Catálogo</div>
+      <div style="<%= valueStyle %>"><%= catalog.active.toLocaleString('es-ES') %></div>
+      <div style="<%= subStyle %>">productos activos (<%= catalog.inactive %> inactivos)</div>
+      <div style="<%= subStyle %>">
+        <%= catalog.priceRows.toLocaleString('es-ES') %> datapoints price_history
+        <% if (catalog.noMeta > 0) { %>· <span style="color:var(--red)"><%= catalog.noMeta %> sin metadata</span><% } %>
+      </div>
+    </div>
+
+  </div>
+
+  <%# Per-rule auto-decider breakdown (only show when rules have fired) -%>
+  <% if (autoRules && autoRules.length > 0) { %>
+  <div class="card" style="margin-top:var(--sp-4);padding:var(--sp-3) var(--sp-4)">
+    <h2 style="margin:0 0 var(--sp-2);font-size:var(--fs-lg)">Auto-decisor · reglas activas (7d)</h2>
+    <table class="price-table" style="margin:0">
+      <thead>
+        <tr>
+          <th>Regla</th>
+          <th style="text-align:right">Disparadas</th>
+          <th style="text-align:right">Revertidas</th>
+          <th style="text-align:right">% revert</th>
+        </tr>
+      </thead>
+      <tbody>
+      <% autoRules.forEach(function(r) {
+        const pct = r.fired > 0 ? Math.round((r.reverted / r.fired) * 100) : 0;
+        const warn = r.fired >= 10 && pct > 25;
+      %>
+        <tr>
+          <td><code><%= r.ruleName %></code></td>
+          <td style="text-align:right;font-variant-numeric:tabular-nums"><%= r.fired %></td>
+          <td style="text-align:right;font-variant-numeric:tabular-nums"><%= r.reverted %></td>
+          <td style="text-align:right;font-variant-numeric:tabular-nums;color:<%= warn ? 'var(--red)' : 'var(--gray-500)' %>;font-weight:<%= warn ? '600' : 'normal' %>"><%= pct %>%<% if (warn) { %> ⚠<% } %></td>
+        </tr>
+      <% }); %>
+      </tbody>
+    </table>
+    <p class="hint" style="font-size:var(--fs-xs);margin-top:var(--sp-2)">
+      &gt;25% revert con ≥10 firings indica regla a revisar. Calibración automática V2 entra en 2 semanas.
+    </p>
+  </div>
+  <% } %>
+
+</main>
+
+<%- include('partials/footer-admin') %>
+
+</body>
+</html>

@@ -174,6 +174,119 @@ router.get('/admin', requireAuth, requireAdmin, async (req: Request, res: Respon
   });
 });
 
+// ── GET /admin/ops — Operational health dashboard ────────────────────────────
+// Cards that answer "is everything fine right now?" in one screen. Distinct
+// from /admin/stats (user-facing analytics) — this one is for the operator.
+router.get('/admin/ops', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const [scraperRow, anomaliesRow, cleanupRow, equivRow, alertsRow, catalogRow, autoRulesRow] = await Promise.all([
+    // 24h scrape success: a row in price_history is the successful tick;
+    // last_error stamp is the latest failure signal per product.
+    db.execute(sql`
+      SELECT
+        (SELECT COUNT(*) FROM price_history WHERE scraped_at > NOW() - INTERVAL '24 hours')                                          AS scrapes_24h,
+        (SELECT COUNT(*) FROM products WHERE is_active = TRUE AND last_error IS NOT NULL AND last_error NOT LIKE 'Buybox no cual%') AS with_error_now,
+        (SELECT MAX(scraped_at) FROM price_history)                                                                                  AS last_scrape_at
+    `),
+    db.execute(sql`
+      SELECT
+        (SELECT COUNT(*) FROM scrape_anomalies WHERE status = 'pending')                                                              AS pending,
+        (SELECT COUNT(*) FROM anomaly_decision_log WHERE actor LIKE 'auto:%' AND decided_at > NOW() - INTERVAL '24 hours')            AS auto_24h,
+        (SELECT COUNT(*) FROM anomaly_decision_log WHERE actor LIKE 'user:%' AND decided_at > NOW() - INTERVAL '24 hours')            AS human_24h,
+        (SELECT COUNT(*) FROM anomaly_decision_log WHERE actor LIKE 'auto:%' AND reverted_at IS NOT NULL AND decided_at > NOW() - INTERVAL '7 days') AS auto_reverted_7d,
+        (SELECT COUNT(*) FROM anomaly_decision_log WHERE actor LIKE 'auto:%' AND decided_at > NOW() - INTERVAL '7 days')              AS auto_7d
+    `),
+    db.execute(sql`
+      SELECT
+        (SELECT value FROM app_settings WHERE key = 'auto_cleanup_enabled')                                              AS enabled_raw,
+        (SELECT COUNT(*) FROM auto_cleanup_log WHERE action = 'paused'   AND at > NOW() - INTERVAL '24 hours')           AS paused_24h,
+        (SELECT COUNT(*) FROM auto_cleanup_log WHERE action = 'resumed'  AND at > NOW() - INTERVAL '24 hours')           AS resumed_24h
+    `),
+    db.execute(sql`
+      SELECT
+        (SELECT COUNT(*) FROM amazon_ae_equivalents WHERE is_eligible = TRUE)                            AS active_banners,
+        (SELECT COUNT(*) FROM amazon_ae_equivalents WHERE checked_at > NOW() - INTERVAL '24 hours')      AS refreshed_24h,
+        (SELECT MAX(checked_at) FROM amazon_ae_equivalents)                                              AS last_refresh_at
+    `),
+    db.execute(sql`
+      SELECT
+        (SELECT COUNT(*) FROM alerts WHERE is_active = TRUE AND notified_at IS NULL)                              AS armed,
+        (SELECT COUNT(*) FROM alert_events WHERE triggered_at > NOW() - INTERVAL '24 hours')                      AS fired_24h,
+        (SELECT MAX(triggered_at) FROM alert_events)                                                              AS last_fired_at
+    `),
+    db.execute(sql`
+      SELECT
+        COUNT(*) FILTER (WHERE is_active = TRUE)                  AS active,
+        COUNT(*) FILTER (WHERE is_active = TRUE AND last_metadata_at IS NULL)  AS no_meta,
+        COUNT(*) FILTER (WHERE is_active = FALSE)                 AS inactive,
+        (SELECT COUNT(*) FROM price_history)                      AS price_rows
+      FROM products
+    `),
+    // Per-rule breakdown for the auto-decider — last 7 days, ordered by
+    // firing volume so the most-used rules surface first.
+    db.execute(sql`
+      SELECT rule_name AS "ruleName",
+             COUNT(*)::int                                  AS fired,
+             COUNT(*) FILTER (WHERE reverted_at IS NOT NULL)::int AS reverted
+      FROM anomaly_decision_log
+      WHERE actor LIKE 'auto:%' AND decided_at > NOW() - INTERVAL '7 days'
+      GROUP BY rule_name
+      ORDER BY fired DESC
+    `),
+  ]);
+
+  const scraper   = scraperRow.rows[0]   as any ?? {};
+  const anomalies = anomaliesRow.rows[0] as any ?? {};
+  const cleanup   = cleanupRow.rows[0]   as any ?? {};
+  const equiv     = equivRow.rows[0]     as any ?? {};
+  const alerts    = alertsRow.rows[0]    as any ?? {};
+  const catalog   = catalogRow.rows[0]   as any ?? {};
+
+  res.render('admin-ops', {
+    user: { email: req.session.userEmail },
+    isAdmin: true,
+    deployment: {
+      version:    process.env.APP_VERSION ?? 'dev',
+      commit:     (process.env.APP_COMMIT ?? '').slice(0, 7),
+      uptimeMs:   Math.round(process.uptime() * 1000),
+      nodeMem:    Math.round(process.memoryUsage().rss / (1024 * 1024)),
+    },
+    scraper: {
+      scrapes24h:    parseInt(scraper.scrapes_24h ?? '0', 10),
+      withErrorNow:  parseInt(scraper.with_error_now ?? '0', 10),
+      lastScrapeAt:  scraper.last_scrape_at,
+    },
+    anomalies: {
+      pending:        parseInt(anomalies.pending ?? '0', 10),
+      auto24h:        parseInt(anomalies.auto_24h ?? '0', 10),
+      human24h:       parseInt(anomalies.human_24h ?? '0', 10),
+      auto7d:         parseInt(anomalies.auto_7d ?? '0', 10),
+      autoReverted7d: parseInt(anomalies.auto_reverted_7d ?? '0', 10),
+    },
+    cleanup: {
+      enabled:    String(cleanup.enabled_raw ?? '') === 'true',
+      paused24h:  parseInt(cleanup.paused_24h ?? '0', 10),
+      resumed24h: parseInt(cleanup.resumed_24h ?? '0', 10),
+    },
+    equiv: {
+      activeBanners: parseInt(equiv.active_banners ?? '0', 10),
+      refreshed24h:  parseInt(equiv.refreshed_24h ?? '0', 10),
+      lastRefreshAt: equiv.last_refresh_at,
+    },
+    alerts: {
+      armed:        parseInt(alerts.armed ?? '0', 10),
+      fired24h:     parseInt(alerts.fired_24h ?? '0', 10),
+      lastFiredAt:  alerts.last_fired_at,
+    },
+    catalog: {
+      active:    parseInt(catalog.active ?? '0', 10),
+      inactive:  parseInt(catalog.inactive ?? '0', 10),
+      noMeta:    parseInt(catalog.no_meta ?? '0', 10),
+      priceRows: parseInt(catalog.price_rows ?? '0', 10),
+    },
+    autoRules: autoRulesRow.rows,
+  });
+});
+
 // ── GET /admin/categories ─────────────────────────────────────────────────────
 router.get('/admin/categories', requireAuth, requireAdmin, async (req: Request, res: Response) => {
   const [cats, uncatRow] = await Promise.all([

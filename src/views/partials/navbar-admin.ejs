@@ -4,7 +4,7 @@
   //   activePage  : 'categories' | 'deals' | 'cleanup' | 'anomalies'
   //               | 'users' | 'alerts'
   //               | 'aliexpress' | 'affiliates'
-  //               | 'stats' | 'social'
+  //               | 'stats' | 'social' | 'ops'
   //               | 'settings'                           (optional)
   //   showHubLink : boolean — render leading "/admin"    (optional)
   //
@@ -15,7 +15,7 @@
     categories: 'catalog', deals: 'catalog', anomalies: 'catalog', cleanup: 'catalog',
     users: 'users', alerts: 'users',
     aliexpress: 'marketplaces', affiliates: 'marketplaces',
-    stats: 'data', social: 'data',
+    stats: 'data', social: 'data', ops: 'data',
   };
   const _ap = typeof activePage !== 'undefined' ? activePage : null;
   const _activeGroup = _ap ? PAGE_GROUPS[_ap] : null;
@@ -62,6 +62,7 @@ _%>
     <div class="admin-menu">
       <button type="button" class="<%= _trigger('data') %>" aria-haspopup="true" aria-expanded="false">📊 Datos ▾</button>
       <div class="admin-menu-panel" hidden>
+        <a href="/admin/ops"    class="<%= _item('ops') %>">🩺 Ops</a>
         <a href="/admin/stats"  class="<%= _item('stats') %>">Stats</a>
         <a href="/admin/social" class="<%= _item('social') %>">Social</a>
       </div>
