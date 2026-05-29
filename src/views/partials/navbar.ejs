@@ -17,11 +17,12 @@
   </a>
   <%# Universal search — visible on tablet+ (mobile has the bottom-nav entry).
      Keeps a single GET form to /search across all variants so users can jump
-     anywhere → search in one click. -%>
+     anywhere → search in one click. Uses the design-system .input class so
+     it matches every other text field on the site. -%>
   <form method="GET" action="/search" class="navbar-search" role="search">
     <input type="search" name="q" value="<%= typeof q !== 'undefined' ? q : '' %>"
            placeholder="Buscar producto…" aria-label="Buscar productos"
-           class="navbar-search-input">
+           class="input">
   </form>
   <div class="navbar-actions">
 <%_ if (variant === 'deals') { _%>
