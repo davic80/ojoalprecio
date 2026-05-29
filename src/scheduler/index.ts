@@ -452,7 +452,7 @@ async function enqueueAnomaly(input: {
   snippet?: string;
 }): Promise<void> {
   try {
-    await db.insert(scrapeAnomalies).values({
+    const [inserted] = await db.insert(scrapeAnomalies).values({
       productId:      input.productId,
       anomalyType:    input.type,
       suspectPrice:   input.suspectPrice != null ? String(input.suspectPrice.toFixed(2)) : null,
@@ -460,7 +460,33 @@ async function enqueueAnomaly(input: {
       scraperMessage: input.message,
       pageSnippet:    input.snippet ?? null,
       status:         'pending',
-    });
+    }).returning({ id: scrapeAnomalies.id });
+
+    // Fire the auto-decider. If a deterministic rule matches, the anomaly is
+    // resolved immediately and never reaches the human queue. Otherwise it
+    // stays pending. Best-effort: a failure here only loses the auto-decision
+    // path; the row is still in the queue for manual review.
+    try {
+      const { decideForAnomalyRow, applyDecision } = await import('./anomaly-auto');
+      const decision = await decideForAnomalyRow({
+        anomalyId:    inserted.id,
+        productId:    input.productId,
+        type:         input.type,
+        suspectPrice: input.suspectPrice,
+        medianPrice:  input.medianPrice,
+        message:      input.message,
+      });
+      if (decision) {
+        await applyDecision({
+          anomalyId: inserted.id,
+          productId: input.productId,
+          decision,
+          actor:     `auto:${decision.ruleName}`,
+        });
+      }
+    } catch (err) {
+      console.error('[scheduler] anomaly auto-decider failed:', err);
+    }
   } catch (err) {
     console.error('[scheduler] enqueueAnomaly failed:', err);
   }

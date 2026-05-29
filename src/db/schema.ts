@@ -1,4 +1,4 @@
-import { pgTable, serial, varchar, text, boolean, timestamp, numeric, integer, index, primaryKey } from 'drizzle-orm/pg-core';
+import { pgTable, serial, varchar, text, boolean, timestamp, numeric, integer, index, primaryKey, jsonb } from 'drizzle-orm/pg-core';
 
 // ── Categories ───────────────────────────────────────────────────────────────
 
@@ -129,6 +129,31 @@ export const scrapeAnomalies = pgTable('scrape_anomalies', {
 
 export type ScrapeAnomaly    = typeof scrapeAnomalies.$inferSelect;
 export type NewScrapeAnomaly = typeof scrapeAnomalies.$inferInsert;
+
+// ── Anomaly Decision Log (audit trail + learning bus) ────────────────────────
+// One row per state transition on a scrape_anomalies row. Each manual review
+// AND each auto-decider firing writes here. Reverts are themselves rows, with
+// reverted_at/by filled on the ORIGINAL row + a new 'reverted' row referencing
+// the same anomaly. Lets us spot rules that flap and tune thresholds.
+
+export const anomalyDecisionLog = pgTable('anomaly_decision_log', {
+  id:           serial('id').primaryKey(),
+  anomalyId:    integer('anomaly_id').notNull().references(() => scrapeAnomalies.id, { onDelete: 'cascade' }),
+  productId:    integer('product_id').notNull().references(() => products.id,        { onDelete: 'cascade' }),
+  action:       varchar('action', { length: 30 }).notNull(),  // approved/denied/bypass/unavailable/reverted
+  actor:        varchar('actor',  { length: 60 }).notNull(),  // 'user:<id>' | 'auto:<rule>'
+  ruleName:     varchar('rule_name', { length: 60 }),
+  confidence:   numeric('confidence', { precision: 3, scale: 2 }),
+  priorStatus:  varchar('prior_status', { length: 20 }).notNull(),
+  newStatus:    varchar('new_status',  { length: 20 }).notNull(),
+  sideEffects:  jsonb('side_effects'),
+  revertedAt:   timestamp('reverted_at'),
+  revertedBy:   integer('reverted_by').references(() => users.id, { onDelete: 'set null' }),
+  decidedAt:    timestamp('decided_at').defaultNow().notNull(),
+});
+
+export type AnomalyDecision    = typeof anomalyDecisionLog.$inferSelect;
+export type NewAnomalyDecision = typeof anomalyDecisionLog.$inferInsert;
 
 // ── User ↔ Product follows (many-to-many) ────────────────────────────────────
 // Composite PK (user_id, product_id). The legacy products.user_id is preserved

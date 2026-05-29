@@ -884,6 +884,34 @@ export const MIGRATIONS: string[] = [
      'Lista de marcas que nunca se pausan, sin importar reviews/BSR/badge. Productos cuya brand capturada (case-insensitive) coincide con cualquier entrada quedan a salvo. Si la marca no se ha capturado todavía (brand IS NULL en BD), el producto NO está protegido — espera al siguiente scrape o bájalo manualmente.')
   ON CONFLICT (key) DO NOTHING;
   `,
+
+  // Migration 58: anomaly_decision_log — every state transition on a
+  // scrape_anomaly row gets a row here, so we can (a) learn from the
+  // history (which rules fire too often, which products keep flapping),
+  // (b) surface the auto-applied action in the UI, and (c) revert it
+  // cleanly when the operator disagrees. `actor` is either 'user:<id>'
+  // for manual review or 'auto:<rule-name>' for the auto-decider.
+  `
+  CREATE TABLE IF NOT EXISTS anomaly_decision_log (
+    id           SERIAL PRIMARY KEY,
+    anomaly_id   INTEGER NOT NULL REFERENCES scrape_anomalies(id) ON DELETE CASCADE,
+    product_id   INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    action       VARCHAR(30) NOT NULL,   -- approved / denied / bypass / unavailable / reverted
+    actor        VARCHAR(60) NOT NULL,   -- user:42 | auto:bypass_flag | auto:approved_streak ...
+    rule_name    VARCHAR(60),            -- name of the auto rule that fired (NULL for manual)
+    confidence   NUMERIC(3,2),           -- 0.00–1.00, deterministic rules = 1.00
+    prior_status VARCHAR(20) NOT NULL,
+    new_status   VARCHAR(20) NOT NULL,
+    side_effects JSONB,                  -- { price_history_id: 123 } etc, used by revert
+    reverted_at  TIMESTAMP,
+    reverted_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    decided_at   TIMESTAMP DEFAULT NOW() NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_anomaly_decision_log_anomaly  ON anomaly_decision_log(anomaly_id);
+  CREATE INDEX IF NOT EXISTS idx_anomaly_decision_log_product  ON anomaly_decision_log(product_id);
+  CREATE INDEX IF NOT EXISTS idx_anomaly_decision_log_decided  ON anomaly_decision_log(decided_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_anomaly_decision_log_auto     ON anomaly_decision_log(rule_name) WHERE actor LIKE 'auto:%';
+  `,
 ];
 
 export async function migrate(pool: Pool = defaultPool): Promise<void> {
