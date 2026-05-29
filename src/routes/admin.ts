@@ -1437,45 +1437,6 @@ router.post('/admin/aliexpress/equivalent/:amazonProductId/recheck',
   },
 );
 
-// ── GET /admin/aliexpress/sku-probe/:productId — DS API permission check ────
-// Calls aliexpress.ds.product.get for a known productId and dumps the variant
-// breakdown as JSON. Validates both that the SKU Dimension API perm is granted
-// AND that the OAuth access_token flow is wired correctly end-to-end.
-router.get('/admin/aliexpress/sku-probe/:productId', requireAuth, requireAdmin, async (req: Request, res: Response) => {
-  const productId = String(req.params.productId || '').trim();
-  if (!/^\d{10,16}$/.test(productId)) {
-    return res.status(400).json({ error: 'productId must be 10-16 digits' });
-  }
-  const client = getAliExpressClient();
-  const oauthCfg = getOAuthConfig();
-  if (!client || !oauthCfg) {
-    return res.status(503).json({ error: 'AliExpress not configured' });
-  }
-  try {
-    const accessToken = await getCurrentAccessToken(oauthCfg);
-    const out = await client.dsProductGet(productId, accessToken);
-    if (!out) return res.status(404).json({ error: 'product not found via DS endpoint' });
-    return res.json({
-      productId,
-      master: out.master,
-      skuCount: out.skus.length,
-      skus: out.skus,
-    });
-  } catch (err) {
-    const e = err as { name?: string; message?: string; code?: string; raw?: unknown };
-    const status = err instanceof AliExpressOAuthRequiredError ? 401 : 502;
-    return res.status(status).json({
-      error:     e.message ?? 'unknown error',
-      errorName: e.name,
-      errorCode: e.code,
-      raw:       e.raw,
-      hint:      err instanceof AliExpressOAuthRequiredError
-        ? 'Visit /admin/aliexpress/oauth/start to authorize.'
-        : undefined,
-    });
-  }
-});
-
 // ── OAuth flow for AE Dropshipping namespace ────────────────────────────────
 // Single admin runs this once; resulting tokens land in aliexpress_oauth_tokens
 // (single-row, id=1) and getCurrentAccessToken() handles refresh-on-read.

@@ -53,28 +53,3 @@ export interface SimilarCandidate {
   textScore:  number;
 }
 
-/**
- * One variant (sku) of an AE master product. Returned by the Dropshipping
- * endpoint `aliexpress.ds.product.get` — the *only* AE endpoint that exposes
- * per-variant price/stock/image. The Affiliate-namespace productdetail.get
- * returns only master-level fields. Permission tier: "SKU Dimension API".
- */
-export interface AliExpressSku {
-  skuId:         string;      // numeric, stable per (productId, variant combo)
-  skuAttr:       string;      // wire-format "14:350853#Black;5:361386"
-  attrs:         Array<{ name: string; value: string; image: string | null }>;
-  displayLabel:  string;      // "Color: Black · Size: M" for the UI
-  salePrice:     number;
-  originalPrice: number | null;
-  currency:      string;
-  inStock:       boolean;     // false if the variant is currently out of stock
-  stockQty:      number | null;
-  image:         string | null;
-  barcode:       string | null;
-}
-
-/** dsProductGet returns master + variant array; either may be null on error. */
-export interface AliExpressProductWithSkus {
-  master:  AliExpressProduct;
-  skus:    AliExpressSku[];
-}
