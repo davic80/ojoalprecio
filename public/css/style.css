@@ -152,12 +152,21 @@ a:hover { text-decoration: none; }
    crowding brand/actions. */
 .navbar-search { display: none; }
 @media (min-width: 640px) {
+  /* Switch the navbar to a 3-column grid so the search sits visually
+     centered instead of squashed between brand and actions. The outer
+     1fr columns absorb the leftover space symmetrically. */
+  .navbar {
+    display: grid;
+    grid-template-columns: 1fr minmax(0, 720px) 1fr;
+    column-gap: var(--sp-4);
+  }
+  .navbar-brand   { justify-self: start; }
+  .navbar-actions { justify-self: end;   }
   .navbar-search {
     display: flex;
-    flex: 1 1 auto;
-    min-width: 0;
-    max-width: 720px;
-    margin: 0 var(--sp-4);
+    justify-self: stretch;
+    width: 100%;
+    margin: 0;
   }
   /* Slightly tighter than a form .input — the navbar is shorter than a
      dedicated form context, and the smaller padding keeps the search
