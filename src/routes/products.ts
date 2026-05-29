@@ -234,8 +234,6 @@ router.post(
         }
         throw err;
       }
-      // TODO C3: redirect to `/ae/${aeId}` once that view exists. For now
-      // bounce back to the dashboard.
       const next = `/ae/${aeId}`;
       if (req.headers['hx-request']) {
         res.setHeader('HX-Redirect', next);
