@@ -15,6 +15,14 @@
     <span class="brand-icon">👁</span>
     <span class="brand-name">OjoAlPrecio</span>
   </a>
+  <%# Universal search — visible on tablet+ (mobile has the bottom-nav entry).
+     Keeps a single GET form to /search across all variants so users can jump
+     anywhere → search in one click. -%>
+  <form method="GET" action="/search" class="navbar-search" role="search">
+    <input type="search" name="q" value="<%= typeof q !== 'undefined' ? q : '' %>"
+           placeholder="Buscar producto…" aria-label="Buscar productos"
+           class="navbar-search-input">
+  </form>
   <div class="navbar-actions">
 <%_ if (variant === 'deals') { _%>
     <% if (typeof user !== 'undefined' && user) { %>

@@ -144,6 +144,34 @@ a:hover { text-decoration: none; }
   text-decoration: none;
 }
 
+/* ── Navbar search ───────────────────────────────────────────────────────── */
+/* Hidden by default (mobile uses bottom-nav "Buscar"). Tablet+ shows the
+   inline form so desktop users have a single entry point that works on
+   every page variant. */
+.navbar-search { display: none; }
+.navbar-search-input {
+  width: 100%;
+  font-size: var(--fs-base);
+  padding: 7px 12px;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius);
+  background: var(--white);
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+}
+.navbar-search-input:focus {
+  border-color: var(--red);
+  box-shadow: 0 0 0 3px rgba(181, 56, 71, .14);
+}
+@media (min-width: 640px) {
+  .navbar-search {
+    display: block;
+    flex: 1;
+    max-width: 360px;
+    margin: 0 var(--sp-3);
+  }
+}
+
 /* ── Container ───────────────────────────────────────────────────────────── */
 .container,
 .container-wide {
