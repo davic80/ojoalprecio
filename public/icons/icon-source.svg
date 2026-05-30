@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="OjoAlPrecio icon">
+  <!-- Brand background: warm red, matches the red CSS token in style.css. -->
+  <rect width="512" height="512" fill="#b53847"/>
+  <!-- Stylised eye: almond outline, iris, pupil, highlight.
+       Curves chosen so the shape reads clearly at 48px favicon size while
+       still looking deliberate at 512px. -->
+  <path d="M 64 256 Q 256 90 448 256 Q 256 422 64 256 Z" fill="#ffffff"/>
+  <circle cx="256" cy="256" r="78" fill="#b53847"/>
+  <circle cx="256" cy="256" r="32" fill="#ffffff"/>
+  <circle cx="234" cy="234" r="14" fill="#ffffff" opacity="0.85"/>
+</svg>

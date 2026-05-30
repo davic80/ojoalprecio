@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<%- include('partials/head', { title: 'OjoAlPrecio · Chollos en directo' }) %>
+</head>
+<body class="app-home">
+
+<%- include('partials/navbar', { variant: user ? 'user' : 'anonymous', user: user, isAdmin: isAdmin }) %>
+
+<main class="container app-home-main">
+
+  <% if (hero) { %>
+    <%# Hero: dominant card with the single best deal. Image fills, price
+       block sits below with the CTA. Tap target spans the whole card. -%>
+    <a href="/p/<%= hero.asin %>" class="app-hero" aria-label="Ver detalle de <%= hero.name %>">
+      <div class="app-hero-tag">💥 La oferta del momento</div>
+      <% if (hero.imageUrl) { %>
+        <img src="<%= hero.imageUrl %>" alt="" loading="eager" decoding="async" class="app-hero-img">
+      <% } %>
+      <div class="app-hero-body">
+        <h2 class="app-hero-title"><%= hero.name ? (hero.name.length > 80 ? hero.name.slice(0, 80) + '…' : hero.name) : hero.asin %></h2>
+        <div class="app-hero-prices">
+          <strong class="app-hero-price"><%= hero.currentPrice.toFixed(2) %> €</strong>
+          <% if (hero.savedPct && hero.savedPct > 0) { %>
+            <span class="app-hero-saving">−<%= hero.savedPct %>%</span>
+          <% } %>
+          <% if (hero.maxPrice && hero.maxPrice > hero.currentPrice) { %>
+            <span class="app-hero-was">antes <%= hero.maxPrice.toFixed(2) %> €</span>
+          <% } %>
+        </div>
+      </div>
+    </a>
+  <% } else { %>
+    <div class="card" style="padding:var(--sp-4);text-align:center">
+      <p class="hint" style="margin:0">No hay ofertas destacadas en este momento. Vuelve en unos minutos — el scraper recorre el catálogo cada hora.</p>
+    </div>
+  <% } %>
+
+  <% if (runners.length > 0) { %>
+    <h2 class="app-section-title">⚡ Hot ahora</h2>
+    <div class="app-runners">
+      <% runners.forEach(function(d) { %>
+        <a href="/p/<%= d.asin %>" class="app-runner" aria-label="Ver <%= d.name %>">
+          <% if (d.imageUrl) { %>
+            <img src="<%= d.imageUrl %>" alt="" loading="lazy" decoding="async" class="app-runner-img">
+          <% } %>
+          <div class="app-runner-body">
+            <p class="app-runner-title"><%= d.name ? (d.name.length > 50 ? d.name.slice(0, 50) + '…' : d.name) : d.asin %></p>
+            <div class="app-runner-prices">
+              <strong><%= d.currentPrice.toFixed(2) %> €</strong>
+              <% if (d.savedPct && d.savedPct > 0) { %><span class="app-runner-saving">−<%= d.savedPct %>%</span><% } %>
+            </div>
+          </div>
+        </a>
+      <% }); %>
+    </div>
+    <a href="/ofertas" class="btn btn-outline app-cta-wide">Ver todas las ofertas →</a>
+  <% } %>
+
+  <%# Activity card: tailored CTA depending on auth state. -%>
+  <% if (activity) { %>
+    <div class="card app-activity">
+      <div class="app-activity-label">📊 Tu actividad</div>
+      <div class="app-activity-body">
+        Sigues <strong><%= activity.followCount %></strong> producto<%= activity.followCount === 1 ? '' : 's' %> · <strong><%= activity.alertCount %></strong> alerta<%= activity.alertCount === 1 ? '' : 's' %> armada<%= activity.alertCount === 1 ? '' : 's' %>
+      </div>
+      <a href="/" class="btn btn-outline btn-sm app-activity-cta">Mi panel →</a>
+    </div>
+  <% } else { %>
+    <div class="card app-activity">
+      <div class="app-activity-label">⭐ Sigue productos</div>
+      <p class="app-activity-body" style="margin:0">Crea alertas y te avisamos cuando bajen de precio. Gratis y sin spam.</p>
+      <div style="display:flex;gap:var(--sp-2);margin-top:var(--sp-3)">
+        <a href="/auth/register" class="btn btn-primary btn-sm" style="flex:1">Registrarme</a>
+        <a href="/auth/login"    class="btn btn-outline btn-sm" style="flex:1">Entrar</a>
+      </div>
+    </div>
+  <% } %>
+
+</main>
+
+<%- include('partials/bottom-nav', { user }) %>
+
+</body>
+</html>

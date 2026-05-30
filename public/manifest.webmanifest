@@ -1,0 +1,57 @@
+{
+  "name": "OjoAlPrecio",
+  "short_name": "OjoAlPrecio",
+  "description": "Sigue precios de Amazon y AliExpress. Detecta chollos automáticamente y alerta cuando bajan.",
+  "lang": "es",
+  "dir": "ltr",
+  "start_url": "/m",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#b53847",
+  "background_color": "#b53847",
+  "categories": ["shopping", "lifestyle"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Ofertas",
+      "short_name": "Ofertas",
+      "description": "Las mejores rebajas del momento",
+      "url": "/ofertas",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Mi panel",
+      "short_name": "Panel",
+      "description": "Productos que sigues y alertas",
+      "url": "/",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Buscar",
+      "short_name": "Buscar",
+      "description": "Busca un producto en Amazon o AliExpress",
+      "url": "/search",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
+  ]
+}

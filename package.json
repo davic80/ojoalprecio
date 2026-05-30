@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:unit": "SKIP_DB_SETUP=1 vitest run --exclude 'tests/integration/**'",
     "test:integration": "vitest run tests/integration",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "pwa:icons": "node scripts/gen-pwa-icons.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -43,6 +44,7 @@
     "@types/pg": "^8.11.10",
     "drizzle-kit": "^0.30.1",
     "esbuild": "^0.28.0",
+    "sharp": "^0.34.5",
     "testcontainers": "^12.0.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",

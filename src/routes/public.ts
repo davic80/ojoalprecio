@@ -187,6 +187,63 @@ router.get('/search', async (req: Request, res: Response) => {
   });
 });
 
+// ── GET /m — PWA app home ────────────────────────────────────────────────────
+// `start_url` of the installed PWA. Built to be glanceable: a single hero
+// deal as the dominant visual, a 2×2 grid of runners-up, an optional
+// "your activity" card for logged-in users. Anonymous users see the same
+// shell with login/register CTAs instead. /ofertas remains the public
+// landing for browser visitors; /m is the in-app destination.
+router.get('/m', async (req: Request, res: Response) => {
+  const rows = await db.execute(sql`
+    SELECT
+      p.id, p.asin, p.name, p.image_url AS "imageUrl",
+      p.deal_score::float AS "dealScore",
+      p.sale_tier         AS "saleTier",
+      p.url,
+      (SELECT ph.price::float FROM price_history ph WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1) AS "currentPrice",
+      (SELECT MAX(ph2.price)::float FROM price_history ph2 WHERE ph2.product_id = p.id) AS "maxPrice"
+    FROM products p
+    WHERE p.is_active    = TRUE
+      AND p.is_available = TRUE
+      AND p.is_on_sale   = TRUE
+      AND p.deal_score IS NOT NULL
+    ORDER BY p.deal_score DESC NULLS LAST
+    LIMIT 5
+  `);
+
+  const deals = (rows.rows as any[]).map(p => ({
+    ...p,
+    amazonUrl: affiliateUrl(p.url),
+    savedPct: (p.maxPrice && p.currentPrice && p.maxPrice > 0)
+      ? Math.round((1 - p.currentPrice / p.maxPrice) * 100)
+      : null,
+  }));
+
+  // Activity card: logged-in users see follow + alert counts at a glance.
+  // Skipped entirely (rendered as a login CTA in the view) for anons.
+  let activity: { followCount: number; alertCount: number } | null = null;
+  if (req.session.userId) {
+    const aRow = await db.execute(sql`
+      SELECT
+        (SELECT COUNT(*) FROM user_products WHERE user_id = ${req.session.userId})                                AS follows,
+        (SELECT COUNT(*) FROM alerts WHERE user_id = ${req.session.userId} AND is_active = TRUE)                  AS armed
+    `);
+    const r = aRow.rows[0] as { follows: string | number; armed: string | number } | undefined;
+    activity = {
+      followCount: Number(r?.follows ?? 0),
+      alertCount:  Number(r?.armed   ?? 0),
+    };
+  }
+
+  res.render('app-home', {
+    hero:      deals[0] ?? null,
+    runners:   deals.slice(1, 5),
+    activity,
+    user:      req.session.userId ? { email: req.session.userEmail } : null,
+    isAdmin:   isAdmin(req),
+  });
+});
+
 // ── GET /ofertas — Public deals page ─────────────────────────────────────────
 router.get('/ofertas', async (req: Request, res: Response) => {
   const rows = await db.execute(sql`

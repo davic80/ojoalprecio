@@ -70,10 +70,19 @@ RUN npm install -g npm@11
 COPY package*.json ./
 RUN npm ci --omit=dev
 
+# Build-time args (passed by GitHub Actions). Declared before public/ copy
+# so the SW versioning step below can read GIT_COMMIT.
+ARG GIT_COMMIT=dev
+ARG APP_VERSION=1.0.0
+
 # Copy compiled output, views, and static assets
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/src/views ./dist/views
 COPY public/ ./public/
+
+# Stamp the service worker's CACHE_VERSION placeholder with this build's
+# commit SHA so every deploy invalidates the shell cache automatically.
+RUN sed -i "s/__APP_COMMIT__/${GIT_COMMIT}/g" /app/public/sw.js
 
 # Non-root user for security
 RUN groupadd -r appuser && useradd -r -g appuser -m appuser
@@ -84,10 +93,6 @@ EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=20s \
   CMD node -e "require('http').get('http://localhost:3000/auth/login', r => process.exit(r.statusCode < 500 ? 0 : 1)).on('error', () => process.exit(1))"
-
-# Build-time args (passed by GitHub Actions)
-ARG GIT_COMMIT=dev
-ARG APP_VERSION=1.0.0
 
 ENV NODE_ENV=production \
     GIT_COMMIT=${GIT_COMMIT} \

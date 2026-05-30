@@ -31,6 +31,32 @@ _%>
 <%_ } _%>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
 <link rel="stylesheet" href="/css/style.css">
+<%# PWA wiring. Manifest, theme color, iOS-specific bits. The service worker
+   registration is inlined below the visible head so it runs on every page
+   (so revisits to the site silently keep the SW up to date) but never
+   blocks render. -%>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#b53847">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="OjoAlPrecio">
+<%# iOS launch screens — one per common iPhone resolution. Apple is strict
+   about the media-query matching the device's CSS dimensions × pixel ratio,
+   so each entry is hand-tuned. Anything not matched falls back to a plain
+   theme-colored screen on launch, which is acceptable. -%>
+<link rel="apple-touch-startup-image" href="/splash/iphone-1170x2532.png"
+      media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="/splash/iphone-1179x2556.png"
+      media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="/splash/iphone-1290x2796.png"
+      media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="/splash/iphone-1284x2778.png"
+      media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="/splash/iphone-1242x2688.png"
+      media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
+<link rel="apple-touch-startup-image" href="/splash/iphone-750x1334.png"
+      media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)">
 <%_ if (_includeHtmx || _includeHtmxSse) { _%>
 <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js" defer></script>
 <%_ } _%>
@@ -42,6 +68,17 @@ _%>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 <%_ } _%>
 <%- _extraHead %>
+<%# Service worker registration. window.load gate keeps SW install from
+   competing with critical-path resources for bandwidth on first visit. -%>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('/sw.js').catch(function (e) {
+      console.warn('[sw] registration failed:', e && e.message);
+    });
+  });
+}
+</script>
 <%_ if (typeof gaMeasurementId !== 'undefined' && gaMeasurementId) { _%>
 <%# Google Analytics 4 — only emitted when GA_MEASUREMENT_ID env var is set.
    gtag.js loaded async so it never blocks render. Default config enables

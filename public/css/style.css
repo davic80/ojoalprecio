@@ -1209,6 +1209,123 @@ a.category-tag:hover { background: var(--green); color: #fff; border-color: var(
 
 
 /* ╔════════════════════════════════════════════════════════════════════════╗
+   ║  PWA APP HOME (/m)                                                     ║
+   ╚════════════════════════════════════════════════════════════════════════╝ */
+/* Tighter top spacing than .container default — in standalone mode there
+   is no browser chrome above, so the page header lands flush with the
+   navbar. The 4px instead of var(--sp-4) on top keeps content close to
+   the navbar like a native app feed. */
+.app-home-main { padding-top: var(--sp-3); }
+
+/* Hero card — one dominant deal. Whole card is a tap target. */
+.app-hero {
+  display: block;
+  background: var(--white);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius);
+  padding: var(--sp-3) var(--sp-4) var(--sp-4);
+  margin-bottom: var(--sp-4);
+  text-decoration: none;
+  color: var(--gray-900);
+  transition: border-color .15s, transform .15s;
+}
+.app-hero:hover { border-color: var(--gray-400); text-decoration: none; }
+.app-hero:active { transform: scale(0.99); }
+.app-hero-tag {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--red);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  margin-bottom: var(--sp-2);
+}
+.app-hero-img {
+  display: block;
+  width: 100%;
+  max-height: 240px;
+  object-fit: contain;
+  background: var(--gray-50);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--sp-3);
+}
+.app-hero-body { display: flex; flex-direction: column; gap: var(--sp-2); }
+.app-hero-title { font-size: var(--fs-md); font-weight: 500; line-height: 1.3; margin: 0; }
+.app-hero-prices { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; }
+.app-hero-price  { font-size: var(--fs-2xl); font-weight: 700; color: var(--gray-900); }
+.app-hero-saving { font-size: var(--fs-md); font-weight: 700; color: var(--red); }
+.app-hero-was    { font-size: var(--fs-sm); color: var(--gray-500); text-decoration: line-through; }
+
+/* Runners-up — 2×2 grid of compact cards below the hero. */
+.app-section-title {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--gray-700);
+  margin: var(--sp-4) 0 var(--sp-2);
+}
+.app-runners {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
+}
+.app-runner {
+  display: flex;
+  flex-direction: column;
+  background: var(--white);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  color: var(--gray-900);
+  overflow: hidden;
+  transition: border-color .15s;
+}
+.app-runner:hover { border-color: var(--gray-400); text-decoration: none; }
+.app-runner-img {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: contain;
+  background: var(--gray-50);
+}
+.app-runner-body { padding: var(--sp-2); display: flex; flex-direction: column; gap: 4px; flex: 1; }
+.app-runner-title { font-size: var(--fs-sm); line-height: 1.25; margin: 0; }
+.app-runner-prices { display: flex; align-items: baseline; gap: 6px; margin-top: auto; }
+.app-runner-prices strong { font-size: var(--fs-md); font-weight: 700; }
+.app-runner-saving { font-size: var(--fs-xs); font-weight: 600; color: var(--red); }
+
+/* Wide CTA below the grid */
+.app-cta-wide {
+  display: block;
+  width: 100%;
+  text-align: center;
+  margin-bottom: var(--sp-4);
+}
+
+/* Activity / signup card */
+.app-activity {
+  padding: var(--sp-3) var(--sp-4);
+  margin-bottom: var(--sp-4);
+}
+.app-activity-label {
+  font-size: var(--fs-xs);
+  color: var(--gray-500);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  margin-bottom: var(--sp-2);
+}
+.app-activity-body { font-size: var(--fs-md); color: var(--gray-700); margin: 0; }
+.app-activity-cta { display: inline-block; margin-top: var(--sp-3); }
+
+/* On desktop the app-home still works (Chrome shows install prompt from
+   here on laptops too) but doesn't need to dominate the viewport. Cap
+   container width so the hero doesn't stretch comically wide. */
+@media (min-width: 640px) {
+  .app-home-main { max-width: 720px; margin: 0 auto; }
+  .app-hero-img  { max-height: 320px; }
+  .app-runners   { grid-template-columns: repeat(4, 1fr); }
+}
+
+
+/* ╔════════════════════════════════════════════════════════════════════════╗
    ║  BOTTOM NAV — persistent app-style navigation, mobile only             ║
    ╚════════════════════════════════════════════════════════════════════════╝ */
 
