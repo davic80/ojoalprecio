@@ -4,6 +4,7 @@
   "description": "Sigue precios de Amazon y AliExpress. Detecta chollos automáticamente y alerta cuando bajan.",
   "lang": "es",
   "dir": "ltr",
+  "id": "/m",
   "start_url": "/m",
   "scope": "/",
   "display": "standalone",
