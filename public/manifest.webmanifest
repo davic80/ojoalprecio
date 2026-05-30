@@ -31,6 +31,21 @@
       "purpose": "maskable"
     }
   ],
+  "screenshots": [
+    {
+      "src": "/screenshots/mobile.png",
+      "sizes": "780x1688",
+      "type": "image/png",
+      "label": "Chollos del momento — vista móvil"
+    },
+    {
+      "src": "/screenshots/desktop.png",
+      "sizes": "1280x800",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Chollos del momento — vista escritorio"
+    }
+  ],
   "shortcuts": [
     {
       "name": "Ofertas",

@@ -13,7 +13,8 @@
     "test:unit": "SKIP_DB_SETUP=1 vitest run --exclude 'tests/integration/**'",
     "test:integration": "vitest run tests/integration",
     "test:watch": "vitest",
-    "pwa:icons": "node scripts/gen-pwa-icons.mjs"
+    "pwa:icons": "node scripts/gen-pwa-icons.mjs",
+    "pwa:screenshots": "node scripts/gen-pwa-screenshots.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
