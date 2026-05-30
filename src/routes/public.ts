@@ -10,6 +10,65 @@ import { upsertAEProductSql } from '../marketplaces/aliexpress/persist';
 
 const router = Router();
 
+// ── GET /robots.txt — Crawler directives ─────────────────────────────────────
+// Allow public pages; block admin + auth + bare /search (the URL is
+// query-driven and would produce empty results in the index). Points
+// crawlers to the sitemap so Google discovers every /p/:asin without
+// having to follow links from /ofertas.
+router.get('/robots.txt', (_req: Request, res: Response) => {
+  const siteUrl = (process.env.SITE_URL ?? 'http://localhost:3000').replace(/\/$/, '');
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.send([
+    'User-agent: *',
+    'Allow: /',
+    'Disallow: /admin/',
+    'Disallow: /auth/',
+    'Disallow: /search',
+    'Disallow: /account',
+    `Sitemap: ${siteUrl}/sitemap.xml`,
+    '',
+  ].join('\n'));
+});
+
+// ── GET /sitemap.xml — Discovery feed for search engines ─────────────────────
+// Emits one <url> per active+available product plus the static landing
+// pages. lastmod tracks last_metadata_at so Google re-crawls products
+// after a fresh scrape. Cached 1h at the HTTP layer — sitemap content
+// only changes when products are added/removed/renamed; hourly is fine.
+router.get('/sitemap.xml', async (_req: Request, res: Response) => {
+  const siteUrl = (process.env.SITE_URL ?? 'http://localhost:3000').replace(/\/$/, '');
+  const rows = await db.execute(sql`
+    SELECT asin,
+           COALESCE(last_metadata_at, created_at) AS lastmod
+    FROM products
+    WHERE is_active = TRUE AND is_available = TRUE
+    ORDER BY asin
+  `);
+  // XML-escape the runtime URL host (defensive; siteUrl is config but no harm).
+  const xmlEscape = (s: string): string =>
+    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const u = xmlEscape(siteUrl);
+  const parts: string[] = [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    `  <url><loc>${u}/ofertas</loc><changefreq>hourly</changefreq><priority>1.0</priority></url>`,
+    `  <url><loc>${u}/ofertas/aliexpress</loc><changefreq>hourly</changefreq><priority>0.8</priority></url>`,
+  ];
+  for (const r of rows.rows as Array<{ asin: string; lastmod: Date | string | null }>) {
+    const lastmodIso = r.lastmod
+      ? new Date(r.lastmod).toISOString().slice(0, 10)
+      : null;
+    parts.push(
+      `  <url><loc>${u}/p/${r.asin}</loc>${lastmodIso ? `<lastmod>${lastmodIso}</lastmod>` : ''}<changefreq>daily</changefreq><priority>0.7</priority></url>`,
+    );
+  }
+  parts.push('</urlset>', '');
+  res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  res.send(parts.join('\n'));
+});
+
 // ── GET /search — Cross-marketplace public search ───────────────────────────
 // ILIKE over Amazon products + AliExpress catalog, mixed and sorted by
 // discount % so the most compelling deals float up regardless of source.
