@@ -3,6 +3,7 @@
   //   title          — string, required
   //   description    — string, optional → emits <meta name="description">
   //   canonicalPath  — string, optional → emits <link rel="canonical"> with siteUrl prepended
+  //   ogImage        — string, optional → absolute image URL for og:image / twitter:image (default: app icon)
   //   extraHead      — raw HTML string, optional → emitted verbatim (JSON-LD, page-specific scripts)
   //   includeHtmx    — boolean, optional → adds the htmx CDN script (defer)
   //   includeHtmxSse — boolean, optional → adds htmx + htmx-ext-sse (defer)
@@ -14,6 +15,7 @@
   const _title         = typeof title === 'string' ? title : 'OjoAlPrecio';
   const _description   = typeof description === 'string' ? description : null;
   const _canonicalPath = typeof canonicalPath === 'string' ? canonicalPath : null;
+  const _ogImage       = typeof ogImage === 'string' && ogImage ? ogImage : null;
   const _extraHead     = typeof extraHead === 'string' ? extraHead : '';
   const _includeHtmx     = typeof includeHtmx === 'boolean' && includeHtmx;
   const _includeHtmxSse  = typeof includeHtmxSse === 'boolean' && includeHtmxSse;
@@ -28,6 +30,21 @@ _%>
 <%_ } _%>
 <%_ if (_canonicalPath) { _%>
 <link rel="canonical" href="<%= siteUrl %><%= _canonicalPath %>">
+<%_ } _%>
+<%_ if (_description) { _%>
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="OjoAlPrecio">
+<meta property="og:locale" content="es_ES">
+<meta property="og:title" content="<%= _title %>">
+<meta property="og:description" content="<%= _description %>">
+<%_ if (_canonicalPath) { _%>
+<meta property="og:url" content="<%= siteUrl %><%= _canonicalPath %>">
+<%_ } _%>
+<meta property="og:image" content="<%= _ogImage || (siteUrl + '/icons/icon-512.png') %>">
+<meta name="twitter:card" content="<%= _ogImage ? 'summary_large_image' : 'summary' %>">
+<meta name="twitter:title" content="<%= _title %>">
+<meta name="twitter:description" content="<%= _description %>">
+<meta name="twitter:image" content="<%= _ogImage || (siteUrl + '/icons/icon-512.png') %>">
 <%_ } _%>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👁</text></svg>">
 <link rel="stylesheet" href="/css/style.css">

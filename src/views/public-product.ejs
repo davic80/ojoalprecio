@@ -40,6 +40,7 @@
   title: (product.name ?? product.asin) + ' — Historial de precio en Amazon.es | OjoAlPrecio',
   description: 'Historial de precio de ' + (product.name ?? product.asin) + ' en Amazon.es. Precio actual: ' + (currentPrice ? currentPrice.toFixed(2) + ' €' : 'N/D') + '. Mínimo histórico: ' + (minPrice ? minPrice.toFixed(2) + ' €' : 'N/D') + '.',
   canonicalPath: '/p/' + product.asin,
+  ogImage: product.imageUrl || undefined,
   includeHtmxSse: true,
   includeChart: true,
   extraHead: _extraHead,
