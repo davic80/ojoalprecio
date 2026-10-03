@@ -941,6 +941,10 @@ export const MIGRATIONS: string[] = [
      'Hasta esta fecha el cron de calibración solo loguea warnings. Desde esa fecha (incluida), auto-ajusta los thresholds de arriba según revert rate observado en últimos 7d. Formato YYYY-MM-DD. Déjalo en blanco para desactivar el auto-tune indefinidamente.')
   ON CONFLICT (key) DO NOTHING;
   `,
+  // Índice cubriente para último precio / mín / máx / sparkline por producto
+  // (ofertas y categorías pasan de ~1,2 s a ~40 ms de consulta).
+  `CREATE INDEX IF NOT EXISTS idx_price_history_product_time_price
+     ON price_history (product_id, scraped_at DESC) INCLUDE (price);`,
 ];
 
 export async function migrate(pool: Pool = defaultPool): Promise<void> {

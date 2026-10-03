@@ -250,25 +250,20 @@ router.get('/ofertas', async (req: Request, res: Response) => {
     SELECT
       p.id, p.asin, p.name, p.image_url AS "imageUrl", p.extra_images AS "extraImages", p.url,
       c.name AS "categoryName", c.slug AS "categorySlug",
-      (
-        SELECT ph.price FROM price_history ph
-        WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1
-      ) AS "currentPrice",
-      (SELECT MIN(ph2.price) FROM price_history ph2 WHERE ph2.product_id = p.id) AS "minPrice",
-      (SELECT MAX(ph3.price) FROM price_history ph3 WHERE ph3.product_id = p.id) AS "maxPrice",
-      (
-        SELECT json_agg(sub.price)
-        FROM (
-          SELECT price FROM price_history
-          WHERE product_id = p.id
-          ORDER BY scraped_at DESC LIMIT 20
-        ) sub
-      ) AS "sparkline",
+      h.cur AS "currentPrice", h.mn AS "minPrice", h.mx AS "maxPrice",
+      to_json(h.sp) AS "sparkline",
       p.is_on_sale AS "isOnSale",
       p.sale_tier  AS "saleTier",
       p.deal_score::float AS "dealScore"
     FROM products p
     LEFT JOIN categories c ON c.id = p.category_id
+    LEFT JOIN LATERAL (
+      SELECT (array_agg(price ORDER BY scraped_at DESC))[1]    AS cur,
+             MIN(price)                                        AS mn,
+             MAX(price)                                        AS mx,
+             (array_agg(price ORDER BY scraped_at DESC))[1:20] AS sp
+      FROM price_history WHERE product_id = p.id
+    ) h ON TRUE
     WHERE p.is_public = TRUE AND p.is_active = TRUE AND p.is_available = TRUE AND p.is_on_sale = TRUE
     ORDER BY c.name ASC NULLS LAST, p.deal_score DESC NULLS LAST
   `);
@@ -328,24 +323,19 @@ router.get('/c/:slug', async (req: Request, res: Response) => {
     SELECT
       p.id, p.asin, p.name, p.image_url AS "imageUrl", p.extra_images AS "extraImages", p.url,
       p.is_public AS "isPublic",
-      (
-        SELECT ph.price FROM price_history ph
-        WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1
-      ) AS "currentPrice",
-      (SELECT MIN(ph2.price) FROM price_history ph2 WHERE ph2.product_id = p.id) AS "minPrice",
-      (SELECT MAX(ph3.price) FROM price_history ph3 WHERE ph3.product_id = p.id) AS "maxPrice",
-      (
-        SELECT json_agg(sub.price)
-        FROM (
-          SELECT price FROM price_history
-          WHERE product_id = p.id
-          ORDER BY scraped_at DESC LIMIT 20
-        ) sub
-      ) AS "sparkline",
+      h.cur AS "currentPrice", h.mn AS "minPrice", h.mx AS "maxPrice",
+      to_json(h.sp) AS "sparkline",
       p.is_on_sale AS "isOnSale",
       p.sale_tier  AS "saleTier",
       p.deal_score::float AS "dealScore"
     FROM products p
+    LEFT JOIN LATERAL (
+      SELECT (array_agg(price ORDER BY scraped_at DESC))[1]    AS cur,
+             MIN(price)                                        AS mn,
+             MAX(price)                                        AS mx,
+             (array_agg(price ORDER BY scraped_at DESC))[1:20] AS sp
+      FROM price_history WHERE product_id = p.id
+    ) h ON TRUE
     WHERE p.category_id = ${cat.id}
       AND p.is_active = TRUE AND p.is_available = TRUE
       AND (p.is_public = TRUE OR ${admin})
