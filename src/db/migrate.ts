@@ -945,6 +945,10 @@ export const MIGRATIONS: string[] = [
   // (ofertas y categorías pasan de ~1,2 s a ~40 ms de consulta).
   `CREATE INDEX IF NOT EXISTS idx_price_history_product_time_price
      ON price_history (product_id, scraped_at DESC) INCLUDE (price);`,
+  // Last scrape ATTEMPT per product (success or not): the scheduler orders by it
+  // so every product gets its turn and dead ones can't hog the queue.
+  `ALTER TABLE products ADD COLUMN IF NOT EXISTS last_checked_at TIMESTAMP;
+   CREATE INDEX IF NOT EXISTS idx_products_last_checked_at ON products (last_checked_at);`,
 ];
 
 export async function migrate(pool: Pool = defaultPool): Promise<void> {

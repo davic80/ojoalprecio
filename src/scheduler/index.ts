@@ -2,12 +2,14 @@ import cron from 'node-cron';
 import { db } from '../db/client';
 import { products, priceHistory, alerts, alertEvents, users, scrapeAnomalies, userProducts, purgedAsins } from '../db/schema';
 import { eq, and, desc, min, isNull, sql, inArray } from 'drizzle-orm';
-import { scrapeProduct, affiliateUrl, ProductUnavailableError, CaptchaDetectedError, isCaptchaBlocked, captchaRemainingMs, type ScrapeResult } from '../scraper/amazon';
+import { scrapeProduct, affiliateUrl, ProductUnavailableError, CaptchaDetectedError, WrongLocationError, restartBrowser, isCaptchaBlocked, captchaRemainingMs, type ScrapeResult } from '../scraper/amazon';
 import { autoCategorizeId } from '../scraper/categorize';
 import { emitScrapeUpdate } from '../lib/product-events';
 import { sendPriceAlert, sendBackInStockAlert } from '../mailer';
 import { sendTelegramAlert, sendTelegramBackInStock } from '../mailer/telegram';
 import { getSetting } from '../db/settings';
+import { selectDue } from './selection';
+import { sendOpsAlert } from '../lib/ops-alert';
 
 const CHECK_INTERVAL = process.env.CHECK_INTERVAL_CRON ?? '0 * * * *';
 
@@ -28,12 +30,48 @@ export function getScraperStatus(): ScraperStatus { return { ...state, log: [...
 
 let isRunning = false;
 
+// ── Cycle supervision ────────────────────────────────────────────────────────
+// A wedged Chromium used to freeze one worker forever; `isRunning` then stayed
+// true and every later cycle was skipped ("Previous run still active") for
+// 11 days. Now: every cycle has a generation id (a watchdog can abandon a stuck
+// one), a hard deadline shorter than the cron period, and a progress heartbeat.
+let cycleGen = 0;
+let cycleStartedAt = 0;
+let lastProgressAt = Date.now();
+let lastOkAt = Date.now();      // last time Amazon gave us a definitive answer
+let lastDueCount = 0;
+const CYCLE_MAX_MS           = 50 * 60 * 1000;      // end before the next hourly tick
+const STUCK_AFTER_MS         = 8 * 60 * 1000;       // nothing finished for 8 min
+const NO_OK_ALERT_AFTER_MS   = 3 * 60 * 60 * 1000;  // no definitive answer for 3 h
+const UNAVAILABLE_RECHECK_MS = 12 * 60 * 60 * 1000; // don't hammer unavailable products
+const MAX_CONSECUTIVE_BLOCKS = 3;
+
+const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+
+export function getScraperHealth() {
+  const now = Date.now();
+  const stuck = isRunning && now - lastProgressAt > STUCK_AFTER_MS;
+  const noAnswers = lastDueCount > 0 && now - lastOkAt > NO_OK_ALERT_AFTER_MS;
+  return {
+    ok: !stuck && !noAnswers,
+    isRunning, stuck, noAnswers,
+    lastProgressAgeSec: Math.round((now - lastProgressAt) / 1000),
+    lastAnswerAgeSec:   Math.round((now - lastOkAt) / 1000),
+    cycleAgeSec:        isRunning ? Math.round((now - cycleStartedAt) / 1000) : null,
+    done: state.done, total: state.total,
+  };
+}
+
 async function checkAllProducts(): Promise<void> {
   if (isRunning) {
     console.log('[scheduler] Previous run still active, skipping.');
     return;
   }
   isRunning = true;
+  const gen = ++cycleGen;
+  const alive = () => gen === cycleGen;
+  cycleStartedAt = Date.now();
+  lastProgressAt = Date.now();
   state.isRunning = true;
   state.done = 0;
   state.log = [];
@@ -54,6 +92,7 @@ async function checkAllProducts(): Promise<void> {
   const SCRAPER_TIMEOUT        = Math.max(15,Math.min(120, Number(await getSetting('scraper_timeout_seconds',30))));
   const MIN_AGE_MS = MIN_AGE_MINUTES * 60 * 1000;
 
+  let processed = 0, answered = 0;
   try {
     // Release up to RETRY_FAILED_PER_CYCLE failed products back into the normal cycle.
     // Ordered by id ASC so the backlog drains predictably (30/cycle ≈ 17 cycles for 512 products).
@@ -76,48 +115,128 @@ async function checkAllProducts(): Promise<void> {
 
     const activeProducts = await db.execute(sql`
       SELECT p.id, p.url, p.name, p.asin,
+        p.is_available AS "isAvailable",
+        p.last_checked_at AS "lastCheckedAt",
         (SELECT ph.scraped_at FROM price_history ph WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1) AS "lastScrapedAt"
       FROM products p
       WHERE p.is_active = TRUE AND p.is_failed = FALSE
     `);
-    const toCheck = (activeProducts.rows as any[]).filter(p => {
-      if (!p.lastScrapedAt) return true;
-      return Date.now() - new Date(p.lastScrapedAt).getTime() >= MIN_AGE_MS;
-    });
+    // Oldest-checked first; unavailable products are rechecked at most every 12 h.
+    const toCheck = selectDue(activeProducts.rows as any[], Date.now(), MIN_AGE_MS, UNAVAILABLE_RECHECK_MS);
     state.total = toCheck.length;
     state.activeCount = activeProducts.rows.length;
+    lastDueCount = toCheck.length;
     console.log(`[scheduler] ${toCheck.length}/${activeProducts.rows.length} products due for check (${CONCURRENCY} workers)…`);
 
-    // Worker pool: CONCURRENCY workers pick products until exhausted
+    // Worker pool: CONCURRENCY workers pick products until exhausted, the cycle
+    // deadline passes, or the watchdog abandons this generation.
     let idx = 0;
+    let blocks = 0;       // consecutive Amazon blocks (interstitial / captcha)
+    let wrongLoc = 0;     // consecutive pages rendered for the wrong location
+    let stop = false;
     async function worker(): Promise<void> {
-      while (idx < toCheck.length) {
+      while (alive() && !stop && idx < toCheck.length && Date.now() - cycleStartedAt < CYCLE_MAX_MS) {
         const product = toCheck[idx++];
         state.current = { id: product.id, name: product.name ?? product.asin, asin: product.asin };
         let ok = true;
         try {
           await checkProduct(product.id, product.url, product.name ?? product.asin, SCRAPER_TIMEOUT);
+          blocks = 0; wrongLoc = 0; answered++;
         } catch (e) {
           ok = false;
-          if (e instanceof CaptchaDetectedError) break; // stop this worker — whole IP is blocked
+          if (e instanceof CaptchaDetectedError) {
+            // Don't abort the whole cycle on one block: pause for the cooldown and carry on.
+            // Only give up (and warn the admin) after several blocks in a row.
+            if (!e.message.startsWith('[PAUSA]')) blocks++;
+            if (blocks >= MAX_CONSECUTIVE_BLOCKS) {
+              stop = true;
+              await sendOpsAlert('blocks', 'Amazon está bloqueando el scraper', [
+                `${blocks} bloqueos seguidos (interstitial/captcha). El ciclo se detiene y se reintenta en el próximo.`,
+                `Último mensaje: ${e.message.slice(0, 200)}`,
+              ]);
+              break;
+            }
+            const waitMs = Math.min(captchaRemainingMs(), 11 * 60 * 1000) + 2000;
+            console.log(`[scheduler] Bloqueo de Amazon (${blocks}/${MAX_CONSECUTIVE_BLOCKS}); pausa ${Math.round(waitMs / 1000)}s y sigo`);
+            for (let waited = 0; waited < waitMs && alive(); waited += 5000) { await sleep(5000); lastProgressAt = Date.now(); }
+            continue;
+          }
+          if (e instanceof WrongLocationError) {
+            wrongLoc++;
+            if (wrongLoc === 3) {
+              await sendOpsAlert('location', 'Amazon no respeta la ubicación en España', [
+                `${wrongLoc} páginas seguidas con ubicación distinta del CP ${process.env.AMAZON_ZIP || '28001'}.`,
+                `Detalle: ${e.message}`,
+                'Se reinicia el navegador y se vuelve a fijar el código postal.',
+              ]);
+              restartBrowser();
+              await sleep(30_000);
+            } else if (wrongLoc >= 8) { stop = true; break; }
+          }
         }
+        processed++;
+        if (!alive()) return;
+        lastProgressAt = Date.now();
         state.log.unshift({ id: product.id, name: product.name ?? product.asin, asin: product.asin, ok, ts: Date.now() });
         if (state.log.length > 50) state.log.pop();
         state.done++;
         // Delay skewed toward lower bound: x² pushes ~75% of values into the bottom half of the range
-        await new Promise(r => setTimeout(r, 1000 + Math.floor(Math.random() ** 2 * 4000)));
+        await sleep(1000 + Math.floor(Math.random() ** 2 * 4000));
       }
     }
 
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, toCheck.length) }, worker));
 
-    console.log('[scheduler] Cycle complete.');
+    if (alive()) {
+      const hitDeadline = Date.now() - cycleStartedAt >= CYCLE_MAX_MS;
+      console.log(`[scheduler] Cycle complete. ${answered}/${processed} respuestas válidas en ${Math.round((Date.now() - cycleStartedAt) / 60000)} min${hitDeadline ? ' (plazo del ciclo agotado)' : ''}.`);
+      if (processed >= 30 && answered / processed < 0.3) {
+        await sendOpsAlert('lowrate', 'El scraper casi no obtiene respuestas válidas', [
+          `Ciclo con ${answered} respuestas válidas de ${processed} intentos (<30 %).`,
+          'Puede ser un cambio en la web de Amazon, un bloqueo o la ubicación.',
+        ], 6 * 60 * 60 * 1000);
+      }
+    }
   } catch (err) {
     console.error('[scheduler] Unexpected error in cycle:', err);
   } finally {
+    // A watchdog-abandoned generation must not clobber the state of its successor.
+    if (alive()) {
+      isRunning = false;
+      state.isRunning = false;
+      state.current = null;
+    }
+  }
+}
+
+/**
+ * Watchdog (cron, every 5 min). If the running cycle has finished nothing for
+ * STUCK_AFTER_MS it is wedged (frozen Chromium): abandon it, kill the browser,
+ * tell the admin and start a fresh cycle. Also alerts when Amazon hasn't given
+ * a definitive answer for hours although products were due.
+ */
+export async function runScraperWatchdog(): Promise<void> {
+  const now = Date.now();
+  if (isRunning && now - lastProgressAt > STUCK_AFTER_MS) {
+    const mins = Math.round((now - lastProgressAt) / 60000);
+    const lastAsin = state.current?.asin ?? 'desconocido';
+    console.error(`[watchdog] Ciclo colgado: ${mins} min sin progreso (${lastAsin}). Reiniciando.`);
+    cycleGen++;               // orphan the stuck workers
     isRunning = false;
     state.isRunning = false;
     state.current = null;
+    restartBrowser();
+    await sendOpsAlert('stuck', 'Scraper colgado: reiniciado automáticamente', [
+      `Llevaba ${mins} min sin completar ningún producto (último: ${lastAsin}).`,
+      'El vigilante ha matado Chromium y lanza un ciclo nuevo.',
+    ], 60 * 60 * 1000);
+    setTimeout(() => { checkAllProducts().catch(e => console.error('[watchdog] relanzar ciclo:', e)); }, 5000);
+    return;
+  }
+  if (lastDueCount > 0 && now - lastOkAt > NO_OK_ALERT_AFTER_MS) {
+    await sendOpsAlert('noanswers', 'Sin respuestas válidas de Amazon desde hace horas', [
+      `Última respuesta definitiva hace ${Math.round((now - lastOkAt) / 60000)} min, con ${lastDueCount} productos pendientes.`,
+    ], 6 * 60 * 60 * 1000);
   }
 }
 
@@ -503,6 +622,10 @@ async function checkProduct(productId: number, url: string, label: string, timeo
   }).from(products).where(eq(products.id, productId)).limit(1);
   const wasUnavailable = current ? !current.isAvailable : false;
 
+  // Stamp the attempt up-front: the scheduler orders by last attempt, so even a
+  // product that hangs or errors goes to the back of the queue.
+  await db.execute(sql`UPDATE products SET last_checked_at = NOW() WHERE id = ${productId}`).catch(() => {});
+
   // Fetch all-time stats before this scrape (for sale tier detection)
   const statsResult = await db.execute(sql`
     SELECT
@@ -569,6 +692,7 @@ async function checkProduct(productId: number, url: string, label: string, timeo
       }
     }
 
+    lastOkAt = Date.now();
     const saleInfo = await persistScrapeResult(productId, result, { allTimeMax, scrapeCount, daysSpan, label });
 
     // Product just came back in stock — notify owner
@@ -580,6 +704,7 @@ async function checkProduct(productId: number, url: string, label: string, timeo
     await processAlerts(productId, result.price, result.currency, label, result.imageUrl, url);
   } catch (err) {
     if (err instanceof ProductUnavailableError) {
+      lastOkAt = Date.now(); // Amazon answered definitively
       // 'unqualified' is the transient kind: Amazon sometimes returns a product
       // page with no qualified buybox for a few minutes then recovers. Mark
       // unavailable only after 3 consecutive strikes so a single glitch doesn't
@@ -650,10 +775,15 @@ async function checkProduct(productId: number, url: string, label: string, timeo
       if (markUnavailable) {
         await maybePurgeOrphan(productId, label, 'orphan variant unavailable');
       }
+    } else if (err instanceof WrongLocationError) {
+      // Page rendered for another country: its prices/stock say nothing about the
+      // product. Don't penalise it; the worker handles the streak.
+      console.log(`[scheduler] ${label} → ubicación incorrecta: ${err.message}`);
+      throw err;
     } else if (err instanceof CaptchaDetectedError) {
-      // Pausa global por bloqueo Amazon — no penalizar el producto, abortar ciclo
+      // Pausa global por bloqueo Amazon — no penalizar el producto; the worker pauses and resumes
       console.log(`[scheduler] ${label} → ${err.message}`);
-      throw err; // propagate so the worker stops immediately
+      throw err;
     } else {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[scheduler] Failed for ${label}: ${msg}`);
@@ -945,6 +1075,12 @@ export function startScheduler(): void {
   console.log(`[scheduler] Starting with schedule: "${CHECK_INTERVAL}"`);
   checkAllProducts();
   cron.schedule(CHECK_INTERVAL, () => { checkAllProducts(); });
+
+  // Watchdog: abandon a wedged cycle, restart Chromium, email the admin.
+  cron.schedule('*/5 * * * *', () => {
+    runScraperWatchdog().catch(err => console.error('[watchdog] failed:', err));
+  });
+  console.log('[watchdog] Vigilante del scraper activo cada 5 min (ciclo colgado → reinicio + email).');
 
   // Hourly housekeeping at :15 — between the main scrape (:00) and the
   // category-import (:10).

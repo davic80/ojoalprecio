@@ -1,4 +1,5 @@
 import compression from 'compression';
+import { getScraperHealth } from './scheduler';
 import express from 'express';
 import path from 'path';
 import session from 'express-session';
@@ -132,6 +133,13 @@ export function createApp() {
   });
 
   // ── Routes ───────────────────────────────────────────────────────────────────
+  // Liveness of the scraper for Uptime Kuma / curl: 503 when a cycle is wedged or
+  // Amazon hasn't answered for hours. No auth: it exposes only ages and counters.
+  app.get('/healthz/scraper', (_req, res) => {
+    const h = getScraperHealth();
+    res.status(h.ok ? 200 : 503).json(h);
+  });
+
   app.use('/auth', authRouter);
   app.use('/', accountRouter);
   app.use('/', adminRouter);

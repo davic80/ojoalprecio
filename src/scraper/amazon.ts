@@ -25,6 +25,19 @@ export class CaptchaDetectedError extends Error {
   }
 }
 
+/**
+ * Amazon is rendering the page for a delivery location other than Spain (the
+ * server egresses from Germany). Prices/offers differ by location, so a
+ * "no price / no stock" result here is NOT trustworthy: the scheduler must not
+ * mark the product unavailable or count a failure against it.
+ */
+export class WrongLocationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'WrongLocationError';
+  }
+}
+
 export interface VariantRef {
   asin: string;
   label: string;
@@ -63,6 +76,64 @@ export function isCaptchaBlocked(): boolean {
 export function captchaRemainingMs(): number {
   if (!captchaDetectedAt) return 0;
   return Math.max(0, CAPTCHA_COOLDOWN_MS - (Date.now() - captchaDetectedAt));
+}
+
+// ── Ubicación de entrega + proxy ─────────────────────────────────────────────
+// The server lives in Germany, and Amazon.es localises offers by IP ("Enviar a
+// Alemania"): new items that don't ship there show only used offers, so prices
+// and stock come out wrong. We pin a Spanish postal code in the session, and
+// every scrape verifies the page really renders for it.
+export const AMAZON_ZIP = process.env.AMAZON_ZIP || '28001';
+// Optional egress proxy (e.g. a Spanish tinyproxy reachable over Tailscale).
+const SCRAPER_PROXY = process.env.SCRAPER_PROXY || '';
+
+/** Reject if `p` doesn't settle in `ms`. Never leaves a caller awaiting forever. */
+function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  let t: ReturnType<typeof setTimeout>;
+  const timer = new Promise<never>((_, rej) => { t = setTimeout(() => rej(new Error(`[close_timeout] ${what} ${ms}ms`)), ms); });
+  return Promise.race([p, timer]).finally(() => clearTimeout(t));
+}
+
+/** Close a page/context/browser without ever hanging: a frozen Chromium makes
+    close() never return, which used to wedge the whole scheduler. */
+async function safeClose(what: string, fn: () => Promise<unknown>, ms = 8_000): Promise<boolean> {
+  try { await withTimeout(Promise.resolve().then(fn), ms, what); return true; }
+  catch (e) { console.warn(`[scraper] ${what} no cerró limpio: ${(e as Error).message}`); return false; }
+}
+
+function forceKillChromium(): void {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    require('child_process').execFile('pkill', ['-9', '-f', 'chromium'], () => {});
+  } catch { /* best effort */ }
+}
+
+let _browserNeedsRecycle = false;
+
+/** Hard reset used by the scheduler watchdog: kill Chromium and forget all
+    cached browser state so the next scrape starts clean. */
+export function restartBrowser(): void {
+  console.warn('[scraper] restartBrowser(): matando Chromium y limpiando estado');
+  _browser = null; _browserLaunchPromise = null; _storageStatePromise = null; _browserUses = 0;
+  _browserNeedsRecycle = false;
+  forceKillChromium();
+}
+
+async function setSpanishLocation(page: Page): Promise<boolean> {
+  try {
+    await page.locator('#sp-cc-rejectall-link, #sp-cc-accept').first().click({ timeout: 1500 }).catch(() => {});
+    await page.locator('#nav-global-location-popover-link, #glow-ingress-block').first().click({ timeout: 5000 });
+    await page.waitForSelector('#GLUXZipUpdateInput', { timeout: 8000 });
+    await page.fill('#GLUXZipUpdateInput', AMAZON_ZIP);
+    await page.locator('#GLUXZipUpdate input, #GLUXZipUpdate').first().click({ timeout: 4000 });
+    await randomDelay(2000, 3000);
+    await page.locator('#GLUXConfirmClose, .a-popover-footer .a-button-primary input, [name="glowDoneButton"]').first().click({ timeout: 3000 }).catch(() => {});
+    await randomDelay(1000, 1500);
+    return true;
+  } catch (e) {
+    console.warn(`[scraper] no se pudo fijar el código postal ${AMAZON_ZIP}: ${(e as Error).message.slice(0, 80)}`);
+    return false;
+  }
 }
 
 const USER_AGENTS = [
@@ -196,20 +267,26 @@ function getBrowser(): Promise<Browser> {
     throw new CaptchaDetectedError(`[PAUSA] Amazon bloqueado. Esperando ${remaining}s`);
   }
 
-  if (_browser?.isConnected() && _browserUses < BROWSER_RECYCLE_AFTER) {
+  if (_browser?.isConnected() && _browserUses < BROWSER_RECYCLE_AFTER && !_browserNeedsRecycle) {
     _browserUses++;
     return Promise.resolve(_browser);
   }
   if (!_browserLaunchPromise) {
     _browserLaunchPromise = (async () => {
-      if (_browser) { try { await _browser.close(); } catch {} }
+      if (_browser) {
+        const old = _browser;
+        const closed = await safeClose('browser.close', () => old.close());
+        if (!closed || _browserNeedsRecycle) forceKillChromium();
+      }
+      _browserNeedsRecycle = false;
       _storageStatePromise = null;
       const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
-      _browser = await chromium.launch({
+      _browser = await withTimeout(chromium.launch({
         headless: true,
         executablePath: executablePath || undefined,
         args: CHROMIUM_ARGS,
-      });
+        ...(SCRAPER_PROXY ? { proxy: { server: SCRAPER_PROXY } } : {}),
+      }), 30_000, 'chromium.launch');
       _browserUses = 1;
       return _browser;
     })().finally(() => { _browserLaunchPromise = null; });
@@ -226,10 +303,18 @@ function getAmazonStorageState(): Promise<any> {
       try {
         await page.goto('https://www.amazon.es', { waitUntil: 'domcontentloaded', timeout: 25000 });
         await randomDelay(1000, 2000);
+        // Amazon's "haz clic para seguir comprando" interstitial also shows on the home page.
+        const homeBody = ((await page.textContent('body').catch(() => '')) ?? '').slice(0, 300);
+        if (homeBody.includes('botón de abajo')) {
+          await page.locator('input[type="submit"], button[type="submit"], a.a-button-text').first().click({ timeout: 3000 }).catch(() => {});
+          await randomDelay(1500, 2500);
+        }
+        const ok = await setSpanishLocation(page);
+        console.log(`[scraper] ubicación de entrega ${ok ? 'fijada' : 'NO fijada'} (CP ${AMAZON_ZIP})`);
         return await ctx.storageState();
       } finally {
-        await page.close().catch(() => {});
-        await ctx.close().catch(() => {});
+        await safeClose('storage.page.close', () => page.close());
+        await safeClose('storage.ctx.close', () => ctx.close());
       }
     })();
   }
@@ -440,6 +525,16 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
             const bodySnippet = bodyText.slice(0, 120);
             throw new CaptchaDetectedError(`Bloqueo Amazon (título: "${pageTitle}" | body: "${bodySnippet}")`);
           }
+        }
+
+        // Location guard: Amazon localises offers by delivery address. If the page is
+        // NOT rendered for our Spanish postal code, nothing below (price, stock,
+        // used-offer detection) can be trusted, so bail out without judging the product.
+        const ingress = ((await page.locator('#glow-ingress-block').first().textContent({ timeout: 2000 }).catch(() => '')) ?? '')
+          .replace(/\s+/g, ' ').trim();
+        if (ingress && /enviar a/i.test(ingress) && !ingress.includes(AMAZON_ZIP)) {
+          _storageStatePromise = null;
+          throw new WrongLocationError(`Amazon muestra la ubicación "${ingress.slice(0, 40)}" en vez de CP ${AMAZON_ZIP}`);
         }
 
         // Phase 1: name + availability in parallel. Title races every known
@@ -711,10 +806,16 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
       hardTimeout,
     ]);
     return result;
+  } catch (err) {
+    // A hard timeout means the page (or Chromium itself) is wedged: recycle the
+    // browser before the next scrape instead of reusing a possibly frozen one.
+    if (err instanceof Error && err.message.startsWith('[hard_timeout]')) _browserNeedsRecycle = true;
+    throw err;
   } finally {
     clearTimeout(timeoutHandle);
-    await page.close({ runBeforeUnload: false }).catch(() => {});
-    await context.close().catch(() => {});
+    const pageOk = await safeClose('page.close', () => page.close({ runBeforeUnload: false }));
+    const ctxOk  = await safeClose('context.close', () => context.close());
+    if (!pageOk || !ctxOk) _browserNeedsRecycle = true;
   }
 }
 
@@ -749,8 +850,8 @@ export async function scrapeWishlist(url: string): Promise<string[]> {
     }
     return results;
   } finally {
-    await page.close({ runBeforeUnload: false }).catch(() => {});
-    await context.close().catch(() => {});
+    await safeClose('page.close', () => page.close({ runBeforeUnload: false }));
+    await safeClose('context.close', () => context.close());
   }
 }
 
@@ -782,8 +883,8 @@ export async function scrapeUrlForAsins(url: string, limit = 200): Promise<strin
     });
     return rawAsins.slice(0, limit).map(asin => `https://www.amazon.es/dp/${asin}`);
   } finally {
-    await page.close({ runBeforeUnload: false }).catch(() => {});
-    await context.close().catch(() => {});
+    await safeClose('page.close', () => page.close({ runBeforeUnload: false }));
+    await safeClose('context.close', () => context.close());
   }
 }
 
@@ -814,7 +915,7 @@ export async function scrapeAmazonCategory(categoryUrl: string, limit = 40): Pro
     }
     return results;
   } finally {
-    await page.close({ runBeforeUnload: false }).catch(() => {});
-    await context.close().catch(() => {});
+    await safeClose('page.close', () => page.close({ runBeforeUnload: false }));
+    await safeClose('context.close', () => context.close());
   }
 }

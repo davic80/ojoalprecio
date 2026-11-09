@@ -3,8 +3,8 @@ import { body, validationResult } from 'express-validator';
 import { db } from '../db/client';
 import { products, priceHistory, alerts, categories, userProducts } from '../db/schema';
 import { eq, and, desc, sql, asc, inArray } from 'drizzle-orm';
-import { extractAsin, normaliseAmazonUrl, scrapeProduct, scrapeWishlist, affiliateUrl, ProductUnavailableError } from '../scraper/amazon';
-import { persistScrapeResult } from '../scheduler';
+import { extractAsin, normaliseAmazonUrl, scrapeProduct, scrapeWishlist, affiliateUrl, ProductUnavailableError, CaptchaDetectedError, WrongLocationError } from '../scraper/amazon';
+import { persistScrapeResult, checkProduct } from '../scheduler';
 import { requireAuth } from '../middleware/auth';
 import { isAdmin, requireAdmin } from '../middleware/admin';
 import {
@@ -412,6 +412,10 @@ router.get('/products/:id', async (req: Request, res: Response) => {
 });
 
 // ── POST /products/:id/refresh — Manual refresh (admin only) ─────────────────
+// Goes through the SAME path as the scheduler (checkProduct): 3-strike rule for
+// transient "unqualified" buyboxes, anomaly guard, reason preserved in
+// last_error, back-in-stock notifications. It used to mark the product
+// unavailable on the very first hiccup and wipe the reason.
 router.post('/products/:id/refresh', requireAuth, requireAdmin, async (req: Request, res: Response) => {
   const productId = parseInt(String(req.params.id), 10);
 
@@ -424,28 +428,23 @@ router.post('/products/:id/refresh', requireAuth, requireAdmin, async (req: Requ
   if (!product) return res.status(404).json({ error: 'Producto no encontrado.' });
 
   try {
-    const result = await scrapeProduct(product.url);
-    // Single source of truth — same persistence logic as the scheduler so admin
-    // refresh writes was_price / sale_tier / deal_score / is_on_sale, not just
-    // the basics. Without this the admin refresh would leave was_price NULL
-    // and product would appear "out of sale" after a manual refresh.
-    await persistScrapeResult(productId, result);
-
-    if (req.headers['hx-request']) {
-      return res.redirect(`/p/${product.asin}`);
-    }
-    res.json({ success: true, price: result.price });
+    await checkProduct(productId, product.url, product.name ?? product.asin, 30);
   } catch (err) {
-    if (err instanceof ProductUnavailableError) {
-      await db.update(products).set({ isAvailable: false, lastError: null }).where(eq(products.id, productId));
-      if (req.headers['hx-request']) return res.redirect(`/p/${product.asin}`);
-      res.status(200).json({ unavailable: true });
-    } else {
-      const msg = err instanceof Error ? err.message : String(err);
-      await db.update(products).set({ lastError: msg, totalFailures: sql`total_failures + 1` }).where(eq(products.id, productId));
-      res.status(500).json({ error: msg });
-    }
+    // checkProduct only rethrows scraper-wide conditions (everything product-specific is persisted).
+    const msg = err instanceof CaptchaDetectedError
+      ? 'Amazon está bloqueando el scraper ahora mismo; reinténtalo en unos minutos.'
+      : err instanceof WrongLocationError
+        ? 'Amazon no mostró la ubicación de España; reinténtalo en un momento.'
+        : (err instanceof Error ? err.message : String(err));
+    return res.status(503).json({ error: msg });
   }
+
+  const [fresh] = await db
+    .select({ isAvailable: products.isAvailable, lastError: products.lastError })
+    .from(products).where(eq(products.id, productId)).limit(1);
+
+  if (req.headers['hx-request']) return res.redirect(`/p/${product.asin}`);
+  res.json({ success: true, unavailable: fresh ? !fresh.isAvailable : false, lastError: fresh?.lastError ?? null });
 });
 
 // ── POST /products/:id/toggle-public — Cycle feature_lock: auto → pin → mute → auto ─

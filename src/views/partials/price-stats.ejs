@@ -1,25 +1,45 @@
 <%
   // Locals expected: product, currentPrice, minPrice, maxPrice, history
+  // product.lastScrapedAt / product.minPriceDate come from the route.
   const wasPrice    = product.wasPrice ? parseFloat(String(product.wasPrice)) : null;
-  const discountPct = (wasPrice && currentPrice && wasPrice > currentPrice)
+  const lastAt      = product.lastScrapedAt ? new Date(product.lastScrapedAt) : null;
+  const ageMs       = lastAt ? Date.now() - lastAt.getTime() : null;
+  const isStale     = ageMs !== null && ageMs > 48 * 3600 * 1000;   // data older than 48 h
+  // Promotional bits (PVP, "Ahorras", strikethrough) are only trustworthy for a
+  // product that is in stock AND whose price was checked recently.
+  const fresh       = product.isAvailable && !isStale;
+  const ago = (ms) => {
+    if (ms === null) return '';
+    const h = Math.floor(ms / 3600000);
+    if (h < 1)  return 'hace menos de 1 h';
+    if (h < 48) return 'hace ' + h + ' h';
+    return 'hace ' + Math.floor(h / 24) + ' días';
+  };
+  const discountPct = (fresh && wasPrice && currentPrice && wasPrice > currentPrice)
     ? Math.round((wasPrice - currentPrice) / wasPrice * 100) : null;
   const saleTierLabels = { 'oferta':'Oferta','super-oferta':'Super Oferta','mega-oferta':'Mega Oferta','broooooferton':'Brooooofertón','67oferta':'67% oferta' };
+  const minSince    = product.minPriceDate || product.createdAt;
 %>
 <div class="price-stats" id="price-stats-card">
   <a href="<%= product.amazonUrl %>" target="_blank" rel="noopener sponsored" class="stat-box stat-current stat-box-link" title="Ver en Amazon.es">
     <div class="stat-label">Precio actual ↗</div>
-    <% if (wasPrice && discountPct && product.isAvailable) { %>
+    <% if (wasPrice && discountPct) { %>
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
         <span style="font-size:13px;text-decoration:line-through;color:var(--gray-400)"><%= wasPrice.toFixed(2) %> €</span>
         <span style="font-size:12px;font-weight:700;background:#dc2626;color:#fff;border-radius:4px;padding:1px 5px">-<%= discountPct %>%</span>
       </div>
     <% } %>
     <div class="stat-value"><%= !product.isAvailable ? 'Sin stock' : (currentPrice ? currentPrice.toFixed(2) + ' €' : '—') %></div>
+    <% if (!product.isAvailable && currentPrice) { %>
+      <div class="stat-sublabel">Último precio conocido: <%= currentPrice.toFixed(2) %> € · <%= ago(ageMs) %></div>
+    <% } else if (isStale) { %>
+      <div class="stat-sublabel" title="Hace tiempo que no se comprueba este producto">Dato <%= ago(ageMs) %></div>
+    <% } %>
     <% if (product.isOnSale && product.saleTier) { %>
       <div style="margin-top:4px"><span class="badge-sale badge-tier-<%= product.saleTier %>"><%= saleTierLabels[product.saleTier] || 'Oferta' %></span></div>
     <% } %>
   </a>
-  <% if (wasPrice) { %>
+  <% if (wasPrice && fresh) { %>
   <div class="stat-box" style="border-left:3px solid #dc2626">
     <div class="stat-label">PVP recomendado</div>
     <div class="stat-value" style="text-decoration:line-through;color:var(--gray-400)"><%= wasPrice.toFixed(2) %> €</div>
@@ -29,7 +49,7 @@
   <div class="stat-box stat-min">
     <div class="stat-label">Precio mínimo</div>
     <div class="stat-value"><%= minPrice ? minPrice.toFixed(2) + ' €' : '—' %></div>
-    <% if (minPrice) { %><div class="stat-sublabel">desde <%= new Date(product.createdAt).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' }) %></div><% } %>
+    <% if (minPrice) { %><div class="stat-sublabel">desde <%= new Date(minSince).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' }) %></div><% } %>
   </div>
   <div class="stat-box stat-max">
     <div class="stat-label">Precio máximo</div>
@@ -38,5 +58,6 @@
   <div class="stat-box stat-checks">
     <div class="stat-label">Registros</div>
     <div class="stat-value"><%= history.length %></div>
+    <% if (lastAt) { %><div class="stat-sublabel">Último: <%= ago(ageMs) %></div><% } %>
   </div>
 </div>

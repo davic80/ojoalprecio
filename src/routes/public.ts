@@ -8,6 +8,16 @@ import { onScrapeUpdate } from '../lib/product-events';
 import { getAliExpressClient, discoverAndPersistEquivalent, extractBrandModel } from '../marketplaces/aliexpress';
 import { upsertAEProductSql } from '../marketplaces/aliexpress/persist';
 
+// Date the all-time minimum was first seen (history is newest-first), used for
+// "desde …" in the price card. It used to show the product's creation date.
+function minPriceSince(history: Array<{ price: unknown; scrapedAt: Date }>, minPrice: number | null): Date | null {
+  if (minPrice === null) return null;
+  for (let i = history.length - 1; i >= 0; i--) {
+    if (parseFloat(String(history[i].price)) === minPrice) return history[i].scrapedAt;
+  }
+  return null;
+}
+
 const router = Router();
 
 // ── GET /robots.txt — Crawler directives ─────────────────────────────────────
@@ -452,6 +462,8 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
     featuredAt:           product.featured_at,
     variantsJson:         product.variants_json,
     createdAt:            product.created_at,
+    lastScrapedAt:        history[0]?.scrapedAt ?? null,
+    minPriceDate:         minPriceSince(history, minPrice),
     amazonUrl:            affiliateUrl(product.url),
   };
 
@@ -657,6 +669,8 @@ router.get('/p/:asin/fragment/price', async (req: Request, res: Response) => {
     saleTier:    product.sale_tier,
     wasPrice:    product.was_price,
     createdAt:   product.created_at,
+    lastScrapedAt: history[0]?.scrapedAt ?? null,
+    minPriceDate:  minPriceSince(history, minPrice),
     amazonUrl:   affiliateUrl(product.url),
   };
 

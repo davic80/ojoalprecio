@@ -417,3 +417,14 @@ export async function verifyMailer(): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * Plain-text operational email to the admin (ADMIN_EMAIL). Used by the
+ * scraper watchdog / health alerts. Throws on SMTP failure so the caller can log it.
+ */
+export async function sendOpsEmail(subject: string, text: string): Promise<void> {
+  const to = process.env.ADMIN_EMAIL;
+  if (!to) throw new Error('ADMIN_EMAIL no configurado');
+  const cfg = getConfig();
+  await createTransporter().sendMail({ from: cfg.from, to, subject, text });
+}
