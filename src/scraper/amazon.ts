@@ -309,8 +309,21 @@ function getAmazonStorageState(): Promise<any> {
           await page.locator('input[type="submit"], button[type="submit"], a.a-button-text').first().click({ timeout: 3000 }).catch(() => {});
           await randomDelay(1500, 2500);
         }
-        const ok = await setSpanishLocation(page);
-        console.log(`[scraper] ubicación de entrega ${ok ? 'fijada' : 'NO fijada'} (CP ${AMAZON_ZIP})`);
+        // Setting the postal code through Amazon's UI is occasionally flaky (popover not
+        // ready, layout variant): retry, and only trust it once a reload shows our CP.
+        let verified = false;
+        for (let attempt = 1; attempt <= 3 && !verified; attempt++) {
+          if (attempt > 1) {
+            await page.goto('https://www.amazon.es', { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(() => {});
+            await randomDelay(1000, 2000);
+          }
+          if (await setSpanishLocation(page)) {
+            await page.reload({ waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {});
+            const label = ((await page.locator('#glow-ingress-block').first().textContent({ timeout: 3000 }).catch(() => '')) ?? '').replace(/\s+/g, ' ');
+            verified = label.includes(AMAZON_ZIP);
+          }
+        }
+        console.log(`[scraper] ubicación de entrega ${verified ? 'fijada y verificada' : 'NO verificada'} (CP ${AMAZON_ZIP})`);
         return await ctx.storageState();
       } finally {
         await safeClose('storage.page.close', () => page.close());
@@ -507,6 +520,8 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
               const dpCountAfter = await page.locator('#dp, #dp-container').count();
               if (dpCountAfter > 0) {
                 console.log('[scraper] Interstitial superado con clic.');
+                // The product page may still be loading behind the interstitial.
+                await page.waitForSelector('#productTitle, meta[property="og:title"]', { timeout: 8000, state: 'attached' }).catch(() => {});
                 // Update shared storage state so next contexts skip the interstitial
                 _storageStatePromise = context.storageState().catch(() => null) as any;
               } else {
@@ -559,7 +574,16 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
           }),
           page.locator('#availability').first().textContent({ timeout: 5000 }).catch(() => ''),
         ]);
-        if (!name) throw new Error('Título no encontrado');
+        if (!name) {
+          const bodyNow = ((await page.textContent('body').catch(() => '')) ?? '').slice(0, 200).replace(/\s+/g, ' ');
+          // Still sitting on Amazon's interstitial: that's a session block, not a defect of this product.
+          if (bodyNow.includes('botón de abajo')) {
+            captchaDetectedAt = Date.now();
+            _storageStatePromise = null;
+            throw new CaptchaDetectedError(`Bloqueo Amazon (interstitial residual: "${bodyNow.slice(0, 100)}")`);
+          }
+          throw new Error(`Título no encontrado (título: "${pageTitle.slice(0, 60)}" | body: "${bodyNow.slice(0, 100)}")`);
+        }
         if (availabilityText?.toLowerCase().includes('no disponible')) throw new ProductUnavailableError('Producto no disponible', undefined, undefined, name);
 
         // Detect pages where Amazon has no qualifying offer of its own:
