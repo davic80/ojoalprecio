@@ -565,7 +565,7 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
         // selector + falls back to the og:title meta tag — the latter is
         // present on every Amazon layout so the only way to genuinely fail
         // here is a non-product page (404 / blocked).
-        const [name, availabilityText] = await Promise.all([
+        const readTitle = (): Promise<string> =>
           Promise.any(
             TITLE_SELECTORS.map(sel =>
               page.locator(sel).first().textContent({ timeout: LOCATOR_TIMEOUT_MS }).then(t => {
@@ -580,9 +580,23 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
             const t = await page.locator('meta[property="og:title"]').first()
               .getAttribute('content', { timeout: 2000 }).catch(() => '');
             return t?.trim() ?? '';
-          }),
-          page.locator('#availability').first().textContent({ timeout: 5000 }).catch(() => ''),
-        ]);
+          });
+        const readAvailability = (): Promise<string> =>
+          page.locator('#availability').first().textContent({ timeout: 5000 }).then(t => t ?? '').catch(() => '');
+
+        let [name, availabilityText] = await Promise.all([readTitle(), readAvailability()]);
+        // Intermittently Amazon serves a half-rendered product page: the <title> carries
+        // the product name but #productTitle never appears and the visible text is a
+        // blob of internal JSON (~12 % of scrapes; products piled up with
+        // "Título no encontrado" → 3-strike is_failed). The same ASIN loads fine on the
+        // next request, so reload once before giving up.
+        let degraded = false;
+        if (!name) {
+          console.log(`[scraper] ${asin} sin título (página incompleta) — recargando una vez`);
+          await page.reload({ waitUntil: 'domcontentloaded', timeout: Math.min(pageLoadTimeoutMs, 15000) }).catch(() => {});
+          await page.waitForSelector('#productTitle, #title span', { timeout: 6000, state: 'attached' }).catch(() => {});
+          [name, availabilityText] = await Promise.all([readTitle(), readAvailability()]);
+        }
         if (!name) {
           const bodyNow = ((await page.textContent('body').catch(() => '')) ?? '').slice(0, 200).replace(/\s+/g, ' ');
           // Still sitting on Amazon's interstitial: that's a session block, not a defect of this product.
@@ -591,7 +605,13 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
             _storageStatePromise = null;
             throw new CaptchaDetectedError(`Bloqueo Amazon (interstitial residual: "${bodyNow.slice(0, 100)}")`);
           }
-          throw new Error(`Título no encontrado (título: "${pageTitle.slice(0, 60)}" | body: "${bodyNow.slice(0, 100)}")`);
+          // Last resort: the <title> still names the product ("<name> : Amazon.es: <category>").
+          const fromTitle = (await page.title().catch(() => pageTitle)).replace(/\s*:\s*Amazon\.es.*$/i, '').trim();
+          if (fromTitle.length < 6) {
+            throw new Error(`Título no encontrado (título: "${pageTitle.slice(0, 60)}" | body: "${bodyNow.slice(0, 100)}")`);
+          }
+          name = fromTitle;
+          degraded = true;
         }
         if (availabilityText?.toLowerCase().includes('no disponible')) throw new ProductUnavailableError('Producto no disponible', undefined, undefined, name);
 
@@ -663,7 +683,12 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
         // product effectively has no offer to show. Carrying the name through
         // lets the scheduler persist basic display info even though we never
         // reached persistScrapeResult.
-        if (!rawPrice) throw new ProductUnavailableError('Sin precio disponible en Amazon', undefined, undefined, name);
+        if (!rawPrice) {
+          // A half-rendered page also lacks the buybox: that says nothing about stock,
+          // so don't bench the product — fail this attempt and retry later.
+          if (degraded) throw new Error(`Página incompleta sin título ni precio (${asin}); se reintentará`);
+          throw new ProductUnavailableError('Sin precio disponible en Amazon', undefined, undefined, name);
+        }
         const price = parseSpanishPrice(rawPrice);
         if (!isFinite(price) || price < 0.5) throw new Error(`Precio inválido: "${rawPrice}" → ${price}`);
 
