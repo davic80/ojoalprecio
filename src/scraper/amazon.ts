@@ -462,7 +462,7 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
         await optimizePageForScraping(page);
         await page.goto(canonicalUrl, { waitUntil: 'domcontentloaded', timeout: pageLoadTimeoutMs });
 
-        const pageTitle = await page.title();
+        let pageTitle = await page.title();
 
         const isTitleBlock =
           pageTitle.includes('Robot Check') ||
@@ -514,13 +514,22 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
             const btn = page.locator('input[type="submit"], button[type="submit"], a.a-button-text').first();
             if (await btn.count() > 0) {
               console.log('[scraper] Interstitial detectado — intentando clic...');
-              await btn.click({ timeout: 3000 }).catch(() => {});
-              await randomDelay(1500, 2500);
-              // Re-check after click
+              // "Seguir comprando" submits /errors_page/validateCaptcha and Amazon then
+              // redirects to the HOME page, not back to the product. The old code looked for
+              // #dp right after the click, saw the home page and declared a block (10 min
+              // global pause) — 255 of 255 interstitials were misjudged that way. Click,
+              // wait for the redirect, then load the product again.
+              await Promise.all([
+                page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 12000 }).catch(() => null),
+                btn.click({ timeout: 3000 }).catch(() => {}),
+              ]);
+              await randomDelay(800, 1500);
+              await page.goto(canonicalUrl, { waitUntil: 'domcontentloaded', timeout: pageLoadTimeoutMs }).catch(() => {});
               const dpCountAfter = await page.locator('#dp, #dp-container').count();
               if (dpCountAfter > 0) {
-                console.log('[scraper] Interstitial superado con clic.');
-                // The product page may still be loading behind the interstitial.
+                console.log('[scraper] Interstitial superado con clic + recarga.');
+                pageTitle = await page.title();
+                // The product page may still be loading.
                 await page.waitForSelector('#productTitle, meta[property="og:title"]', { timeout: 8000, state: 'attached' }).catch(() => {});
                 // Update shared storage state so next contexts skip the interstitial
                 _storageStatePromise = context.storageState().catch(() => null) as any;
