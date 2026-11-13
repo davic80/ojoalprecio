@@ -62,11 +62,19 @@ export function getScraperHealth() {
   };
 }
 
+// A cron tick that arrives while a cycle is still running is remembered, so the next cycle
+// starts right after the current one instead of idling until the following hour. Without
+// this, a mid-hour restart left the scraper stopped for up to ~50 min (the 50 min cycle
+// deadline ended just past :00, that tick was skipped, and the next one was an hour away).
+let tickSkipped = false;
+
 async function checkAllProducts(): Promise<void> {
   if (isRunning) {
     console.log('[scheduler] Previous run still active, skipping.');
+    tickSkipped = true;
     return;
   }
+  tickSkipped = false;
   isRunning = true;
   const gen = ++cycleGen;
   const alive = () => gen === cycleGen;
@@ -205,6 +213,11 @@ async function checkAllProducts(): Promise<void> {
       isRunning = false;
       state.isRunning = false;
       state.current = null;
+      if (tickSkipped) {
+        tickSkipped = false;
+        console.log('[scheduler] Había un aviso pendiente: arranco el siguiente ciclo ya.');
+        setTimeout(() => { checkAllProducts().catch(e => console.error('[scheduler] ciclo encadenado:', e)); }, 3000);
+      }
     }
   }
 }
