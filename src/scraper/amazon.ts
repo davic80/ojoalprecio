@@ -1,4 +1,5 @@
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
+import { buildProfiles, pickProfile, profileHeaders, type UaProfile } from './profiles';
 
 export class ProductUnavailableError extends Error {
   // Optional structured reason so the scheduler can route this into the
@@ -114,7 +115,7 @@ let _browserNeedsRecycle = false;
     cached browser state so the next scrape starts clean. */
 export function restartBrowser(): void {
   console.warn('[scraper] restartBrowser(): matando Chromium y limpiando estado');
-  _browser = null; _browserLaunchPromise = null; _storageStatePromise = null; _browserUses = 0;
+  _browser = null; _browserLaunchPromise = null; _storageStatePromise = null; _sessionProfile = null; _browserUses = 0;
   _browserNeedsRecycle = false;
   forceKillChromium();
 }
@@ -134,17 +135,6 @@ async function setSpanishLocation(page: Page): Promise<boolean> {
     console.warn(`[scraper] no se pudo fijar el código postal ${AMAZON_ZIP}: ${(e as Error).message.slice(0, 80)}`);
     return false;
   }
-}
-
-const USER_AGENTS = [
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0',
-];
-
-function randomUserAgent(): string {
-  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
 }
 
 function randomDelay(minMs: number, maxMs: number): Promise<void> {
@@ -260,6 +250,35 @@ let _browser: Browser | null = null;
 let _browserUses = 0;
 let _browserLaunchPromise: Promise<Browser> | null = null;
 let _storageStatePromise: Promise<any> | null = null;
+// One browser identity per Amazon session: the cookies in the shared storage state were
+// issued to this user agent/hints, so every scrape that reuses them must present the same one.
+let _sessionProfile: UaProfile | null = null;
+
+function sessionProfile(browser: Browser): UaProfile {
+  if (!_sessionProfile) _sessionProfile = pickProfile(buildProfiles(browser.version()));
+  return _sessionProfile;
+}
+
+/** Make navigator.* agree with the user agent we announce (headless Chromium on Linux
+    would otherwise report platform "Linux x86_64" and its real userAgentData). */
+function identityInitScript(p: UaProfile) {
+  return {
+    script: (id: { platform: string; chPlatform: string; platformVersion: string; fullVersion: string; brands: Array<{ brand: string; version: string }> }) => {
+      Object.defineProperty(navigator, 'platform', { get: () => id.platform });
+      const fullList = id.brands.map(b => ({ brand: b.brand, version: b.brand === 'Not_A Brand' ? `${b.version}.0.0.0` : id.fullVersion }));
+      const data = {
+        brands: id.brands, mobile: false, platform: id.chPlatform,
+        getHighEntropyValues: async () => ({
+          architecture: 'x86', bitness: '64', brands: id.brands, fullVersionList: fullList, mobile: false,
+          model: '', platform: id.chPlatform, platformVersion: id.platformVersion, uaFullVersion: id.fullVersion, wow64: false,
+        }),
+        toJSON() { return { brands: id.brands, mobile: false, platform: id.chPlatform }; },
+      };
+      Object.defineProperty(navigator, 'userAgentData', { get: () => data });
+    },
+    arg: { platform: p.navigatorPlatform, chPlatform: p.chPlatform, platformVersion: p.platformVersion, fullVersion: p.fullVersion, brands: p.brands },
+  };
+}
 
 function getBrowser(): Promise<Browser> {
   if (captchaDetectedAt && (Date.now() - captchaDetectedAt < CAPTCHA_COOLDOWN_MS)) {
@@ -298,7 +317,11 @@ function getAmazonStorageState(): Promise<any> {
   if (!_storageStatePromise) {
     _storageStatePromise = (async () => {
       const browser = await getBrowser();
-      const ctx = await browser.newContext({ userAgent: randomUserAgent(), locale: 'es-ES' });
+      _sessionProfile = null;                       // new session → new identity
+      const profile = sessionProfile(browser);
+      console.log(`[scraper] identidad de sesión: ${profile.id} (Chromium ${browser.version()})`);
+      const ctx = await browser.newContext({ userAgent: profile.userAgent, locale: 'es-ES', extraHTTPHeaders: profileHeaders(profile) });
+      { const id = identityInitScript(profile); await ctx.addInitScript(id.script, id.arg); }
       const page = await ctx.newPage();
       try {
         await page.goto('https://www.amazon.es', { waitUntil: 'domcontentloaded', timeout: 25000 });
@@ -345,30 +368,19 @@ function randomViewport() { return VIEWPORTS[Math.floor(Math.random() * VIEWPORT
 
 async function createNewContext(browser: Browser): Promise<BrowserContext> {
   const storageState = await getAmazonStorageState();
-  const ua = randomUserAgent();
+  const profile = sessionProfile(browser);
   const vp = randomViewport();
 
-  // Build sec-ch-ua to match Chrome 131 UA strings
-  const isChrome = ua.includes('Chrome/131');
-  const secChUa = isChrome
-    ? '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"'
-    : '"Firefox";v="132", "Not_A Brand";v="99"';
-
   const context = await browser.newContext({
-    userAgent: ua,
+    userAgent: profile.userAgent,
     viewport: vp,
     locale: 'es-ES',
     timezoneId: 'Europe/Madrid',
     storageState,
-    extraHTTPHeaders: {
-      'Accept-Language':         'es-ES,es;q=0.9,en;q=0.8',
-      'Cache-Control':           'max-age=0',
-      'Sec-CH-UA':               secChUa,
-      'Sec-CH-UA-Mobile':        '?0',
-      'Sec-CH-UA-Platform':      '"Windows"',
-      'Upgrade-Insecure-Requests': '1',
-    },
+    extraHTTPHeaders: profileHeaders(profile),
   });
+
+  { const id = identityInitScript(profile); await context.addInitScript(id.script, id.arg); }
 
   await context.addInitScript((vp: { width: number; height: number }) => {
     // Hide webdriver flag
