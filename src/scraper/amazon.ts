@@ -320,7 +320,10 @@ function getAmazonStorageState(): Promise<any> {
       _sessionProfile = null;                       // new session → new identity
       const profile = sessionProfile(browser);
       console.log(`[scraper] identidad de sesión: ${profile.id} (Chromium ${browser.version()})`);
-      const ctx = await browser.newContext({ userAgent: profile.userAgent, locale: 'es-ES', extraHTTPHeaders: profileHeaders(profile) });
+      // No extraHTTPHeaders here: they apply to EVERY request of the context, including the XHRs
+      // behind Amazon's delivery-location popover, and with them the postal code never sticks
+      // (A/B on 2026-11-13: 0/3 with headers, 3/3 without). Chromium sends its own Sec-CH-UA.
+      const ctx = await browser.newContext({ userAgent: profile.userAgent, locale: 'es-ES' });
       { const id = identityInitScript(profile); await ctx.addInitScript(id.script, id.arg); }
       const page = await ctx.newPage();
       try {
