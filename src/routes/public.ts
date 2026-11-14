@@ -5,6 +5,7 @@ import { eq, desc, sql, and, asc, inArray } from 'drizzle-orm';
 import { affiliateUrl } from '../scraper/amazon';
 import { cleanVariantLabel } from '../lib/variants';
 import { collectState, pollAction, unavailableText } from '../lib/collecting';
+import { buildSelector, ownLabel, type RawVariant, type CatalogInfo } from '../lib/groups';
 import { requireAuth } from '../middleware/auth';
 import { isAdmin } from '../middleware/admin';
 import { onScrapeUpdate } from '../lib/product-events';
@@ -556,7 +557,7 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
   let variantsView: Array<{ asin: string; label: string; selectable: boolean; inCatalog: boolean }> = [];
   try {
     const parsed: Array<{ asin: string; label: string; selectable: boolean }> =
-      productView.variantsJson ? JSON.parse(String(productView.variantsJson)) : [];
+      productView.variantsJson ? (JSON.parse(String(productView.variantsJson)) as Array<{ asin: string; label: string; selectable: boolean; self?: boolean }>).filter(v => !v.self && v.asin !== product.asin) : [];
     if (parsed.length) {
       const asins = parsed.map(v => v.asin);
       const known = await db.selectDistinct({ asin: products.asin }).from(products).where(inArray(products.asin, asins));
@@ -699,10 +700,34 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
     }
   }
 
+  // Option selector (Amazon-style rows of colour / size…), built from this page's own twister.
+  let selector: ReturnType<typeof buildSelector> = null;
+  try {
+    const raw: RawVariant[] = product.variants_json ? JSON.parse(String(product.variants_json)) : [];
+    const list = raw.filter(v => v && /^[A-Z0-9]{10}$/.test(v.asin));
+    if (list.length) {
+      const asins = [...new Set(list.map(v => v.asin))];
+      const cat = await db.execute(sql`
+        SELECT DISTINCT ON (p.asin) p.asin, p.is_available AS available,
+          (SELECT price::float FROM price_history WHERE product_id = p.id ORDER BY scraped_at DESC LIMIT 1) AS price,
+          ${userId ? sql`EXISTS (SELECT 1 FROM user_products up WHERE up.product_id = p.id AND up.user_id = ${userId})` : sql`FALSE`} AS followed
+        FROM products p WHERE p.is_active = TRUE AND p.asin IN (${sql.join(asins.map(a => sql`${a}`), sql`, `)})
+        ORDER BY p.asin, (SELECT COUNT(*) FROM price_history ph WHERE ph.product_id = p.id) DESC`);
+      const byAsin = new Map<string, CatalogInfo>();
+      for (const r of cat.rows as any[]) byAsin.set(r.asin, { price: r.price, available: r.available, followed: !!r.followed, inCatalog: true });
+      selector = buildSelector(
+        list, product.asin,
+        a => byAsin.get(a) ?? { price: null, available: false, followed: false, inCatalog: false },
+        product.variant_label ?? ownLabel(list, product.asin)?.label ?? null,
+      );
+    }
+  } catch { /* malformed variants_json: no selector */ }
+
   const optionsView = userId ? await buildOptionsView(product, userId, { open: req.query.opciones === '1' }) : null;
 
   res.render('public-product', {
     options: optionsView,
+    selector,
     product: productView,
     history,
     currentPrice,

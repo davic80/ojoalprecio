@@ -211,13 +211,18 @@
     </a>
   <% } %>
 
+  <!-- Selector de opciones (talla / color…), como el de Amazon -->
+  <% if (typeof selector !== 'undefined' && selector) { %>
+    <%- include('partials/variant-selector', { selector }) %>
+  <% } %>
+
   <!-- Opciones y precios (usuarios con sesión) -->
   <% if (typeof options !== 'undefined' && options) { %>
     <%- include('partials/options-panel', { options }) %>
   <% } %>
 
   <!-- Otras variantes (twister): solo para visitantes sin sesión; con sesión las muestra el panel de arriba -->
-  <% if (!(typeof options !== 'undefined' && options) && typeof variants !== 'undefined' && variants && variants.length) { %>
+  <% if (!(typeof options !== 'undefined' && options) && !(typeof selector !== 'undefined' && selector) && typeof variants !== 'undefined' && variants && variants.length) { %>
     <div class="card" style="margin-top:20px">
       <h2 style="margin-top:0;font-size:16px">Otras variantes <span class="hint" style="font-size:12px;font-weight:400">(<%= variants.length %>)</span></h2>
       <div style="display:flex;flex-wrap:wrap;gap:8px">

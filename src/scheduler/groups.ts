@@ -1,7 +1,7 @@
 // DB side of variant groups (see lib/groups.ts and the product_groups migration).
 import { sql } from 'drizzle-orm';
 import { db } from '../db/client';
-import { planGroups, chooseGroupKey, groupableVariants, variantLabels, MAX_GROUP_SIZE, type RawVariant, type VariantLabel } from '../lib/groups';
+import { planGroups, chooseGroupKey, groupableVariants, variantLabels, MAX_GROUP_SIZE, ownLabel, type RawVariant, type VariantLabel } from '../lib/groups';
 
 async function applyLabels(rows: VariantLabel[]): Promise<void> {
   if (!rows.length) return;
@@ -56,7 +56,10 @@ export async function assignGroup(asin: string, parentAsin: string | null, varia
         AND NOT EXISTS (SELECT 1 FROM product_groups o WHERE o.key = ${parentAsin})`);
   }
   await db.execute(sql`UPDATE products SET group_id = ${target} WHERE asin IN (${list}) AND group_id IS DISTINCT FROM ${target}`);
-  await applyLabels(variantLabels(siblings));
+  // Full option names ("Negro · 42"), composed with this page's selected option in the other rows.
+  await applyLabels(variantLabels(siblings, variants.filter(v => v.self && v.asin === asin)));
+  const own = ownLabel(variants, asin);
+  if (own) await applyLabels([{ asin, label: own.label, dim: own.dim }]);
 }
 
 let _backfilled = false;

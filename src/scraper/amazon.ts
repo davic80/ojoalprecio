@@ -50,6 +50,8 @@ export interface VariantRef {
   selectable: boolean;  // swatch isn't disabled (NOT a stock guarantee)
   /** Which selector row it belongs to: 'size_name', 'color_name', 'style_name'… (twister row id without 'variation_'). */
   dim?: string;
+  /** This very page's own option in that selector row (one per row: colour, size…). */
+  self?: boolean;
 }
 
 export interface ScrapeResult {
@@ -778,8 +780,12 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
             const seen = new Map<string, VariantRef>();
             document.querySelectorAll('li[data-defaultasin], li[data-asin]').forEach((li) => {
               const asin = li.getAttribute('data-defaultasin') || li.getAttribute('data-asin') || '';
-              if (!/^[A-Z0-9]{10}$/.test(asin) || asin === selfAsin) return;
-              if (seen.has(asin)) return;
+              if (!/^[A-Z0-9]{10}$/.test(asin)) return;
+              const isSelf = asin === selfAsin;
+              // The page's own option appears once per selector row; every other ASIN only once.
+              const rowEl = li.closest('[id^="variation_"]');
+              const seenKey = isSelf ? asin + '|' + (rowEl ? rowEl.id : '') : asin;
+              if (seen.has(seenKey)) return;
               const altLabel = li.querySelector('img')?.getAttribute('alt')?.trim()
                 || li.textContent?.trim().slice(0, 40)
                 || '';
@@ -787,7 +793,7 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
                 && !li.classList.contains('a-button-disabled');
               const row = li.closest('[id^="variation_"]');
               const dim = row ? row.id.replace(/^variation_/, '').slice(0, 30) : undefined;
-              seen.set(asin, { asin, label: altLabel, selectable, ...(dim ? { dim } : {}) });
+              seen.set(seenKey, { asin, label: altLabel, selectable, ...(dim ? { dim } : {}), ...(isSelf ? { self: true } : {}) });
             });
             return [...seen.values()];
           }, asin).catch(() => [] as VariantRef[]),

@@ -84,4 +84,17 @@ describe('variant groups (Postgres)', () => {
     expect((await pool.query(`SELECT COUNT(*)::int n FROM product_groups`)).rows[0].n).toBe(2);
     expect((await groupOf(a[0])).group_id).not.toBe((await groupOf(b[0])).group_id);
   });
+
+  it('stores composed option names ("Negro · 43") including the page\'s own option', async () => {
+    await addProduct('B0AAAAAAA1'); await addProduct('B0AAAAAAA2'); await addProduct('B0AAAAAAA3');
+    await assignGroup('B0AAAAAAA1', null, [
+      { asin: 'B0AAAAAAA1', label: 'Negro', dim: 'color_name', self: true } as any,
+      { asin: 'B0AAAAAAA1', label: '42', dim: 'size_name', self: true } as any,
+      { asin: 'B0AAAAAAA2', label: '43', dim: 'size_name' },
+      { asin: 'B0AAAAAAA3', label: 'Rojo', dim: 'color_name' },
+    ]);
+    expect((await groupOf('B0AAAAAAA1')).variant_label).toBe('Negro · 42');
+    expect((await groupOf('B0AAAAAAA2')).variant_label).toBe('Negro · 43');
+    expect((await groupOf('B0AAAAAAA3')).variant_label).toBe('Rojo · 42');
+  });
 });
