@@ -29,16 +29,22 @@ export function extractTwister(selfAsin: string): VariantRef[] {
 
   document.querySelectorAll('select[id^="native_dropdown_selected_"]').forEach((sel) => {
     const dim = sel.id.replace('native_dropdown_selected_', '').slice(0, 30);
+    const opts: Array<{ asin: string; label: string; selectable: boolean; selected: boolean }> = [];
     Array.from((sel as HTMLSelectElement).options).forEach((opt) => {
       const m = /^\d+,([A-Z0-9]{10})$/.exec(opt.value);
       const label = (opt.text || '').replace(/\s+/g, ' ').trim();
       if (!m || !label) return;
-      const selectable = !opt.disabled && !/unavailable/i.test(opt.className || '');
-      if (opt.selected || m[1] === selfAsin) {
+      opts.push({ asin: m[1], label, selectable: !opt.disabled && !/unavailable/i.test(opt.className || ''), selected: opt.selected });
+    });
+    // This page's own size is the option carrying THIS page's ASIN. Amazon may pre-select another size
+    // (e.g. one remembered from the session), so "selected" is only the fallback.
+    const mine = opts.find(o => o.asin === selfAsin) || opts.find(o => o.selected);
+    opts.forEach((o) => {
+      if (o === mine) {
         const key = selfAsin + '|' + dim;
-        if (!out.has(key)) out.set(key, { asin: selfAsin, label, selectable, dim, self: true });
-      } else if (!out.has(m[1] + '|' + dim)) {
-        out.set(m[1] + '|' + dim, { asin: m[1], label, selectable, dim });
+        if (!out.has(key)) out.set(key, { asin: selfAsin, label: o.label, selectable: o.selectable, dim, self: true });
+      } else if (o.asin !== selfAsin && !out.has(o.asin + '|' + dim)) {
+        out.set(o.asin + '|' + dim, { asin: o.asin, label: o.label, selectable: o.selectable, dim });
       }
     });
   });

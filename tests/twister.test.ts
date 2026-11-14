@@ -19,6 +19,14 @@ const NEW_LAYOUT = `
   </select></div></div>
 <div id="related"><ul><li data-asin="B0RELATED1"><span>carousel item</span></li></ul></div>`;
 
+// Amazon pre-selected ANOTHER size (e.g. remembered from the session): the page's own size is still the option with its ASIN.
+const PRESELECTED_OTHER = `
+<div id="variation_size_name"><select id="native_dropdown_selected_size_name">
+  <option value="-1">Seleccionar</option>
+  <option value="0,B0AAAAAAA2" class="dropdownSelect" selected>42.5 EU</option>
+  <option value="1,B0AAAAAAA1" class="dropdownAvailable">43 EU</option>
+</select></div>`;
+
 const OLD_LAYOUT = `
 <div id="variation_size_name"><ul><li data-defaultasin="B0AAAAAAA2"><span>43</span></li><li data-defaultasin="B0AAAAAAA1" class="swatchSelect"><span>42</span></li></ul></div>`;
 
@@ -50,6 +58,14 @@ describe('extractTwister (needs a local Chromium; skipped otherwise)', () => {
     if (!browser) return ctx.skip();
     const v = await run(NEW_LAYOUT, 'B0DJC3WYTP');
     expect(v.filter(x => x.asin === 'B077MLYRVN').map(x => x.dim).sort()).toEqual(['color_name', 'size_name']);
+  });
+
+  it('takes the size of THIS page\'s ASIN even if Amazon pre-selected another size', async (ctx) => {
+    if (!browser) return ctx.skip();
+    const v = await run(PRESELECTED_OTHER, 'B0AAAAAAA1');
+    expect(v.filter(x => x.self)).toEqual([{ asin: 'B0AAAAAAA1', label: '43 EU', selectable: true, dim: 'size_name', self: true }]);
+    expect(v.find(x => x.asin === 'B0AAAAAAA2')).toMatchObject({ label: '42.5 EU', dim: 'size_name' });
+    expect(v.filter(x => x.asin === 'B0AAAAAAA1')).toHaveLength(1);
   });
 
   it('still reads the old variation_ layout', async (ctx) => {

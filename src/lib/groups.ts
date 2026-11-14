@@ -48,8 +48,9 @@ const joinParts = (parts: Array<{ dim: string | null; label: string }>): string 
   parts.slice().sort((a, b) => dimRank(a.dim) - dimRank(b.dim)).map(p => p.label).join(' · ');
 
 /**
- * Option names. A sibling listed in one selector row only carries that row's value ("43"); the page that
- * listed it has the other rows selected (`selfEntries`, e.g. colour "Negro"), so the full name is "Negro · 43".
+ * Option names. A SIZE sibling carries only the size ("43"); the page that listed it has the other rows selected
+ * (`selfEntries`, e.g. colour "Negro"), and a size option keeps that colour, so its full name is "Negro · 43".
+ * Other rows (colour…) stay plain: see the note below.
  */
 export function variantLabels(variants: RawVariant[], selfEntries: RawVariant[] = []): VariantLabel[] {
   const out: VariantLabel[] = [];
@@ -57,7 +58,9 @@ export function variantLabels(variants: RawVariant[], selfEntries: RawVariant[] 
     if (!v || !ASIN.test(v.asin)) continue;
     const dim = v.dim ? v.dim.slice(0, 30) : null;
     const own = cleanVariantLabel(v.label ?? '');
-    const others = dim ? selfEntries.filter(e => e.dim && e.dim !== dim && e.label).map(e => ({ dim: e.dim!, label: cleanVariantLabel(e.label ?? '') })) : [];
+    // Only a SIZE sibling is known to share the page's other selections (same colour). A colour swatch's ASIN is
+    // that colour's default option, whatever size this page shows, so it stays a plain name until it is read itself.
+    const others = dim && /^size/.test(dim) ? selfEntries.filter(e => e.dim && e.dim !== dim && e.label).map(e => ({ dim: e.dim!, label: cleanVariantLabel(e.label ?? '') })) : [];
     out.push({ asin: v.asin, label: others.length ? joinParts([{ dim, label: own }, ...others]) : own, dim });
   }
   return out;

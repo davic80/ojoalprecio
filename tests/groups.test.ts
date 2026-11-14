@@ -53,9 +53,9 @@ describe('composed option names', () => {
     const [l] = variantLabels([{ asin: 'B0AAAAAAA2', label: '43', dim: 'size_name' }], selfEntries);
     expect(l.label).toBe('Negro · 43');
   });
-  it('a sibling from the colour row inherits the selected size, colour first', () => {
+  it('a colour sibling stays a plain colour name (its ASIN is that colour\'s default size, not this page\'s)', () => {
     const [l] = variantLabels([{ asin: 'B0AAAAAAA3', label: 'Rojo', dim: 'color_name' }], selfEntries);
-    expect(l.label).toBe('Rojo · 42');
+    expect(l.label).toBe('Rojo');
   });
   it('own name is the selected value of every row', () => {
     expect(ownLabel(selfEntries, 'B0SELF0001')).toEqual({ label: 'Negro · 42', dim: 'color_name' });

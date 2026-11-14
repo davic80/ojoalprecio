@@ -3,13 +3,18 @@ import { sql } from 'drizzle-orm';
 import { db } from '../db/client';
 import { planGroups, chooseGroupKey, groupableVariants, variantLabels, MAX_GROUP_SIZE, ownLabel, type RawVariant, type VariantLabel } from '../lib/groups';
 
-async function applyLabels(rows: VariantLabel[]): Promise<void> {
+/**
+ * `authoritative` = the product's own page named itself (always wins). Otherwise the name comes from a
+ * sibling's list and only fills an empty label: it must never overwrite what the product itself reported.
+ */
+async function applyLabels(rows: VariantLabel[], authoritative = false): Promise<void> {
   if (!rows.length) return;
   const values = sql.join(rows.map(r => sql`(${r.asin}::text, ${r.label}::text, ${r.dim}::text)`), sql`, `);
   await db.execute(sql`
     UPDATE products p SET variant_label = v.label, variant_dim = v.dim
     FROM (VALUES ${values}) AS v(asin, label, dim)
     WHERE p.asin = v.asin AND (p.variant_label IS DISTINCT FROM v.label OR p.variant_dim IS DISTINCT FROM v.dim)
+      ${authoritative ? sql`` : sql`AND p.variant_label IS NULL`}
   `);
 }
 
@@ -59,7 +64,7 @@ export async function assignGroup(asin: string, parentAsin: string | null, varia
   // Full option names ("Negro · 42"), composed with this page's selected option in the other rows.
   await applyLabels(variantLabels(siblings, variants.filter(v => v.self && v.asin === asin)));
   const own = ownLabel(variants, asin);
-  if (own) await applyLabels([{ asin, label: own.label, dim: own.dim }]);
+  if (own) await applyLabels([{ asin, label: own.label, dim: own.dim }], true);
 }
 
 let _backfilled = false;
