@@ -949,6 +949,8 @@ export const MIGRATIONS: string[] = [
   // so every product gets its turn and dead ones can't hog the queue.
   `ALTER TABLE products ADD COLUMN IF NOT EXISTS last_checked_at TIMESTAMP;
    CREATE INDEX IF NOT EXISTS idx_products_last_checked_at ON products (last_checked_at);`,
+  // Removal lifecycle for unavailable products (see src/scheduler/lifecycle.ts).
+  `ALTER TABLE products ADD COLUMN IF NOT EXISTS unavailable_confirmations INTEGER NOT NULL DEFAULT 0;`,
 ];
 
 export async function migrate(pool: Pool = defaultPool): Promise<void> {

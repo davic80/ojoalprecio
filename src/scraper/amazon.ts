@@ -4,13 +4,15 @@ import { buildProfiles, pickProfile, profileHeaders, type UaProfile } from './pr
 export class ProductUnavailableError extends Error {
   // Optional structured reason so the scheduler can route this into the
   // anomaly review queue (used / unqualified buybox cases).
-  reason?: 'used' | 'unqualified';
+  //  'gone'     — Amazon says the ASIN doesn't exist (404 / "Documento no encontrado")
+  //  'redirect' — the page is for a DIFFERENT ASIN (Amazon redirected a retired variant)
+  reason?: 'used' | 'unqualified' | 'gone' | 'redirect';
   snippet?: string;
   // Product title captured before the throw, when available. The scheduler
   // persists this so products that fail before reaching persistScrapeResult
   // still have a name for the admin UI / dashboards.
   productName?: string;
-  constructor(message: string, reason?: 'used' | 'unqualified', snippet?: string, productName?: string) {
+  constructor(message: string, reason?: 'used' | 'unqualified' | 'gone' | 'redirect', snippet?: string, productName?: string) {
     super(message);
     this.name = 'ProductUnavailableError';
     this.reason = reason;
@@ -144,8 +146,8 @@ function randomDelay(minMs: number, maxMs: number): Promise<void> {
 // Pure helpers (extractAsin / normaliseAmazonUrl / affiliateUrl /
 // parseSpanishPrice) live in ./util for testability. Re-exported here so
 // all existing `from '../scraper/amazon'` imports keep working.
-export { extractAsin, normaliseAmazonUrl, affiliateUrl, parseSpanishPrice } from './util';
-import { extractAsin, normaliseAmazonUrl, parseSpanishPrice } from './util';
+export { extractAsin, normaliseAmazonUrl, scrapeUrl, affiliateUrl, parseSpanishPrice } from './util';
+import { extractAsin, normaliseAmazonUrl, scrapeUrl, parseSpanishPrice } from './util';
 
 // ── Configuración de Timeouts ────────────────────────────────────────────────
 // timeoutSeconds is passed per-call from the scheduler (reads app_settings DB).
@@ -461,7 +463,8 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
   const hardTimeoutMs      = Math.max(15, timeoutSeconds) * 1000;
   const pageLoadTimeoutMs  = Math.round(hardTimeoutMs * 0.8);
 
-  const canonicalUrl = normaliseAmazonUrl(asin);
+  const canonicalUrl = normaliseAmazonUrl(asin);   // stored / returned
+  const pageUrl      = scrapeUrl(asin);            // what we navigate to (variation pinned)
   const browser = await getBrowser();
   const context = await createNewContext(browser);
   const page = await context.newPage();
@@ -475,7 +478,7 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
     const result = await Promise.race([
       (async (): Promise<ScrapeResult> => {
         await optimizePageForScraping(page);
-        await page.goto(canonicalUrl, { waitUntil: 'domcontentloaded', timeout: pageLoadTimeoutMs });
+        await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: pageLoadTimeoutMs });
 
         let pageTitle = await page.title();
 
@@ -499,7 +502,7 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
             pageTitle.toLowerCase().includes('página no encontrada') ||
             pageTitle.toLowerCase().includes('not found');
           if (isNotFound) {
-            throw new ProductUnavailableError('Producto no encontrado en Amazon (ASIN eliminado o URL inválida)');
+            throw new ProductUnavailableError('Producto no encontrado en Amazon (ASIN eliminado o URL inválida)', 'gone');
           }
 
           // Amazon non-product surfaces (Luna gaming, Audible, Prime Video,
@@ -539,7 +542,7 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
                 btn.click({ timeout: 3000 }).catch(() => {}),
               ]);
               await randomDelay(800, 1500);
-              await page.goto(canonicalUrl, { waitUntil: 'domcontentloaded', timeout: pageLoadTimeoutMs }).catch(() => {});
+              await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: pageLoadTimeoutMs }).catch(() => {});
               const dpCountAfter = await page.locator('#dp, #dp-container').count();
               if (dpCountAfter > 0) {
                 console.log('[scraper] Interstitial superado con clic + recarga.');
@@ -574,6 +577,14 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
         if (ingress && /enviar a/i.test(ingress) && !ingress.includes(AMAZON_ZIP)) {
           _storageStatePromise = null;
           throw new WrongLocationError(`Amazon muestra la ubicación "${ingress.slice(0, 40)}" en vez de CP ${AMAZON_ZIP}`);
+        }
+
+        // Redirect guard: Amazon silently serves ANOTHER variant when the requested child ASIN
+        // is retired (seen with an Apple Watch: dp/B0FQG75X2C rendered B0FQFLQJB1). Recording that
+        // page's price under this ASIN would be wrong data, so treat it as a different product.
+        const pageAsin = await page.locator('#ASIN').first().getAttribute('value', { timeout: 1500 }).catch(() => null);
+        if (pageAsin && /^[A-Z0-9]{10}$/i.test(pageAsin) && pageAsin.toUpperCase() !== asin.toUpperCase()) {
+          throw new ProductUnavailableError(`El ASIN redirige a otra variante (${pageAsin.toUpperCase()})`, 'redirect');
         }
 
         // Phase 1: name + availability in parallel. Title races every known

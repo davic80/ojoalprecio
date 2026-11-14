@@ -83,6 +83,8 @@ export const products = pgTable('products', {
   // Counter of consecutive ProductUnavailableError scrapes. Reset to 0 on
   // any successful capture. ≥3 + no alerts + no non-system follower ⇒ purged.
   consecutiveUnavailable: integer('consecutive_unavailable').default(0).notNull(),
+  // Confirmed-unavailable checks in a row (resets on a successful scrape); drives the removal lifecycle.
+  unavailableConfirmations: integer('unavailable_confirmations').default(0).notNull(),
   // Popularity metadata captured best-effort on each scrape (migration 53).
   // Used by the hourly auto-cleanup cron to identify dead-weight catalog
   // entries: low BSR + few reviews + no "bought last month" badge.

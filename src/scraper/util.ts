@@ -36,6 +36,17 @@ export function normaliseAmazonUrl(asin: string): string {
 }
 
 /**
+ * URL the scraper actually navigates to. For listings with a size/colour selector Amazon
+ * only renders the buy-box price when the child ASIN's own variation is pinned:
+ * `th=1&psc=1` does that. Without it (e.g. unycos dumbbells, Palbea padel balls) the page
+ * shows the add-to-cart button but no price block and we reported "Sin precio disponible".
+ * Kept separate from normaliseAmazonUrl so stored/affiliate URLs stay clean.
+ */
+export function scrapeUrl(asin: string): string {
+  return `https://www.amazon.es/dp/${asin}?th=1&psc=1`;
+}
+
+/**
  * Build an outbound click-through URL with our affiliate tag and forced
  * Spanish language. Strips any pre-existing tag so we always own the lead.
  */

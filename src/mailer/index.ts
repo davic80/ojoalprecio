@@ -428,3 +428,39 @@ export async function sendOpsEmail(subject: string, text: string): Promise<void>
   const cfg = getConfig();
   await createTransporter().sendMail({ from: cfg.from, to, subject, text });
 }
+
+export interface ProductRemovedOptions {
+  to: string;
+  productName: string;
+  asin: string;
+  reasonText: string;
+  /** How many consecutive checks confirmed the problem. */
+  checks: number;
+}
+
+/** Tells a follower that a product they tracked was removed because Amazon keeps it unavailable. */
+export async function sendProductRemovedEmail(opts: ProductRemovedOptions): Promise<void> {
+  const cfg = getConfig();
+  if (!cfg.user || !cfg.password) {
+    console.warn('[mailer] SMTP not configured, skipping product-removed email.');
+    return;
+  }
+  const siteUrl = process.env.SITE_URL ?? 'http://localhost:3000';
+  const amazonUrl = `https://www.amazon.es/dp/${opts.asin}`;
+  const text = [
+    `Hemos dejado de seguir "${opts.productName}" en OjoAlPrecio.`,
+    '',
+    `Motivo: ${opts.reasonText}. Lo hemos comprobado ${opts.checks} veces seguidas, espaciadas en el tiempo, y sigue igual.`,
+    'Se han eliminado también sus alertas de precio.',
+    '',
+    `Si vuelve a estar disponible puedes añadirlo de nuevo: ${siteUrl}`,
+    `Ficha en Amazon: ${amazonUrl}`,
+  ].join('\n');
+  await createTransporter().sendMail({
+    from: cfg.from,
+    to: opts.to,
+    subject: `Dejamos de seguir "${opts.productName.slice(0, 60)}"`,
+    text,
+  });
+}
+

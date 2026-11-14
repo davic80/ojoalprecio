@@ -5,7 +5,8 @@ import { eq, and, desc, min, isNull, sql, inArray } from 'drizzle-orm';
 import { scrapeProduct, affiliateUrl, ProductUnavailableError, CaptchaDetectedError, WrongLocationError, restartBrowser, isCaptchaBlocked, captchaRemainingMs, type ScrapeResult } from '../scraper/amazon';
 import { autoCategorizeId } from '../scraper/categorize';
 import { emitScrapeUpdate } from '../lib/product-events';
-import { sendPriceAlert, sendBackInStockAlert } from '../mailer';
+import { sendPriceAlert, sendBackInStockAlert, sendProductRemovedEmail } from '../mailer';
+import { decideAfterConfirmedUnavailable, describeReason, DEFAULT_LIFECYCLE, type UnavailableReason } from './lifecycle';
 import { sendTelegramAlert, sendTelegramBackInStock } from '../mailer/telegram';
 import { getSetting } from '../db/settings';
 import { selectDue } from './selection';
@@ -43,7 +44,6 @@ let lastDueCount = 0;
 const CYCLE_MAX_MS           = 50 * 60 * 1000;      // end before the next hourly tick
 const STUCK_AFTER_MS         = 8 * 60 * 1000;       // nothing finished for 8 min
 const NO_OK_ALERT_AFTER_MS   = 3 * 60 * 60 * 1000;  // no definitive answer for 3 h
-const UNAVAILABLE_RECHECK_MS = 12 * 60 * 60 * 1000; // don't hammer unavailable products
 const MAX_CONSECUTIVE_BLOCKS = 3;
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
@@ -99,6 +99,8 @@ async function checkAllProducts(): Promise<void> {
   const MIN_AGE_MINUTES        = Math.max(1, Math.min(1440,Number(await getSetting('min_age_minutes',        59))));
   const SCRAPER_TIMEOUT        = Math.max(15,Math.min(120, Number(await getSetting('scraper_timeout_seconds',30))));
   const MIN_AGE_MS = MIN_AGE_MINUTES * 60 * 1000;
+  // Unavailable products are "paused": rechecked only this often (grace period before removal).
+  const UNAVAILABLE_RECHECK_MS = Math.max(1, Math.min(168, Number(await getSetting('unavailable_pause_hours', 24)))) * 60 * 60 * 1000;
 
   let processed = 0, answered = 0;
   try {
@@ -370,6 +372,7 @@ export async function persistScrapeResult(
       extraImages: result.extraImages.length ? JSON.stringify(result.extraImages) : null,
       variantsJson: result.variants && result.variants.length ? JSON.stringify(result.variants) : null,
       consecutiveUnavailable: 0,
+      unavailableConfirmations: 0,
       lastError: null,
       isAvailable: true,
       consecutiveFailures: 0,
@@ -525,6 +528,50 @@ async function ingestNewVariants(parentProductId: number, variantAsins: string[]
     }
   }
   return inserted;
+}
+
+/** Who still cares about a product: real (non-system) followers and anyone with an alert. */
+async function getProtection(productId: number): Promise<{ asin: string; name: string | null; alertsN: number; realFollowersN: number } | null> {
+  const systemUserId = await getSystemUserId();
+  const rows = await db.execute(sql`
+    SELECT p.asin, p.name,
+      (SELECT COUNT(*) FROM alerts WHERE product_id = p.id) AS alerts_n,
+      (SELECT COUNT(*) FROM user_products WHERE product_id = p.id
+        AND ${systemUserId !== null ? sql`user_id != ${systemUserId}` : sql`TRUE`}) AS real_followers_n
+    FROM products p WHERE p.id = ${productId}
+  `);
+  const r = rows.rows[0] as any;
+  if (!r) return null;
+  return { asin: String(r.asin), name: r.name ?? null, alertsN: parseInt(r.alerts_n ?? '0', 10), realFollowersN: parseInt(r.real_followers_n ?? '0', 10) };
+}
+
+/**
+ * Remove a PROTECTED product (it has followers/alerts) once the grace period is over:
+ * tell every follower first, then delete it and blacklist the ASIN like an orphan purge.
+ */
+async function removeProtectedProduct(productId: number, label: string, info: { asin: string; name: string | null }, reason: UnavailableReason, confirmations: number): Promise<void> {
+  const reasonText = describeReason(reason);
+  const systemUserId = await getSystemUserId();
+  const recipients = await db.execute(sql`
+    SELECT DISTINCT u.email FROM users u
+    WHERE u.email IS NOT NULL
+      AND ${systemUserId !== null ? sql`u.id != ${systemUserId}` : sql`TRUE`}
+      AND (u.id IN (SELECT user_id FROM user_products WHERE product_id = ${productId})
+        OR u.id IN (SELECT user_id FROM alerts WHERE product_id = ${productId}))
+  `);
+  for (const row of recipients.rows as any[]) {
+    try {
+      await sendProductRemovedEmail({ to: String(row.email), productName: info.name ?? info.asin, asin: info.asin, reasonText, checks: confirmations });
+    } catch (err) {
+      console.error(`[scheduler] ${label} → no se pudo avisar de la eliminación:`, err instanceof Error ? err.message : err);
+    }
+  }
+  await db.transaction(async (tx) => {
+    await tx.insert(purgedAsins).values({ asin: info.asin, reason: `unavailable x${confirmations}: ${reasonText}`.slice(0, 120) })
+      .onConflictDoUpdate({ target: purgedAsins.asin, set: { purgedAt: new Date(), reason: `unavailable x${confirmations}: ${reasonText}`.slice(0, 120) } });
+    await tx.delete(products).where(eq(products.id, productId));
+  });
+  console.log(`[scheduler] ${label} → ELIMINADO tras ${confirmations} comprobaciones (${reasonText}); avisados ${recipients.rows.length} usuario(s)`);
 }
 
 /**
@@ -730,6 +777,7 @@ async function checkProduct(productId: number, url: string, label: string, timeo
       const markUnavailable = !transient || newCu >= 3;
       console.log(`[scheduler] ${label} → No disponible${err.reason ? ` (${err.reason})` : ''}${transient && !markUnavailable ? ` [transient ${newCu}/3, keeping available]` : ''}`);
 
+      let confirmations = 0;
       if (markUnavailable) {
         // Persist any partial metadata captured before the throw (typically
         // the product title from Promise 1 of the scrape). Without this,
@@ -738,7 +786,7 @@ async function checkProduct(productId: number, url: string, label: string, timeo
         const fillName = err.productName && err.productName.trim().length > 0
           ? sql`, name = COALESCE(name, ${err.productName})`
           : sql``;
-        await db.execute(sql`
+        const upd = await db.execute(sql`
           UPDATE products SET
             is_available = FALSE,
             last_error   = ${err.message},
@@ -746,11 +794,14 @@ async function checkProduct(productId: number, url: string, label: string, timeo
             sale_tier    = NULL,
             deal_score   = NULL,
             consecutive_unavailable = ${newCu},
+            unavailable_confirmations = unavailable_confirmations + 1,
             is_public    = CASE WHEN feature_lock = 'auto' THEN FALSE ELSE is_public END,
             featured_at  = CASE WHEN feature_lock = 'auto' THEN NULL  ELSE featured_at END
             ${fillName}
           WHERE id = ${productId}
+          RETURNING unavailable_confirmations AS confirmations
         `);
+        confirmations = Number((upd.rows[0] as any)?.confirmations ?? 1);
       } else {
         const fillName = err.productName && err.productName.trim().length > 0
           ? sql`, name = COALESCE(name, ${err.productName})`
@@ -773,7 +824,7 @@ async function checkProduct(productId: number, url: string, label: string, timeo
       // capture if our detection misclassified. Skipped for transient strikes
       // 1 and 2 since most resolve on the next scrape and would just spam
       // the queue.
-      if (err.reason && markUnavailable) {
+      if ((err.reason === 'used' || err.reason === 'unqualified') && markUnavailable) {
         await enqueueAnomaly({
           productId,
           type: err.reason,
@@ -786,7 +837,23 @@ async function checkProduct(productId: number, url: string, label: string, timeo
       // Orphan-variant purge only after we've confirmed unavailability —
       // transient strikes shouldn't yank the product.
       if (markUnavailable) {
-        await maybePurgeOrphan(productId, label, 'orphan variant unavailable');
+        const prot = await getProtection(productId);
+        if (prot) {
+          const isProtected = prot.alertsN > 0 || prot.realFollowersN > 0;
+          const action = decideAfterConfirmedUnavailable({
+            reason: err.reason, confirmations, isProtected,
+            settings: {
+              extraChecks:       Math.max(0, Math.min(10, Number(await getSetting('unavailable_extra_checks', DEFAULT_LIFECYCLE.extraChecks)))),
+              goneConfirmations: Math.max(1, Math.min(10, Number(await getSetting('gone_confirmations',      DEFAULT_LIFECYCLE.goneConfirmations)))),
+            },
+          });
+          if (action === 'delete') {
+            if (isProtected) await removeProtectedProduct(productId, label, { asin: prot.asin, name: prot.name }, err.reason, confirmations);
+            else await maybePurgeOrphan(productId, label, `unavailable: ${describeReason(err.reason)}`.slice(0, 120));
+          } else {
+            console.log(`[scheduler] ${label} → no disponible (${confirmations}ª comprobación); se vuelve a mirar tras la pausa`);
+          }
+        }
       }
     } else if (err instanceof WrongLocationError) {
       // Page rendered for another country: its prices/stock say nothing about the
