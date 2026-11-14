@@ -28,6 +28,10 @@ services:
     ports:
       # Only on the Tailscale address: never on the LAN or the internet.
       - "${TAILSCALE_IP:?set TAILSCALE_IP in .env}:8890:8890"
+    # Keep Docker logs small on the Pi.
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
     # Hard limits agreed with the owner: 1 CPU, 1 GB.
     cpus: 1.0
     mem_limit: 1g

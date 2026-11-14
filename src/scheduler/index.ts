@@ -11,6 +11,7 @@ import { sendTelegramAlert, sendTelegramBackInStock } from '../mailer/telegram';
 import { getSetting } from '../db/settings';
 import { selectDue } from './selection';
 import { Breaker, type ExecutorStatus } from './executors';
+import { startExecutorMonitor, isExecutorPaused, getExecutorSystem, pruneExecutorMetrics } from './executor-monitor';
 import { remoteScrape, parseRemotes, ExecutorUnavailableError } from '../scraper/remote';
 import { sendOpsAlert } from '../lib/ops-alert';
 
@@ -71,7 +72,12 @@ export function getScraperHealth() {
     lastAnswerAgeSec:   Math.round((now - lastOkAt) / 1000),
     cycleAgeSec:        isRunning ? Math.round((now - cycleStartedAt) / 1000) : null,
     done: state.done, total: state.total,
-    executors: [...executorStats.values()].map(e => ({ ...e, breakerOpen: remoteBreakers.get(e.name)?.isOpen(Date.now()) ?? false })),
+    executors: [...executorStats.values()].map(e => ({
+      ...e,
+      breakerOpen: remoteBreakers.get(e.name)?.isOpen(Date.now()) ?? false,
+      pausedForPressure: e.kind === 'remote' ? isExecutorPaused(e.name) : false,
+      system: e.kind === 'remote' ? (getExecutorSystem(e.name) ?? null) : null,
+    })),
   };
 }
 
@@ -180,7 +186,7 @@ async function checkAllProducts(): Promise<void> {
       const cnt = countersFor(exec.name);
       while (alive() && !stopped.has(exec.name) && idx < toCheck.length && Date.now() - cycleStartedAt < CYCLE_MAX_MS) {
         // A remote executor whose breaker is open sits out (and keeps the watchdog calm) until it closes.
-        if (exec.breaker?.isOpen(Date.now())) { lastProgressAt = Date.now(); await sleep(5000); continue; }
+        if (exec.breaker?.isOpen(Date.now()) || (exec.kind === 'remote' && isExecutorPaused(exec.name))) { lastProgressAt = Date.now(); await sleep(5000); continue; }
         const product = toCheck[idx++];
         state.current = { id: product.id, name: product.name ?? product.asin, asin: product.asin };
         let ok = true;
@@ -1124,6 +1130,7 @@ export function triggerScrape(): boolean {
  *    the table size in check.
  */
 async function runHourlyMaintenance(): Promise<void> {
+  await pruneExecutorMetrics().catch(err => console.error('[maintenance] executor_metrics prune failed:', err instanceof Error ? err.message : err));
   // 1. Featured cap with freshness rotation. Composite score subtracts a
   // 1.5-point penalty per day the product has been featured, so deals that
   // have been on the panel for a while drop in ranking and let fresher
@@ -1215,6 +1222,8 @@ export function startScheduler(): void {
   console.log(`[scheduler] Starting with schedule: "${CHECK_INTERVAL}"`);
   checkAllProducts();
   cron.schedule(CHECK_INTERVAL, () => { checkAllProducts(); });
+
+  startExecutorMonitor();
 
   // Watchdog: abandon a wedged cycle, restart Chromium, email the admin.
   cron.schedule('*/5 * * * *', () => {

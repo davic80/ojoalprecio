@@ -17,3 +17,13 @@ No tiene acceso a la base de datos ni a datos de usuarios.
 
 ## Actualizar
 Misma imagen que el servidor: `docker compose pull && docker compose up -d` en ambos cuando haya versión nueva.
+
+## Monitorización de la Pi (CPU, memoria, temperatura)
+Desde que arranca, el servicio mide cada 10 s y lo escribe en su log cada 5 min (`docker logs ojoalprecio-scraper | grep metrics`):
+CPU del contenedor (en % de 1 núcleo), memoria del contenedor frente a su límite, **memoria libre de la Pi**, **crecimiento del swap desde el arranque**, temperatura y carga.
+
+- Ver el estado ahora: `curl -s -H "Authorization: Bearer $TOKEN" http://$TAILSCALE_IP:8890/health` (campo `system`) y el historial en `/metrics`.
+- El servidor principal lo consulta cada 30 s, lo guarda cada minuto en la tabla `executor_metrics` (14 días) y lo muestra en `https://ojoalprecio.com/healthz/scraper`.
+- **Protección automática:** si la Pi llega a estado crítico (memoria libre < 600 MB, temperatura ≥ 82 °C, swap +1,5 GB, carga > 3,8), el worker remoto se pausa 10 minutos, te llega un correo y se reanuda tras 2 comprobaciones sanas seguidas.
+  Avisos (sin pausa) desde: memoria libre < 1 GB, 75 °C, swap +600 MB, carga > 3, o el contenedor al 90 % de su límite.
+

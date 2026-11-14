@@ -8,6 +8,7 @@ import http from 'http';
 import crypto from 'crypto';
 import type { ScrapeResult } from './amazon';
 import { serializeError, type WireResponse } from './wire';
+import type { SystemSample } from './metrics';
 
 export interface ServiceDeps {
   token: string;
@@ -17,6 +18,10 @@ export interface ServiceDeps {
   /** Extra requests allowed to wait; beyond this the service answers 503 "busy". */
   maxQueue?: number;
   version?: string;
+  /** Latest resource sample of the machine (CPU, memory, swap, temperature). */
+  getSystem?: () => SystemSample | null;
+  /** Recent samples for /metrics. */
+  getHistory?: (maxPoints: number) => SystemSample[];
 }
 
 const AMAZON_DP = /^https:\/\/www\.amazon\.es\/dp\/[A-Z0-9]{10}(\?[A-Za-z0-9=&_%.-]*)?$/;
@@ -57,7 +62,14 @@ export function createService(deps: ServiceDeps): http.RequestListener {
     if (!given || !tokensMatch(given, deps.token)) return send(res, 401, { error: 'unauthorized' });
 
     if (req.method === 'GET' && req.url === '/health') {
-      return send(res, 200, { ok: true, inFlight, queued, served, failed, uptimeSec: Math.round((Date.now() - startedAt) / 1000), version: deps.version ?? 'dev' });
+      return send(res, 200, {
+        ok: true, inFlight, queued, served, failed,
+        uptimeSec: Math.round((Date.now() - startedAt) / 1000), version: deps.version ?? 'dev',
+        system: deps.getSystem?.() ?? null,
+      });
+    }
+    if (req.method === 'GET' && req.url === '/metrics') {
+      return send(res, 200, { samples: deps.getHistory?.(60) ?? [] });
     }
     if (req.method !== 'POST' || req.url !== '/scrape') return send(res, 404, { error: 'not found' });
 

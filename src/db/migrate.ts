@@ -951,6 +951,16 @@ export const MIGRATIONS: string[] = [
    CREATE INDEX IF NOT EXISTS idx_products_last_checked_at ON products (last_checked_at);`,
   // Removal lifecycle for unavailable products (see src/scheduler/lifecycle.ts).
   `ALTER TABLE products ADD COLUMN IF NOT EXISTS unavailable_confirmations INTEGER NOT NULL DEFAULT 0;`,
+  // Resource samples of remote scrape executors (the Pi), one per minute, kept 14 days.
+  `CREATE TABLE IF NOT EXISTS executor_metrics (
+     id BIGSERIAL PRIMARY KEY,
+     ts TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     executor VARCHAR(40) NOT NULL,
+     level VARCHAR(10) NOT NULL,
+     load1 REAL, host_mem_avail_mb INTEGER, swap_growth_mb INTEGER,
+     container_mem_mb INTEGER, container_cpu_pct REAL, temp_c REAL
+   );
+   CREATE INDEX IF NOT EXISTS idx_executor_metrics_executor_ts ON executor_metrics (executor, ts DESC);`,
 ];
 
 export async function migrate(pool: Pool = defaultPool): Promise<void> {
