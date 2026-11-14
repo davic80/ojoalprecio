@@ -294,7 +294,12 @@ function trendBadge(current, previous) {
             </p>
           <% } %>
           <% if (p.lastError) { %>
-            <p class="product-error">⚠ <%= p.lastError %></p>
+            <% const _noPriceYet = !p.currentPrice && p.isAvailable !== false; %>
+            <% if (_noPriceYet) { %>
+              <p class="product-error" style="color:var(--gray-600,#4b5563)" title="<%= p.lastError %>">⏳ <%= friendlyScrapeError(p.lastError) %></p>
+            <% } else { %>
+              <p class="product-error">⚠ <%= p.lastError %></p>
+            <% } %>
           <% } %>
         </div>
       </a>

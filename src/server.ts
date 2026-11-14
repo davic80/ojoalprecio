@@ -15,6 +15,7 @@ import listsRouter from './routes/lists';
 import accountRouter from './routes/account';
 import aliexpressRouter from './routes/aliexpress';
 import { affiliateUrl } from './scraper/util';
+import { friendlyScrapeError } from './lib/transient';
 import './types/session';
 
 const PgSession = connectPgSimple(session);
@@ -107,6 +108,7 @@ export function createApp() {
     res.locals.gaMeasurementId  = _gaId;
     // Outbound Amazon links in views: affiliateUrl(url) adds the configured tracking ID.
     res.locals.affiliateUrl     = affiliateUrl;
+    res.locals.friendlyScrapeError = friendlyScrapeError;
     next();
   });
 

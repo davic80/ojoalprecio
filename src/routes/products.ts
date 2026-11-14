@@ -17,6 +17,7 @@ import {
 
 import { collectState } from '../lib/collecting';
 import { parseBareProductId } from '../lib/product-input';
+import { isTransientBrowserError } from '../lib/transient';
 import { getSystemUserId } from '../lib/system-user';
 
 const router = Router();
@@ -26,14 +27,20 @@ const router = Router();
 // Optionally anchors the auto-created default alert's reference price.
 function persistScrapeFromManualAdd(url: string, productId: number, defaultAlertId: number | null): void {
   const scrapeOnce = () => scrapeProduct(url);
-  // Amazon sometimes serves a page with no qualified buy box for a moment: look once more before saying "no".
-  const scrapeWithRetry = () => scrapeOnce().catch(async (err) => {
-    if (err instanceof ProductUnavailableError && err.reason === 'unqualified') {
-      await new Promise(r => setTimeout(r, 4000));
-      return scrapeOnce();
+  // Look again when the first attempt failed for a reason that is not about the product:
+  //  - Amazon sometimes serves a page with no qualified buy box for a moment ('unqualified');
+  //  - the shared Chromium was restarted by the scheduler while this page was open (a hard timeout of
+  //    ANOTHER product is enough): wait for the restart (~20 s) and try again, up to twice.
+  const scrapeWithRetry = async () => {
+    for (let attempt = 0; ; attempt++) {
+      try { return await scrapeOnce(); } catch (err) {
+        const unqualified = err instanceof ProductUnavailableError && err.reason === 'unqualified' && attempt < 1;
+        const browserRestart = isTransientBrowserError(err) && attempt < 2;
+        if (!unqualified && !browserRestart) throw err;
+        await new Promise(r => setTimeout(r, unqualified ? 4000 : Number(process.env.MANUAL_ADD_RESTART_RETRY_MS ?? 20_000)));
+      }
     }
-    throw err;
-  });
+  };
   scrapeWithRetry().then(async (result) => {
     await persistScrapeResult(productId, result);
     if (defaultAlertId !== null) {
