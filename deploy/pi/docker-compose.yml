@@ -41,7 +41,10 @@ services:
     # Limits (CPU is always enforced; memory only with a memory cgroup, see above).
     # Raspberry Pi 5: 1 CPU / 1g.  Raspberry Pi 4 (only DNS/DHCP on it): 2 CPUs / 1g.
     cpus: ${SCRAPER_CPUS:-1.0}
-    mem_limit: ${SCRAPER_MEM:-1g}
+    mem_limit: ${SCRAPER_MEM:-1536m}
+    # Same value = no swap for this container: at the cap the kernel reclaims cache or kills one Chromium process instead of
+    # swapping (swap stalls froze the whole container, and its DNS probe, on a Pi 4 with 2 workers at 1g).
+    memswap_limit: ${SCRAPER_MEM:-1536m}
     shm_size: 256m
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8890/health',{headers:{authorization:'Bearer '+process.env.SCRAPER_SERVICE_TOKEN}}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
