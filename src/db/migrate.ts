@@ -980,6 +980,11 @@ export const MIGRATIONS: string[] = [
    ALTER TABLE products ADD COLUMN IF NOT EXISTS variant_label TEXT;
    ALTER TABLE products ADD COLUMN IF NOT EXISTS variant_dim VARCHAR(30);
    CREATE INDEX IF NOT EXISTS idx_products_group_id ON products (group_id) WHERE group_id IS NOT NULL;`,
+  // Sign in with Google: google_sub is Google's stable account id; password_set is FALSE for accounts created
+  // through Google (their password_hash is random and unusable until the person chooses a password).
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub VARCHAR(64);
+   ALTER TABLE users ADD COLUMN IF NOT EXISTS password_set BOOLEAN NOT NULL DEFAULT TRUE;
+   CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_sub ON users (google_sub) WHERE google_sub IS NOT NULL;`,
 ];
 
 export async function migrate(pool: Pool = defaultPool): Promise<void> {

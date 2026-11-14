@@ -14,6 +14,11 @@
     <div class="alert-box alert-error"><%= error %></div>
   <% } %>
 
+  <% if (typeof googleEnabled !== 'undefined' && googleEnabled) { %>
+    <%- include('partials/google-button', { next: typeof next !== 'undefined' ? next : null }) %>
+    <p class="auth-alt" style="margin:14px 0;color:var(--text-muted);font-size:13px">o con tu email</p>
+  <% } %>
+
   <form action="/auth/login" method="POST" class="auth-form">
     <% if (typeof next !== 'undefined' && next) { %><input type="hidden" name="next" value="<%= next %>"><% } %>
     <div class="form-field">
@@ -48,7 +53,7 @@
     <a href="/auth/forgot" style="font-size:13px; color:var(--text-muted)">¿Olvidaste tu contraseña?</a>
   </p>
   <p class="auth-alt">
-    ¿No tienes cuenta? <a href="/auth/register">Regístrate</a>
+    ¿No tienes cuenta? <% if (typeof googleEnabled !== 'undefined' && googleEnabled && typeof passwordSignup !== 'undefined' && !passwordSignup) { %>Entra con Google y se crea sola.<% } else { %><a href="/auth/register">Regístrate</a><% } %>
   </p>
 </div>
 

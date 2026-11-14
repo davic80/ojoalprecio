@@ -47,6 +47,8 @@ La aplicación estará disponible en `http://<ip-raspberry>:3000`.
 | `SESSION_SECRET` | Secreto de sesión (aleatorio) | **obligatorio** |
 | `SITE_URL` | URL pública de la app | `http://localhost:3000` |
 | `AMAZON_AFFILIATE_TAG` | ID de seguimiento de Amazon Afiliados que lleva cada enlace saliente (`tag=`) | `ojoalprecio0d-21` |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Credenciales OAuth para «Continuar con Google» (sin ellas el botón no aparece) | — |
+| `PASSWORD_SIGNUP` | `off` cierra el registro con email y contraseña (solo se crean cuentas con Google) | `on` |
 | `SESSION_COOKIE_SECURE` | Cookies seguras (HTTPS) | `true` |
 | `CLOUDFLARE_TUNNEL_TOKEN` | Token del tunnel Cloudflare | — |
 | `CHECK_INTERVAL_CRON` | Cron de comprobación de precios | `0 * * * *` (cada hora) |
@@ -55,6 +57,15 @@ La aplicación estará disponible en `http://<ip-raspberry>:3000`.
 | `SMTP_USER` | Usuario SMTP | — |
 | `SMTP_PASSWORD` | Contraseña SMTP / App Password | — |
 | `SMTP_FROM` | Dirección de envío | igual que `SMTP_USER` |
+
+## Acceso con Google
+
+Flujo OpenID Connect (código de autorización con PKCE, `state` y `nonce`); la firma del `id_token` se verifica con las claves públicas de Google y se exige `email_verified`.
+
+- Misma cuenta si coincide el email: quien ya tenía usuario y entra con Google sigue siendo el mismo usuario (una persona, una cuenta). Si la cuenta antigua **no** tenía el email verificado, se descarta su contraseña (nadie había probado ser el dueño del correo; es lo que dejan los bots de registro) y se cancelan los enlaces de verificación y de restablecimiento pendientes.
+- Quien llega nuevo con Google entra directamente, con la cuenta ya verificada y sin correo de verificación.
+- Las cuentas creadas con Google no tienen contraseña (`password_set = false`); se puede crear una desde «Mi cuenta» y Google sigue funcionando.
+- Configuración en Google Cloud: pantalla de consentimiento «Externo» publicada en producción, cliente OAuth «Aplicación web» con la URI de redirección `https://<dominio>/auth/google/callback`.
 
 ## Tallas y colores (variantes)
 

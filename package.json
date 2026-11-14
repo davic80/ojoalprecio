@@ -28,6 +28,7 @@
     "express": "^4.21.2",
     "express-session": "^1.18.1",
     "express-validator": "^7.2.1",
+    "jose": "^5.9.6",
     "node-cron": "^3.0.3",
     "nodemailer": "^6.9.16",
     "pg": "^8.13.1",

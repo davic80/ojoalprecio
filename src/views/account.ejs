@@ -24,27 +24,49 @@
     </div>
   <% } %>
 
-  <!-- Change password -->
+  <!-- Password: change it, or create one when the account was made with Google -->
   <div class="card" style="margin-bottom:20px; max-width:440px">
-    <h2>Cambiar contraseña</h2>
-    <% if (error) { %>
-      <div class="alert-box alert-error" style="margin-top:12px"><%= error %></div>
+    <% if (typeof googleLinked !== 'undefined' && googleLinked) { %>
+      <p class="hint" style="margin:0 0 10px">✓ Tu cuenta está conectada con Google: puedes entrar con el botón «Continuar con Google».</p>
     <% } %>
-    <form action="/account/change-password" method="POST" class="auth-form" style="margin-top:16px">
-      <div class="form-field">
-        <label for="currentPassword">Contraseña actual</label>
-        <input type="password" name="currentPassword" id="currentPassword" class="input" required autocomplete="current-password">
-      </div>
-      <div class="form-field">
-        <label for="newPassword">Nueva contraseña</label>
-        <input type="password" name="newPassword" id="newPassword" class="input" required autocomplete="new-password" minlength="8">
-      </div>
-      <div class="form-field">
-        <label for="confirmPassword">Repite la contraseña</label>
-        <input type="password" name="confirmPassword" id="confirmPassword" class="input" required autocomplete="new-password">
-      </div>
-      <button type="submit" class="btn btn-primary" style="margin-top:4px">Guardar contraseña</button>
-    </form>
+    <% if (typeof hasPassword !== 'undefined' && !hasPassword) { %>
+      <h2>Crear una contraseña</h2>
+      <p class="hint">Ahora mismo entras con Google. Si quieres, crea una contraseña para poder entrar también con tu email; Google seguirá funcionando.</p>
+      <% if (error) { %>
+        <div class="alert-box alert-error" style="margin-top:12px"><%= error %></div>
+      <% } %>
+      <form action="/account/set-password" method="POST" class="auth-form" style="margin-top:16px">
+        <div class="form-field">
+          <label for="newPassword">Contraseña nueva</label>
+          <input type="password" name="newPassword" id="newPassword" class="input" required autocomplete="new-password" minlength="8">
+        </div>
+        <div class="form-field">
+          <label for="confirmPassword">Repite la contraseña</label>
+          <input type="password" name="confirmPassword" id="confirmPassword" class="input" required autocomplete="new-password">
+        </div>
+        <button type="submit" class="btn btn-primary" style="margin-top:4px">Crear contraseña</button>
+      </form>
+    <% } else { %>
+      <h2>Cambiar contraseña</h2>
+      <% if (error) { %>
+        <div class="alert-box alert-error" style="margin-top:12px"><%= error %></div>
+      <% } %>
+      <form action="/account/change-password" method="POST" class="auth-form" style="margin-top:16px">
+        <div class="form-field">
+          <label for="currentPassword">Contraseña actual</label>
+          <input type="password" name="currentPassword" id="currentPassword" class="input" required autocomplete="current-password">
+        </div>
+        <div class="form-field">
+          <label for="newPassword">Nueva contraseña</label>
+          <input type="password" name="newPassword" id="newPassword" class="input" required autocomplete="new-password" minlength="8">
+        </div>
+        <div class="form-field">
+          <label for="confirmPassword">Repite la contraseña</label>
+          <input type="password" name="confirmPassword" id="confirmPassword" class="input" required autocomplete="new-password">
+        </div>
+        <button type="submit" class="btn btn-primary" style="margin-top:4px">Guardar contraseña</button>
+      </form>
+    <% } %>
   </div>
 
   <!-- Alerts -->

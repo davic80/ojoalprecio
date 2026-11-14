@@ -16,6 +16,7 @@ import accountRouter from './routes/account';
 import aliexpressRouter from './routes/aliexpress';
 import { affiliateUrl } from './scraper/util';
 import { friendlyScrapeError } from './lib/transient';
+import { googleConfig, passwordSignupEnabled } from './lib/google-auth';
 import './types/session';
 
 const PgSession = connectPgSimple(session);
@@ -109,6 +110,9 @@ export function createApp() {
     // Outbound Amazon links in views: affiliateUrl(url) adds the configured tracking ID.
     res.locals.affiliateUrl     = affiliateUrl;
     res.locals.friendlyScrapeError = friendlyScrapeError;
+    // Login/register views: show the Google button only when it is configured; hide the password sign-up form when closed.
+    res.locals.googleEnabled = !!googleConfig();
+    res.locals.passwordSignup = passwordSignupEnabled();
     next();
   });
 

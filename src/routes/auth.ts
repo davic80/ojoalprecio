@@ -6,6 +6,8 @@ import { db } from '../db/client';
 import { users, emailVerifications, passwordResets } from '../db/schema';
 import { eq, and, gt } from 'drizzle-orm';
 import { sendVerificationEmail, sendPasswordResetEmail, sendWelcomeEmail } from '../mailer/index';
+import { googleConfig, randomToken, pkcePair, buildAuthUrl, exchangeCode, verifyIdToken, passwordSignupEnabled } from '../lib/google-auth';
+import { resolveGoogleUser, GoogleEmailNotVerified, GoogleAccountConflict } from '../lib/google-user';
 
 const router = Router();
 
@@ -79,6 +81,12 @@ router.post(
     return true;
   }),
   async (req: Request, res: Response) => {
+    // New accounts only through Google when PASSWORD_SIGNUP=off (the open form was flooded with bots).
+    if (!passwordSignupEnabled()) {
+      return res.status(403).render('register', {
+        error: 'El registro con email y contraseña está cerrado. Usa «Continuar con Google».', email: '', next: safeNext(req.body.next ?? req.query.next),
+      });
+    }
     const errors = validationResult(req);
     const next = safeNext(req.body.next ?? req.query.next);
     if (!errors.isEmpty()) {
@@ -284,7 +292,7 @@ router.post(
     const { password } = req.body as { password: string };
     const passwordHash = await bcrypt.hash(password, 12);
 
-    await db.update(users).set({ passwordHash }).where(eq(users.id, row.userId));
+    await db.update(users).set({ passwordHash, passwordSet: true }).where(eq(users.id, row.userId));
     await db.delete(passwordResets).where(eq(passwordResets.userId, row.userId));
 
     res.render('login', {
@@ -294,6 +302,59 @@ router.post(
     });
   },
 );
+
+// ── Sign in with Google ───────────────────────────────────────────────────────
+// GET /auth/google            -> sends the person to Google (state + nonce + PKCE kept in the session)
+// GET /auth/google/callback   -> checks everything, finds/links/creates the account and logs in
+const GOOGLE_FLOW_MAX_AGE_MS = 10 * 60 * 1000;
+const googleError = (res: Response, msg: string, next: string | null = null) =>
+  res.render('login', { error: msg, email: '', next });
+const sameSecret = (a: string, b: string) => {
+  const x = Buffer.from(a), y = Buffer.from(b);
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
+};
+
+router.get('/google', (req: Request, res: Response) => {
+  const cfg = googleConfig();
+  if (!cfg) return res.redirect('/auth/login');
+  const state = randomToken(), nonce = randomToken(), { verifier, challenge } = pkcePair();
+  req.session.googleOAuth = { state, nonce, verifier, next: safeNext(req.query.next) ?? undefined, at: Date.now() };
+  req.session.save(() => res.redirect(buildAuthUrl(cfg, { state, nonce, challenge })));
+});
+
+router.get('/google/callback', async (req: Request, res: Response) => {
+  const cfg = googleConfig();
+  if (!cfg) return res.redirect('/auth/login');
+  const saved = req.session.googleOAuth;
+  req.session.googleOAuth = undefined;                       // single use, whatever happens next
+  const next = saved?.next ?? null;
+
+  if (req.query.error) return googleError(res, 'Has cancelado el acceso con Google.', next);
+  const code = String(req.query.code ?? ''), state = String(req.query.state ?? '');
+  if (!saved || !code || !sameSecret(state, saved.state) || Date.now() - saved.at > GOOGLE_FLOW_MAX_AGE_MS) {
+    return googleError(res, 'La sesión de acceso con Google ha caducado. Inténtalo de nuevo.', next);
+  }
+
+  try {
+    const idToken = await exchangeCode(cfg, code, saved.verifier);
+    const identity = await verifyIdToken(idToken, cfg, saved.nonce);
+    const { user, outcome } = await resolveGoogleUser(identity);
+    console.log(`[auth] Google login user=${user.id} outcome=${outcome}`);
+    // New session id on login (prevents session fixation).
+    req.session.regenerate((err) => {
+      if (err) return googleError(res, 'No hemos podido iniciar sesión. Inténtalo de nuevo.', next);
+      req.session.userId = user.id;
+      req.session.userEmail = user.email;
+      req.session.emailVerified = true;
+      req.session.save(() => res.redirect(next ?? '/'));
+    });
+  } catch (err) {
+    if (err instanceof GoogleEmailNotVerified) return googleError(res, 'Tu cuenta de Google no tiene el email verificado, así que no podemos usarla.', next);
+    if (err instanceof GoogleAccountConflict) return googleError(res, 'Ese email ya está asociado a otra cuenta de Google.', next);
+    console.error('[auth] Google login failed:', err instanceof Error ? err.message : err);
+    return googleError(res, 'No hemos podido iniciar sesión con Google. Inténtalo de nuevo.', next);
+  }
+});
 
 // ── POST /auth/logout ─────────────────────────────────────────────────────────
 router.post('/logout', (req: Request, res: Response) => {

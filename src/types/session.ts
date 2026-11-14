@@ -7,5 +7,7 @@ declare module 'express-session' {
     userEmail: string;
     emailVerified: boolean;
     pendingNext?: string;
+    /** In-flight Google sign-in (state/nonce/PKCE verifier), cleared on the callback. */
+    googleOAuth?: { state: string; nonce: string; verifier: string; next?: string; at: number };
   }
 }

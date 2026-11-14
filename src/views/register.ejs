@@ -11,6 +11,14 @@
     <div class="alert-box alert-error"><%= error %></div>
   <% } %>
 
+  <% if (typeof googleEnabled !== 'undefined' && googleEnabled) { %>
+    <%- include('partials/google-button', { next: typeof next !== 'undefined' ? next : null }) %>
+    <% if (typeof passwordSignup === 'undefined' || passwordSignup) { %><p class="auth-alt" style="margin:14px 0;color:var(--text-muted);font-size:13px">o con tu email</p><% } %>
+  <% } %>
+
+  <% if (typeof passwordSignup !== 'undefined' && !passwordSignup) { %>
+    <p class="hint" style="text-align:center;margin:14px 0">El registro se hace con tu cuenta de Google: no necesitas contraseña ni verificar el email.</p>
+  <% } else { %>
   <form action="/auth/register" method="POST" class="auth-form">
     <% if (typeof next !== 'undefined' && next) { %><input type="hidden" name="next" value="<%= next %>"><% } %>
     <div class="form-field">
@@ -53,6 +61,7 @@
     </div>
     <button type="submit" class="btn btn-primary btn-full">Crear cuenta</button>
   </form>
+  <% } %>
 
   <p class="auth-alt">
     ¿Ya tienes cuenta? <a href="/auth/login">Inicia sesión</a>

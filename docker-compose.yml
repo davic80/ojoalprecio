@@ -15,6 +15,11 @@ services:
       - SESSION_COOKIE_SECURE=${SESSION_COOKIE_SECURE:-true}
       - SITE_URL=${SITE_URL:-http://localhost:3000}
       - AMAZON_AFFILIATE_TAG=${AMAZON_AFFILIATE_TAG:-ojoalprecio0d-21}
+      # Sign in with Google (see README). Without id and secret the button is hidden.
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      # PASSWORD_SIGNUP=off closes the email+password sign-up form (new accounts only through Google).
+      - PASSWORD_SIGNUP=${PASSWORD_SIGNUP:-on}
       - PORT=3000
       # Scheduler: default every hour. Override with cron expression.
       # Examples: "0 * * * *" = every hour, "*/30 * * * *" = every 30 min

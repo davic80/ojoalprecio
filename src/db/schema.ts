@@ -17,6 +17,10 @@ export const users = pgTable('users', {
   passwordHash: varchar('password_hash', { length: 255 }).notNull(),
   telegramChatId: varchar('telegram_chat_id', { length: 50 }),
   emailVerified: boolean('email_verified').default(false).notNull(),
+  // Google's stable account id ("sub") when the account is linked to Google sign-in.
+  googleSub: varchar('google_sub', { length: 64 }),
+  // false = created through Google: password_hash is random and nobody knows it.
+  passwordSet: boolean('password_set').default(true).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
