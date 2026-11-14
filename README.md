@@ -46,6 +46,7 @@ La aplicación estará disponible en `http://<ip-raspberry>:3000`.
 | `POSTGRES_PASSWORD` | Contraseña PostgreSQL | **obligatorio** |
 | `SESSION_SECRET` | Secreto de sesión (aleatorio) | **obligatorio** |
 | `SITE_URL` | URL pública de la app | `http://localhost:3000` |
+| `AMAZON_AFFILIATE_TAG` | ID de seguimiento de Amazon Afiliados que lleva cada enlace saliente (`tag=`) | `ojoalprecio0d-21` |
 | `SESSION_COOKIE_SECURE` | Cookies seguras (HTTPS) | `true` |
 | `CLOUDFLARE_TUNNEL_TOKEN` | Token del tunnel Cloudflare | — |
 | `CHECK_INTERVAL_CRON` | Cron de comprobación de precios | `0 * * * *` (cada hora) |
@@ -54,6 +55,16 @@ La aplicación estará disponible en `http://<ip-raspberry>:3000`.
 | `SMTP_USER` | Usuario SMTP | — |
 | `SMTP_PASSWORD` | Contraseña SMTP / App Password | — |
 | `SMTP_FROM` | Dirección de envío | igual que `SMTP_USER` |
+
+## Tallas y colores (variantes)
+
+Cada talla o color de un artículo es **un producto propio** (su ASIN, su historial, sus seguidores y sus avisos), pero se muestran agrupados como en Amazon:
+
+- Un grupo (`product_groups`) reúne las opciones de un artículo; cada producto guarda su nombre dentro del grupo (`variant_label`, p. ej. `Lona Azul · 43 EU`).
+- El scraper lee el selector de Amazon (swatches de color y el desplegable de tallas) y el ASIN padre.
+- El panel, `/ofertas`, las categorías y el buscador muestran **una tarjeta por artículo**; la ficha tiene un selector de opciones con el precio de cada una.
+- Al añadir un producto se lee primero **su** opción; las demás se descubren solo si alguien sigue el producto, solo las que Amazon ofrece y con un tope por lectura, y se revisan después de las demás.
+- En el campo de alta se acepta una URL, un ASIN suelto (`B0DJC3WYTP`) o un id de AliExpress.
 
 ## Actualizar a una nueva versión
 
