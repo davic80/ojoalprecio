@@ -26,3 +26,13 @@ export function parseThreshold(raw: unknown): number | null {
   const n = parseFloat(s);
   return n >= 0.01 && n <= 100_000 ? Math.round(n * 100) / 100 : null;
 }
+
+/**
+ * Name to show in alerts: the article plus the option the alert is about ("… — Lona Azul · 43 EU"), so two
+ * alerts for two sizes of the same article can be told apart. Unchanged when there is no option name.
+ */
+export function optionDisplayName(name: string, optionLabel: string | null | undefined): string {
+  const label = (optionLabel ?? '').trim();
+  if (!label || name.toLowerCase().includes(label.toLowerCase())) return name;
+  return `${name} — ${label}`;
+}

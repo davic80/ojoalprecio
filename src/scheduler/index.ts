@@ -16,6 +16,7 @@ import { sameArticle, ASIN_RE } from './redirect';
 import { startExecutorMonitor, isExecutorPaused, getExecutorSystem, pruneExecutorMetrics } from './executor-monitor';
 import { remoteScrape, parseRemotes, ExecutorUnavailableError } from '../scraper/remote';
 import { sendOpsAlert } from '../lib/ops-alert';
+import { optionDisplayName } from '../lib/variants';
 
 const CHECK_INTERVAL = process.env.CHECK_INTERVAL_CRON ?? '0 * * * *';
 
@@ -699,7 +700,7 @@ async function removeProtectedProduct(productId: number, label: string, info: { 
   `);
   for (const row of recipients.rows as any[]) {
     try {
-      await sendProductRemovedEmail({ to: String(row.email), productName: info.name ?? info.asin, asin: info.asin, reasonText, checks: confirmations });
+      await sendProductRemovedEmail({ to: String(row.email), productName: optionDisplayName(info.name ?? info.asin, await getVariantLabel(productId)), asin: info.asin, reasonText, checks: confirmations });
     } catch (err) {
       console.error(`[scheduler] ${label} → no se pudo avisar de la eliminación:`, err instanceof Error ? err.message : err);
     }
@@ -1029,11 +1030,12 @@ async function notifyBackInStock(
   productId: number,
   currentPrice: number,
   currency: string,
-  productName: string,
+  baseProductName: string,
   imageUrl: string | null | undefined,
   productUrl: string,
 ): Promise<void> {
   const productAffilUrl = affiliateUrl(productUrl);
+  const productName = optionDisplayName(baseProductName, await getVariantLabel(productId));
 
   // Only notify users who have explicitly opted in via a `stock` alert.
   // The legacy "products.userId == owner gets notified by default" block
@@ -1069,15 +1071,22 @@ async function notifyBackInStock(
   }
 }
 
+async function getVariantLabel(productId: number): Promise<string | null> {
+  const r = await db.execute(sql`SELECT variant_label FROM products WHERE id = ${productId}`);
+  return ((r.rows[0] as { variant_label?: string | null } | undefined)?.variant_label) ?? null;
+}
+
 async function processAlerts(
   productId: number,
   currentPrice: number,
   currency: string,
-  productName: string,
+  baseProductName: string,
   imageUrl: string | null | undefined,
   productUrl: string,
 ): Promise<void> {
   const productAffilUrl = affiliateUrl(productUrl);
+  // Each size/colour is its own product: name the option in the alert so two sizes are not mixed up.
+  const productName = optionDisplayName(baseProductName, await getVariantLabel(productId));
 
   // Load all active alerts for this product
   const activeAlerts = await db

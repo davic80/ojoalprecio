@@ -30,3 +30,16 @@ describe('parseThreshold', () => {
       expect(parseThreshold(bad as any)).toBeNull();
   });
 });
+
+import { optionDisplayName } from '../src/lib/variants';
+
+describe('optionDisplayName', () => {
+  it('appends the option so two sizes of one article differ', () => {
+    expect(optionDisplayName('Puma St Runner NL', 'Lona Azul · 43 EU')).toBe('Puma St Runner NL — Lona Azul · 43 EU');
+  });
+  it('leaves the name alone when there is no option or it is already in the name', () => {
+    expect(optionDisplayName('Puma St Runner NL', null)).toBe('Puma St Runner NL');
+    expect(optionDisplayName('Puma St Runner NL', '  ')).toBe('Puma St Runner NL');
+    expect(optionDisplayName('Puma St Runner NL negro', 'Negro')).toBe('Puma St Runner NL negro');
+  });
+});
