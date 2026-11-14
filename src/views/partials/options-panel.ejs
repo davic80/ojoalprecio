@@ -11,17 +11,17 @@
   hx-trigger="every 4s [!document.querySelector('#options-panel input:focus') && !Array.from(document.querySelectorAll('#options-panel input[name=threshold]')).some(function(i){return i.value!==i.defaultValue})]"
   hx-vals='js:{d: (document.querySelector("#options-panel details")||{}).open ? 1 : 0}'
   hx-swap="outerHTML"<% } %>>
-  <h2 style="margin-top:0;font-size:16px">Tus opciones y precios</h2>
+  <h2 style="margin-top:0;font-size:16px">Tu aviso de precio</h2>
   <% if (o.open) { %>
-    <p class="hint" style="margin:0 0 12px">✓ Producto añadido. Indica a qué precio quieres que te avisemos para <strong>esta opción</strong>; si el producto tiene más opciones (color, tamaño…), puedes añadir otra y ponerle su propio precio.</p>
+    <p class="hint" style="margin:0 0 12px">✓ Producto añadido. Indica a qué precio quieres que te avisemos por <strong>esta opción</strong>. Cada talla o color tiene su propio aviso: para otra, elígela arriba o añádela aquí abajo.</p>
   <% } else { %>
-    <p class="hint" style="margin:0 0 12px">Cada opción (color, tamaño…) es un producto distinto con su precio. Pon el precio que te interesa para cada una.</p>
+    <p class="hint" style="margin:0 0 12px">Cada talla o color es un producto con su propio precio y su propio aviso.</p>
   <% } %>
 
-  <!-- Esta opción -->
+  <!-- Opción actual -->
   <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:10px 0;border-top:1px solid var(--gray-200,#e5e7eb)">
     <div>
-      <div style="font-weight:600"><%= o.current.label %> <span class="hint" style="font-weight:400">(la de tu enlace)</span></div>
+      <div style="font-weight:600"><%= o.current.label %></div>
       <div class="hint"><% if (o.current.price === null && o.current.reading) { %><span class="mini-spinner" aria-hidden="true"></span>Leyendo el precio…<% } else { %>Precio ahora: <%= eur(o.current.price) %><% } %><% if (o.current.available === false) { %> · sin stock<% } %><% if (o.current.followed) { %> · ✓ la sigues<% } %></div>
     </div>
     <% if (o.current.productId) { %>
@@ -34,20 +34,40 @@
     <% } %>
   </div>
 
-  <!-- Otras opciones -->
+  <!-- Otras opciones de este artículo que ya sigues -->
+  <% if (o.alsoFollowed.length) { %>
+    <div style="border-top:1px solid var(--gray-200,#e5e7eb);padding-top:10px">
+      <div style="font-weight:600;margin-bottom:4px">También sigues <span class="hint" style="font-weight:400">(<%= o.alsoFollowed.length %>)</span></div>
+      <% o.alsoFollowed.forEach(function(f, i) { %>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:6px 0">
+          <div>
+            <a href="/p/<%= f.asin %>" style="font-weight:500"><%= f.label %></a>
+            <div class="hint"><%= f.price !== null ? 'Precio ahora: ' + eur(f.price) : 'Sin precio todavía' %></div>
+          </div>
+          <form method="POST" action="/products/<%= f.productId %>/price-alert" style="display:flex;gap:6px;align-items:center">
+            <input type="hidden" name="next" value="<%= back %>">
+            <label class="hint" for="thr-f<%= i %>" style="white-space:nowrap">Avísame si baja de</label>
+            <input id="thr-f<%= i %>" name="threshold" inputmode="decimal" placeholder="€" value="<%= f.threshold ? String(f.threshold).replace('.', ',') : '' %>" style="<%= inputStyle %>" required>
+            <button type="submit" class="btn btn-sm btn-outline"><%= f.threshold ? 'Actualizar' : 'Guardar' %></button>
+          </form>
+        </div>
+      <% }); %>
+    </div>
+  <% } %>
+
+  <!-- Opciones que se pueden seguir -->
   <% if (o.pending && !o.others.length) { %>
-    <p class="hint" style="margin:10px 0 0"><span class="mini-spinner" aria-hidden="true"></span>Leyendo las demás opciones de Amazon (color, tamaño…). Esta sección se actualiza sola en unos segundos.</p>
+    <p class="hint" style="margin:10px 0 0"><span class="mini-spinner" aria-hidden="true"></span>Leyendo las demás opciones de Amazon (color, talla…). Esta sección se actualiza sola en unos segundos.</p>
   <% } %>
   <% if (o.others.length) { %>
     <details <%= o.detailsOpen ? "open" : "" %> style="margin-top:6px;border-top:1px solid var(--gray-200,#e5e7eb);padding-top:10px">
-      <summary style="cursor:pointer;font-weight:600">+ Seguir otra opción de este producto <span class="hint" style="font-weight:400">(<%= o.others.length %>)</span></summary>
-      <% o.others.slice(0, 40).forEach(function(v, i) { %>
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:8px 0;<%= v.selectable ? '' : 'opacity:.6' %>">
+      <summary style="cursor:pointer;font-weight:600">+ Seguir otra opción <span class="hint" style="font-weight:400">(<%= o.others.length %> disponibles)</span></summary>
+      <% o.others.slice(0, 30).forEach(function(v, i) { %>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:8px 0">
           <div>
-            <div style="font-weight:500"><%= v.label %></div>
+            <div style="font-weight:500"><% if (v.dimTitle) { %><span class="hint" style="font-weight:400"><%= v.dimTitle %> · </span><% } %><%= v.label %></div>
             <div class="hint">
-              <% if (v.price !== null) { %>Precio ahora: <%= eur(v.price) %><% if (v.available === false) { %> · sin stock<% } %><% } else if (v.reading) { %><span class="mini-spinner" aria-hidden="true"></span>Leyendo el precio…<% } else if (v.available === false) { %>Amazon no lo tiene disponible ahora<% } else if (v.productId === null) { %>Aún sin precio (lo leeremos al añadirla)<% } else { %>Pendiente de leer<% } %>
-              <% if (v.followed) { %> · ✓ la sigues<% } %>
+              <% if (v.price !== null) { %>Precio ahora: <%= eur(v.price) %><% } else if (v.reading) { %><span class="mini-spinner" aria-hidden="true"></span>Leyendo el precio…<% } else if (v.productId === null) { %>Aún sin precio (lo leeremos al añadirla)<% } else { %>Pendiente de leer<% } %>
               · <a href="<%= affiliateUrl('https://www.amazon.es/dp/' + v.asin) %>" target="_blank" rel="noopener sponsored">ver en Amazon</a>
             </div>
           </div>
@@ -55,12 +75,15 @@
             <input type="hidden" name="url" value="https://www.amazon.es/dp/<%= v.asin %>">
             <input type="hidden" name="next" value="<%= back %>">
             <label class="hint" for="thr-<%= i %>" style="white-space:nowrap">Avísame si baja de</label>
-            <input id="thr-<%= i %>" name="threshold" inputmode="decimal" placeholder="€" value="<%= v.threshold ? String(v.threshold).replace('.', ',') : '' %>" style="<%= inputStyle %>" required>
-            <button type="submit" class="btn btn-sm <%= v.followed ? 'btn-outline' : 'btn-primary' %>"><%= v.followed ? 'Actualizar' : 'Seguir' %></button>
+            <input id="thr-<%= i %>" name="threshold" inputmode="decimal" placeholder="€" value="" style="<%= inputStyle %>" required>
+            <button type="submit" class="btn btn-sm btn-primary">Seguir</button>
           </form>
         </div>
       <% }); %>
-      <% if (o.others.length > 40) { %><p class="hint">Mostrando 40 de <%= o.others.length %> opciones.</p><% } %>
+      <% if (o.others.length > 30) { %><p class="hint">Mostrando 30 de <%= o.others.length %>. Elige el resto en el selector de arriba.</p><% } %>
     </details>
+  <% } %>
+  <% if (o.unavailableCount > 0) { %>
+    <p class="hint" style="margin:8px 0 0"><%= o.unavailableCount %> <%= o.unavailableCount === 1 ? 'opción agotada' : 'opciones agotadas' %> en Amazon no se pueden seguir (salen tachadas arriba).</p>
   <% } %>
 </div>

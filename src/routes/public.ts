@@ -5,7 +5,7 @@ import { eq, desc, sql, and, asc, inArray } from 'drizzle-orm';
 import { affiliateUrl } from '../scraper/amazon';
 import { cleanVariantLabel } from '../lib/variants';
 import { collectState, pollAction, unavailableText } from '../lib/collecting';
-import { buildSelector, ownLabel, collapseByGroup, type RawVariant, type CatalogInfo } from '../lib/groups';
+import { buildSelector, ownLabel, collapseByGroup, dimTitle, type RawVariant, type CatalogInfo } from '../lib/groups';
 import { requireAuth } from '../middleware/auth';
 import { isAdmin } from '../middleware/admin';
 import { onScrapeUpdate } from '../lib/product-events';
@@ -268,11 +268,18 @@ export interface OptionRow {
   followed: boolean; threshold: number | null;
   /** In the catalog, never read yet and recent: its price is about to appear. */
   reading: boolean;
+  /** Selector row it belongs to ("Talla", "Color"…), when known. */
+  dimTitle: string | null;
 }
 export interface OptionsView {
   asin: string;
   current: OptionRow;
+  /** Options of this page's selector that can still be followed (Amazon offers them, not followed yet). */
   others: OptionRow[];
+  /** Options Amazon marks as unavailable (shown struck through in the selector, cannot be followed). */
+  unavailableCount: number;
+  /** Other options of the same article that this user already follows (any page of the group), with their alert. */
+  alsoFollowed: Array<{ asin: string; label: string; price: number | null; threshold: number | null; productId: number }>;
   /** The scrape that reads the options is still running (shown right after adding a product). */
   pending: boolean;
   /** Open the panel automatically (coming from "add product"). */
@@ -284,8 +291,8 @@ export interface OptionsView {
 }
 
 /** One row per option of a product (the product itself + its variants) for a logged-in user. */
-async function buildOptionsView(product: { id: number; asin: string; variants_json?: string | null; created_at?: Date | string | null }, userId: number, opts: { open: boolean; detailsOpen?: boolean }): Promise<OptionsView> {
-  let variants: Array<{ asin: string; label: string; selectable: boolean }> = [];
+async function buildOptionsView(product: { id: number; asin: string; variants_json?: string | null; created_at?: Date | string | null; group_id?: number | null; variant_label?: string | null }, userId: number, opts: { open: boolean; detailsOpen?: boolean }): Promise<OptionsView> {
+  let variants: Array<{ asin: string; label: string; selectable: boolean; dim?: string }> = [];
   try { variants = product.variants_json ? JSON.parse(String(product.variants_json)) : []; } catch { /* malformed */ }
   variants = variants.filter(v => v && /^[A-Z0-9]{10}$/.test(v.asin) && v.asin !== product.asin && !(v as any).self);
   variants = [...new Map(variants.map(v => [v.asin, v] as const)).values()];   // one row per ASIN
@@ -305,22 +312,41 @@ async function buildOptionsView(product: { id: number; asin: string; variants_js
   const byAsin = new Map<string, any>();
   for (const r of rows.rows as any[]) if (!byAsin.has(r.asin)) byAsin.set(r.asin, r);   // most-history row wins
 
-  const mk = (asin: string, label: string, selectable: boolean): OptionRow => {
+  const mk = (asin: string, label: string, selectable: boolean, dim: string | null = null): OptionRow => {
     const r = byAsin.get(asin);
-    return { asin, label, selectable, productId: r?.id ?? null, price: r?.price ?? null, available: r ? !!r.available : null, followed: !!r?.followed, threshold: r?.threshold ?? null, reading: !!r && r.price == null && !!r.reading };
+    return { asin, label, selectable, productId: r?.id ?? null, price: r?.price ?? null, available: r ? !!r.available : null, followed: !!r?.followed, threshold: r?.threshold ?? null, reading: !!r && r.price == null && !!r.reading, dimTitle: dim ? dimTitle(dim) : null };
   };
   const ageMs = product.created_at ? Date.now() - new Date(product.created_at).getTime() : Infinity;
-  const current = mk(product.asin, (product as any).variant_label || 'Esta opción', true);
-  const others = variants.map(v => mk(v.asin, cleanVariantLabel(v.label), v.selectable !== false));
+  const current = mk(product.asin, product.variant_label || 'Esta opción', true);
+  const all = variants.map(v => mk(v.asin, cleanVariantLabel(v.label), v.selectable !== false, v.dim ?? null));
+
+  // Other options of this article the user already follows (they may live on any page of the group).
+  const alsoFollowed: OptionsView['alsoFollowed'] = [];
+  if (product.group_id) {
+    const g = await db.execute(sql`
+      SELECT p.id, p.asin, p.variant_label AS label,
+        (SELECT price::float FROM price_history WHERE product_id = p.id ORDER BY scraped_at DESC LIMIT 1) AS price,
+        (SELECT threshold_price::float FROM alerts a WHERE a.product_id = p.id AND a.user_id = ${userId}
+           AND a.alert_type = 'price' AND a.is_active ORDER BY a.id DESC LIMIT 1) AS threshold
+      FROM products p JOIN user_products up ON up.product_id = p.id AND up.user_id = ${userId}
+      WHERE p.group_id = ${product.group_id} AND p.id <> ${product.id} AND p.is_active = TRUE
+      ORDER BY p.variant_label NULLS LAST, p.asin`);
+    for (const r of g.rows as any[]) alsoFollowed.push({ asin: r.asin, label: r.label || r.asin, price: r.price, threshold: r.threshold, productId: r.id });
+  }
+  const followedAsins = new Set(alsoFollowed.map(f => f.asin));
+  // Followable = Amazon offers it (selector row not struck through) and it is not already listed above.
+  const others = all.filter(o => o.selectable && o.available !== false && !followedAsins.has(o.asin));
+  const unavailableCount = all.filter(o => !o.selectable || o.available === false).length;
+
   const waiting = variants.length === 0 && ageMs < 3 * 60 * 1000;     // twister not read yet
   const readingCount = [current, ...others].filter(r => r.reading).length;
   return {
     asin: product.asin,
-    current, others,
+    current, others, unavailableCount, alsoFollowed,
     pending: waiting || readingCount > 0,
     open: opts.open,
     detailsOpen: !!opts.detailsOpen,
-    sig: `${variants.length}:${[current, ...others].filter(r => r.price !== null).length}:${readingCount}:${waiting ? 1 : 0}`,
+    sig: `${variants.length}:${[current, ...others].filter(r => r.price !== null).length}:${readingCount}:${waiting ? 1 : 0}:${alsoFollowed.length}:${alsoFollowed.map(f => f.threshold ?? '').join(',')}`,
   };
 }
 
