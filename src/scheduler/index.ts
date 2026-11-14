@@ -10,6 +10,8 @@ import { decideAfterConfirmedUnavailable, describeReason, DEFAULT_LIFECYCLE, typ
 import { sendTelegramAlert, sendTelegramBackInStock } from '../mailer/telegram';
 import { getSetting } from '../db/settings';
 import { selectDue } from './selection';
+import { Breaker, type ExecutorStatus } from './executors';
+import { remoteScrape, parseRemotes, ExecutorUnavailableError } from '../scraper/remote';
 import { sendOpsAlert } from '../lib/ops-alert';
 
 const CHECK_INTERVAL = process.env.CHECK_INTERVAL_CRON ?? '0 * * * *';
@@ -48,6 +50,16 @@ const MAX_CONSECUTIVE_BLOCKS = 3;
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
+// ── Executors (where scrapes run: this process, or remote machines such as the Pi) ──
+interface Executor { name: string; kind: 'local' | 'remote'; scrape: ScrapeFn; breaker?: Breaker; }
+const executorStats = new Map<string, ExecutorStatus>();
+const remoteBreakers = new Map<string, Breaker>();
+function statFor(e: Executor): ExecutorStatus {
+  let st = executorStats.get(e.name);
+  if (!st) { st = { name: e.name, kind: e.kind, done: 0, failed: 0, breakerOpen: false, lastError: null }; executorStats.set(e.name, st); }
+  return st;
+}
+
 export function getScraperHealth() {
   const now = Date.now();
   const stuck = isRunning && now - lastProgressAt > STUCK_AFTER_MS;
@@ -59,6 +71,7 @@ export function getScraperHealth() {
     lastAnswerAgeSec:   Math.round((now - lastOkAt) / 1000),
     cycleAgeSec:        isRunning ? Math.round((now - cycleStartedAt) / 1000) : null,
     done: state.done, total: state.total,
+    executors: [...executorStats.values()].map(e => ({ ...e, breakerOpen: remoteBreakers.get(e.name)?.isOpen(Date.now()) ?? false })),
   };
 }
 
@@ -138,50 +151,92 @@ async function checkAllProducts(): Promise<void> {
     lastDueCount = toCheck.length;
     console.log(`[scheduler] ${toCheck.length}/${activeProducts.rows.length} products due for check (${CONCURRENCY} workers)…`);
 
-    // Worker pool: CONCURRENCY workers pick products until exhausted, the cycle
-    // deadline passes, or the watchdog abandons this generation.
+    // Worker pool. Workers run on EXECUTORS: this process (CONCURRENCY workers) plus, when
+    // `scraper_remote_concurrency` > 0 and SCRAPER_REMOTES is set, workers whose scrapes run
+    // on a remote machine (the Pi). The queue, persistence and alerts stay here either way.
+    const localExec: Executor = { name: 'local', kind: 'local', scrape: scrapeProduct };
+    const remoteCount = Math.max(0, Math.min(4, Number(await getSetting('scraper_remote_concurrency', 0))));
+    const remoteExecs: Executor[] = remoteCount > 0
+      ? parseRemotes(process.env.SCRAPER_REMOTES, process.env.SCRAPER_REMOTE_TOKEN).map(cfg => {
+          if (!remoteBreakers.has(cfg.name)) remoteBreakers.set(cfg.name, new Breaker());
+          return { name: cfg.name, kind: 'remote' as const, scrape: (u: string, t: number) => remoteScrape(cfg, u, t), breaker: remoteBreakers.get(cfg.name)! };
+        })
+      : [];
+    const executors: Executor[] = [
+      ...Array.from({ length: CONCURRENCY }, () => localExec),
+      ...(remoteExecs.length ? Array.from({ length: remoteCount }, (_, i) => remoteExecs[i % remoteExecs.length]) : []),
+    ];
+    if (remoteExecs.length) console.log(`[scheduler] Ejecutores remotos: ${remoteCount} worker(s) en ${[...new Set(remoteExecs.map(e => e.name))].join(', ')}`);
+
+    // A product handed back after its executor failed is retried by another worker, at most twice.
+    const requeues = new Map<number, number>();
     let idx = 0;
-    let blocks = 0;       // consecutive Amazon blocks (interstitial / captcha)
-    let wrongLoc = 0;     // consecutive pages rendered for the wrong location
-    let stop = false;
-    async function worker(): Promise<void> {
-      while (alive() && !stop && idx < toCheck.length && Date.now() - cycleStartedAt < CYCLE_MAX_MS) {
+    const counters = new Map<string, { blocks: number; wrongLoc: number }>();
+    const stopped = new Set<string>();     // executors that gave up for this cycle
+    const countersFor = (name: string) => { let c = counters.get(name); if (!c) { c = { blocks: 0, wrongLoc: 0 }; counters.set(name, c); } return c; };
+
+    async function worker(exec: Executor): Promise<void> {
+      const st = statFor(exec);
+      const cnt = countersFor(exec.name);
+      while (alive() && !stopped.has(exec.name) && idx < toCheck.length && Date.now() - cycleStartedAt < CYCLE_MAX_MS) {
+        // A remote executor whose breaker is open sits out (and keeps the watchdog calm) until it closes.
+        if (exec.breaker?.isOpen(Date.now())) { lastProgressAt = Date.now(); await sleep(5000); continue; }
         const product = toCheck[idx++];
         state.current = { id: product.id, name: product.name ?? product.asin, asin: product.asin };
         let ok = true;
         try {
-          await checkProduct(product.id, product.url, product.name ?? product.asin, SCRAPER_TIMEOUT);
-          blocks = 0; wrongLoc = 0; answered++;
+          await checkProduct(product.id, product.url, product.name ?? product.asin, SCRAPER_TIMEOUT, exec.scrape);
+          cnt.blocks = 0; cnt.wrongLoc = 0; answered++; st.done++;
+          exec.breaker?.success();
         } catch (e) {
           ok = false;
+          if (e instanceof ExecutorUnavailableError) {
+            st.failed++; st.lastError = e.message.slice(0, 160);
+            const n = (requeues.get(product.id) ?? 0) + 1;
+            requeues.set(product.id, n);
+            if (n <= 2) toCheck.push(product);        // another worker (or this one later) takes it
+            const opened = exec.breaker!.failure(Date.now());
+            console.log(`[scheduler] Ejecutor ${exec.name} no disponible (${e.message.slice(0, 100)})${opened ? ' — se aparta 5 min' : ''}`);
+            if (opened) {
+              await sendOpsAlert(`executor-${exec.name}`, `El ejecutor remoto "${exec.name}" no responde`, [
+                `Tres fallos seguidos hablando con ${exec.name}. Se aparta 5 minutos; el scraper sigue con el resto.`,
+                `Último error: ${e.message.slice(0, 200)}`,
+                'Revisa que la Pi esté encendida, con Tailscale activo y el contenedor del scraper en marcha.',
+              ], 60 * 60 * 1000);
+            }
+            lastProgressAt = Date.now();
+            await sleep(5000);
+            continue;
+          }
           if (e instanceof CaptchaDetectedError) {
             // Don't abort the whole cycle on one block: pause for the cooldown and carry on.
             // Only give up (and warn the admin) after several blocks in a row.
-            if (!e.message.startsWith('[PAUSA]')) blocks++;
-            if (blocks >= MAX_CONSECUTIVE_BLOCKS) {
-              stop = true;
-              await sendOpsAlert('blocks', 'Amazon está bloqueando el scraper', [
-                `${blocks} bloqueos seguidos (interstitial/captcha). El ciclo se detiene y se reintenta en el próximo.`,
+            if (!e.message.startsWith('[PAUSA]')) cnt.blocks++;
+            if (cnt.blocks >= MAX_CONSECUTIVE_BLOCKS) {
+              stopped.add(exec.name);
+              await sendOpsAlert(`blocks-${exec.name}`, exec.kind === 'local' ? 'Amazon está bloqueando el scraper' : `Amazon está bloqueando el ejecutor "${exec.name}"`, [
+                `${cnt.blocks} bloqueos seguidos (interstitial/captcha). Este ejecutor se detiene y se reintenta en el próximo ciclo.`,
                 `Último mensaje: ${e.message.slice(0, 200)}`,
               ]);
               break;
             }
-            const waitMs = Math.min(captchaRemainingMs(), 11 * 60 * 1000) + 2000;
-            console.log(`[scheduler] Bloqueo de Amazon (${blocks}/${MAX_CONSECUTIVE_BLOCKS}); pausa ${Math.round(waitMs / 1000)}s y sigo`);
+            // The cooldown clock of a remote machine lives there; use a fixed pause for remotes.
+            const waitMs = (exec.kind === 'local' ? Math.min(captchaRemainingMs(), 11 * 60 * 1000) : 10 * 60 * 1000) + 2000;
+            console.log(`[scheduler] Bloqueo de Amazon en ${exec.name} (${cnt.blocks}/${MAX_CONSECUTIVE_BLOCKS}); pausa ${Math.round(waitMs / 1000)}s y sigo`);
             for (let waited = 0; waited < waitMs && alive(); waited += 5000) { await sleep(5000); lastProgressAt = Date.now(); }
             continue;
           }
           if (e instanceof WrongLocationError) {
-            wrongLoc++;
-            if (wrongLoc === 3) {
-              await sendOpsAlert('location', 'Amazon no respeta la ubicación en España', [
-                `${wrongLoc} páginas seguidas con ubicación distinta del CP ${process.env.AMAZON_ZIP || '28001'}.`,
+            cnt.wrongLoc++;
+            if (cnt.wrongLoc === 3) {
+              await sendOpsAlert(`location-${exec.name}`, 'Amazon no respeta la ubicación en España', [
+                `${cnt.wrongLoc} páginas seguidas con ubicación distinta del CP ${process.env.AMAZON_ZIP || '28001'} (ejecutor: ${exec.name}).`,
                 `Detalle: ${e.message}`,
                 'Se reinicia el navegador y se vuelve a fijar el código postal.',
               ]);
-              restartBrowser();
+              if (exec.kind === 'local') restartBrowser();   // a remote service resets its own session on this error
               await sleep(30_000);
-            } else if (wrongLoc >= 8) { stop = true; break; }
+            } else if (cnt.wrongLoc >= 8) { stopped.add(exec.name); break; }
           }
         }
         processed++;
@@ -195,7 +250,7 @@ async function checkAllProducts(): Promise<void> {
       }
     }
 
-    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, toCheck.length) }, worker));
+    await Promise.all(executors.slice(0, Math.max(1, toCheck.length)).map(exec => worker(exec)));
 
     if (alive()) {
       const hitDeadline = Date.now() - cycleStartedAt >= CYCLE_MAX_MS;
@@ -671,7 +726,9 @@ async function enqueueAnomaly(input: {
   }
 }
 
-async function checkProduct(productId: number, url: string, label: string, timeoutSeconds = 30): Promise<void> {
+type ScrapeFn = (url: string, timeoutSeconds: number) => Promise<ScrapeResult>;
+
+async function checkProduct(productId: number, url: string, label: string, timeoutSeconds = 30, scrape: ScrapeFn = scrapeProduct): Promise<void> {
   // Load current state to detect availability transitions and track failures
   const [current] = await db.select({
     isAvailable: products.isAvailable,
@@ -702,7 +759,7 @@ async function checkProduct(productId: number, url: string, label: string, timeo
 
   try {
     console.log(`[scheduler] Scraping: ${label}`);
-    const result = await scrapeProduct(url, timeoutSeconds);
+    const result = await scrape(url, timeoutSeconds);
 
     // ── Anomaly guard (symmetric: rejects extreme highs and extreme lows) ────
     // Margins widened 2026-05-22 (was 0.4 / 2.5 → 0.25 / 3.5). The system
@@ -855,6 +912,9 @@ async function checkProduct(productId: number, url: string, label: string, timeo
           }
         }
       }
+    } else if (err instanceof ExecutorUnavailableError) {
+      // The remote scraper machine failed, not the product: leave the product untouched.
+      throw err;
     } else if (err instanceof WrongLocationError) {
       // Page rendered for another country: its prices/stock say nothing about the
       // product. Don't penalise it; the worker handles the streak.

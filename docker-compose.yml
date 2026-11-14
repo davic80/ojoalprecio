@@ -45,6 +45,10 @@ services:
       - ALIEXPRESS_TRACKING_ID=${ALIEXPRESS_TRACKING_ID}
       # Google Analytics 4 (optional; head partial omits gtag when empty)
       - GA_MEASUREMENT_ID=${GA_MEASUREMENT_ID:-}
+      # Optional remote scrape executors (e.g. the Pi). Off unless the DB setting
+      # scraper_remote_concurrency > 0. See deploy/pi/README.md.
+      - SCRAPER_REMOTES=${SCRAPER_REMOTES:-}
+      - SCRAPER_REMOTE_TOKEN=${SCRAPER_REMOTE_TOKEN:-}
       - NODE_ENV=production
     ports:
       - "${HOST_PORT:-8080}:3000"

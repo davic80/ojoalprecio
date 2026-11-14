@@ -1,0 +1,40 @@
+# Remote scrape service for the Raspberry Pi (phase 2 of the "workers on the Pi" plan).
+#
+# The Pi only opens Chromium with its own (Spanish residential) IP and returns the result to the
+# main server over Tailscale. It has NO database access and no user data: the Hetzner scheduler
+# decides what to scrape and stores everything.
+#
+# Setup on the Pi (see README.md in this folder):
+#   cp .env.example .env     # fill SCRAPER_SERVICE_TOKEN (≥ 24 chars) and TAILSCALE_IP
+#   docker compose pull && docker compose up -d
+services:
+  scraper:
+    image: ghcr.io/davic80/ojoalprecio:${IMAGE_TAG:-latest}
+    container_name: ojoalprecio-scraper
+    restart: unless-stopped
+    init: true
+    command: ["node", "dist/scraper-service.js"]
+    environment:
+      - SCRAPER_SERVICE_TOKEN=${SCRAPER_SERVICE_TOKEN:?set SCRAPER_SERVICE_TOKEN in .env}
+      - SCRAPER_SERVICE_PORT=8890
+      - SCRAPER_SERVICE_BIND=0.0.0.0
+      - SCRAPER_SERVICE_CONCURRENCY=1
+      - AMAZON_ZIP=${AMAZON_ZIP:-28001}
+      # Chromium at nice 15 so Home Assistant, Plex and Immich always win the CPU.
+      - PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/local/bin/chromium-nice
+      - NODE_ENV=production
+    volumes:
+      - ./chromium-nice.sh:/usr/local/bin/chromium-nice:ro
+    ports:
+      # Only on the Tailscale address: never on the LAN or the internet.
+      - "${TAILSCALE_IP:?set TAILSCALE_IP in .env}:8890:8890"
+    # Hard limits agreed with the owner: 1 CPU, 1 GB.
+    cpus: 1.0
+    mem_limit: 1g
+    shm_size: 256m
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8890/health',{headers:{authorization:'Bearer '+process.env.SCRAPER_SERVICE_TOKEN}}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
