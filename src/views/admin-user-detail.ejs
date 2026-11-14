@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<%- include('partials/head', { title: 'Usuario — Admin OjoAlPrecio' }) %>
+</head>
+<body>
+<%- include('partials/navbar-admin', { user, activePage: 'users' }) %>
+<main class="container">
+  <p class="back-link"><a href="/admin/users">← Usuarios</a></p>
+  <div class="page-header">
+    <h1><%= u.email %></h1>
+    <p class="subtitle">
+      Alta: <%= new Date(u.createdAt).toLocaleDateString('es-ES', { day:'2-digit', month:'short', year:'numeric' }) %> ·
+      <%= u.emailVerified ? 'email verificado' : 'email sin verificar' %> ·
+      <%= u.hasGoogle ? 'conectado con Google' : 'sin Google' %> ·
+      <%= u.passwordSet ? 'con contraseña' : 'sin contraseña (solo Google)' %><%= u.telegramChatId ? ' · Telegram configurado' : '' %>
+    </p>
+  </div>
+  <div class="card" style="padding:0;overflow:hidden">
+    <% if (!follows.length) { %>
+      <p style="padding:32px;text-align:center;color:var(--text-muted);margin:0">No sigue ningún producto.</p>
+    <% } else { %>
+    <table class="data-table" style="width:100%;border-collapse:collapse">
+      <thead><tr style="text-align:left;font-size:12px;color:var(--text-muted)">
+        <th style="padding:12px 16px">Producto (<%= follows.length %>)</th><th style="padding:12px 16px">Opción</th>
+        <th style="padding:12px 16px;text-align:right">Precio</th><th style="padding:12px 16px;text-align:right">Mínimo</th>
+        <th style="padding:12px 16px">Avisos</th><th style="padding:12px 16px">Desde</th>
+      </tr></thead>
+      <tbody>
+      <% follows.forEach(function(f) { const al = f.alerts || []; %>
+        <tr style="border-top:1px solid var(--border);font-size:13px">
+          <td style="padding:10px 16px"><a href="/p/<%= f.asin %>"><%= f.name || f.asin %></a><%= f.isAvailable ? '' : ' · sin stock' %></td>
+          <td style="padding:10px 16px"><%= f.variantLabel || '' %></td>
+          <td style="padding:10px 16px;text-align:right"><%= f.price != null ? Number(f.price).toFixed(2).replace('.', ',') + ' €' : '—' %></td>
+          <td style="padding:10px 16px;text-align:right"><%= f.minPrice != null ? Number(f.minPrice).toFixed(2).replace('.', ',') + ' €' : '—' %></td>
+          <td style="padding:10px 16px">
+            <% if (!al.length) { %><span style="color:var(--text-muted)">—</span><% } %>
+            <% al.forEach(function(a) { %>
+              <div style="<%= a.active ? '' : 'opacity:.5' %>">
+                <%= a.type === 'price' && a.threshold != null ? 'baja de ' + Number(a.threshold).toFixed(2).replace('.', ',') + ' €' : (a.type === 'percentage' ? 'baja ' + a.pct + ' %' : a.type) %><%= a.active ? '' : ' (inactivo)' %>
+              </div>
+            <% }); %>
+          </td>
+          <td style="padding:10px 16px;color:var(--text-muted);white-space:nowrap"><%= new Date(f.addedAt).toLocaleDateString('es-ES', { day:'2-digit', month:'short', year:'numeric' }) %></td>
+        </tr>
+      <% }); %>
+      </tbody>
+    </table>
+    <% } %>
+  </div>
+</main>
+</body>
+</html>

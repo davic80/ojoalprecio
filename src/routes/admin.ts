@@ -1070,45 +1070,77 @@ router.get('/admin/stats', requireAuth, requireAdmin, async (req: Request, res: 
   });
 });
 
-// ── GET /admin/users ──────────────────────────────────────────────────────────
+// ── GET /admin/users ─────────────────────────────────────────────────────────
+// ?actividad=con | sin   (con = sigue algo, tiene alertas o creó productos; sin = ninguna actividad)
 router.get('/admin/users', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const actividad = req.query.actividad === 'con' || req.query.actividad === 'sin' ? String(req.query.actividad) : 'todos';
+  const hasActivity = sql`(EXISTS (SELECT 1 FROM user_products up WHERE up.user_id = u.id)
+                           OR EXISTS (SELECT 1 FROM alerts a WHERE a.user_id = u.id)
+                           OR EXISTS (SELECT 1 FROM products p WHERE p.created_by_user_id = u.id))`;
+  const filter = actividad === 'con' ? sql`AND ${hasActivity}` : actividad === 'sin' ? sql`AND NOT ${hasActivity}` : sql``;
   const [usersRows, totalsRow] = await Promise.all([
     db.execute(sql`
       SELECT
         u.id,
         u.email,
         u.email_verified      AS "emailVerified",
+        u.google_sub IS NOT NULL AS "hasGoogle",
         u.telegram_chat_id    AS "telegramChatId",
         u.created_at          AS "createdAt",
-        (SELECT COUNT(*) FROM products p WHERE p.created_by_user_id = u.id AND p.is_active = TRUE)  AS "productCount",
+        (SELECT COUNT(*) FROM user_products up WHERE up.user_id = u.id)                  AS "followCount",
         (SELECT COUNT(*) FROM alerts   a WHERE a.user_id = u.id AND a.is_active = TRUE)  AS "activeAlertCount",
         (SELECT COUNT(*) FROM alerts   a WHERE a.user_id = u.id)                          AS "totalAlertCount",
         (SELECT COUNT(*) FROM alert_events ae WHERE ae.user_id = u.id)                   AS "alertEventCount"
       FROM users u
-      WHERE u.email != ${SYSTEM_EMAIL}
-      ORDER BY u.created_at DESC
+      WHERE u.email != ${SYSTEM_EMAIL} ${filter}
+      ORDER BY "followCount" DESC, u.created_at DESC
+      LIMIT 500
     `),
     db.execute(sql`
       SELECT
         COUNT(*)                                                 AS total,
         COUNT(*) FILTER (WHERE email_verified = TRUE)           AS verified,
-        COUNT(*) FILTER (WHERE telegram_chat_id IS NOT NULL)    AS with_telegram
-      FROM users
-      WHERE email != ${SYSTEM_EMAIL}
+        COUNT(*) FILTER (WHERE telegram_chat_id IS NOT NULL)    AS with_telegram,
+        COUNT(*) FILTER (WHERE ${hasActivity})                  AS with_activity
+      FROM users u
+      WHERE u.email != ${SYSTEM_EMAIL}
     `),
   ]);
 
   const totals = totalsRow.rows[0] as any;
   res.render('admin-users', {
     users: usersRows.rows,
+    actividad,
     totals: {
       total:        parseInt(String(totals?.total ?? '0'), 10),
       verified:     parseInt(String(totals?.verified ?? '0'), 10),
       withTelegram: parseInt(String(totals?.with_telegram ?? '0'), 10),
+      withActivity: parseInt(String(totals?.with_activity ?? '0'), 10),
     },
     user: { email: req.session.userEmail },
     isAdmin: true,
   });
+});
+
+// ── GET /admin/users/:id — what one user follows, with their alerts ───────────────
+router.get('/admin/users/:id', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const id = parseInt(String(req.params.id), 10);
+  if (!Number.isFinite(id)) return res.status(404).render('404', { user: { email: req.session.userEmail } });
+  const [u] = (await db.execute(sql`
+    SELECT id, email, email_verified AS "emailVerified", google_sub IS NOT NULL AS "hasGoogle",
+           password_set AS "passwordSet", telegram_chat_id AS "telegramChatId", created_at AS "createdAt"
+    FROM users WHERE id = ${id} AND email != ${SYSTEM_EMAIL}`)).rows as any[];
+  if (!u) return res.status(404).render('404', { user: { email: req.session.userEmail } });
+  const follows = await db.execute(sql`
+    SELECT p.id, p.asin, p.name, p.variant_label AS "variantLabel", p.is_available AS "isAvailable", up.added_at AS "addedAt",
+      (SELECT price::float FROM price_history WHERE product_id = p.id ORDER BY scraped_at DESC LIMIT 1) AS price,
+      (SELECT MIN(price)::float FROM price_history WHERE product_id = p.id) AS "minPrice",
+      (SELECT json_agg(json_build_object('type', a.alert_type, 'threshold', a.threshold_price::float, 'pct', a.percentage_drop, 'active', a.is_active) ORDER BY a.id)
+         FROM alerts a WHERE a.product_id = p.id AND a.user_id = ${id}) AS alerts
+    FROM user_products up JOIN products p ON p.id = up.product_id
+    WHERE up.user_id = ${id}
+    ORDER BY up.added_at DESC`);
+  res.render('admin-user-detail', { u, follows: follows.rows, user: { email: req.session.userEmail }, isAdmin: true });
 });
 
 // ── GET /admin/lists ──────────────────────────────────────────────────────────

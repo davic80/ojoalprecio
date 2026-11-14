@@ -251,6 +251,12 @@
   <!-- Admin panel (inline, only for admin) -->
   <% if (adminMode) { %>
   <div class="card" style="border-left:3px solid var(--primary,#e63946);margin-top:20px">
+    <% if (typeof productFollowers !== 'undefined') { %>
+      <div class="hint" style="margin:0 0 12px;font-size:13px">
+        Seguido por <strong><%= productFollowers.length %></strong> usuario<%= productFollowers.length === 1 ? '' : 's' %><%= productFollowers.length ? ': ' : '' %>
+        <% productFollowers.forEach(function(pf, i) { %><a href="/admin/users/<%= pf.id %>"><%= pf.email %></a><%= i < productFollowers.length - 1 ? ', ' : '' %><% }); %>
+      </div>
+    <% } %>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px">
       <div style="font-size:13px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.06em">🔧 Panel de admin</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">

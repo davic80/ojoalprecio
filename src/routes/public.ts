@@ -545,6 +545,7 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
   let allCategories: any[] = [];
   let productOwner: { id: number; email: string } | null = null;
   let viewCount = 0;
+  let productFollowers: Array<{ id: number; email: string }> = [];
   if (adminUser) {
     const [cats, ownerRows, viewRow] = await Promise.all([
       db.select().from(categories).orderBy(asc(categories.name)),
@@ -556,6 +557,9 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
     allCategories = cats;
     productOwner = ownerRows[0] ?? null;
     viewCount = parseInt(String((viewRow.rows[0] as any)?.views ?? '0'), 10);
+    productFollowers = (await db.execute(sql`
+      SELECT u.id, u.email FROM user_products up JOIN users u ON u.id = up.user_id
+      WHERE up.product_id = ${product.id} AND u.email != 'system@ojoalprecio.local' ORDER BY up.added_at`)).rows as any[];
   }
 
   // Map snake_case from raw SQL to camelCase the template expects
@@ -768,6 +772,7 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
     allCategories,
     productOwner,
     viewCount,
+    productFollowers,
     variants: variantsView,
     aeEquivalent,
     aeEquivalentDebug,
