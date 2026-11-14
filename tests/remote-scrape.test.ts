@@ -123,3 +123,24 @@ describe('scrape service + remote client over real HTTP', () => {
     expect(tokensMatch('', 'a')).toBe(false);
   });
 });
+
+describe('service memory guard', () => {
+  let server: http.Server | null = null;
+  afterEach(() => new Promise<void>(r => { server ? server.close(() => r()) : r(); server = null; }));
+  const sample = (avail: number) => ({ ts: 0, load1: 0.5, hostMemTotalMb: 3847, hostMemAvailMb: avail, swapUsedMb: 0, swapGrowthMb: 0, containerMemMb: null, containerMemLimitMb: null, containerCpuPct: 0, tempC: 50 });
+  async function call(avail: number) {
+    let called = 0;
+    server = http.createServer(createService({ token: TOKEN, scrape: async () => { called++; return result(); }, concurrency: 1, getSystem: () => sample(avail), minFreeMemMb: 500 }));
+    await new Promise<void>(r => server!.listen(0, '127.0.0.1', r));
+    const cfg = { name: 't', baseUrl: `http://127.0.0.1:${(server!.address() as AddressInfo).port}`, token: TOKEN };
+    return { cfg, called: () => called };
+  }
+  it('refuses new scrapes (503 → ExecutorUnavailable) when free memory is below the floor, and works above it', async () => {
+    const low = await call(300);
+    await expect(remoteScrape(low.cfg, 'https://www.amazon.es/dp/B0F7TM92ZM?th=1&psc=1', 30)).rejects.toBeInstanceOf(ExecutorUnavailableError);
+    expect(low.called()).toBe(0);
+    await new Promise<void>(r => { server!.close(() => r()); server = null; });
+    const ok = await call(2000);
+    expect((await remoteScrape(ok.cfg, 'https://www.amazon.es/dp/B0F7TM92ZM?th=1&psc=1', 30)).price).toBe(30.33);
+  });
+});

@@ -117,6 +117,9 @@ async function checkAllProducts(): Promise<void> {
   const RETRY_FAILED_PER_CYCLE = Math.max(0, Math.min(100, Number(await getSetting('retry_failed_per_cycle', 30))));
   const MIN_AGE_MINUTES        = Math.max(1, Math.min(1440,Number(await getSetting('min_age_minutes',        59))));
   const SCRAPER_TIMEOUT        = Math.max(15,Math.min(120, Number(await getSetting('scraper_timeout_seconds',30))));
+  // Remote executors (the Pi 4) are several times slower per page (measured 27-36 s vs ~7 s here), so they
+  // need their own, longer plazo; with the local 24 s almost every product page timed out there.
+  const REMOTE_TIMEOUT         = Math.max(30,Math.min(120, Number(await getSetting('scraper_remote_timeout_seconds', 75))));
   const MIN_AGE_MS = MIN_AGE_MINUTES * 60 * 1000;
   // Unavailable products are "paused": rechecked only this often (grace period before removal).
   const UNAVAILABLE_RECHECK_MS = Math.max(1, Math.min(168, Number(await getSetting('unavailable_pause_hours', 24)))) * 60 * 60 * 1000;
@@ -191,7 +194,7 @@ async function checkAllProducts(): Promise<void> {
         state.current = { id: product.id, name: product.name ?? product.asin, asin: product.asin };
         let ok = true;
         try {
-          await checkProduct(product.id, product.url, product.name ?? product.asin, SCRAPER_TIMEOUT, exec.scrape);
+          await checkProduct(product.id, product.url, product.name ?? product.asin, exec.kind === 'remote' ? REMOTE_TIMEOUT : SCRAPER_TIMEOUT, exec.scrape);
           cnt.blocks = 0; cnt.wrongLoc = 0; answered++; st.done++;
           exec.breaker?.success();
         } catch (e) {

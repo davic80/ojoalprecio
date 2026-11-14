@@ -30,6 +30,7 @@ const server = http.createServer(createService({
   version: process.env.APP_VERSION,
   getSystem: () => sampler.latest(),
   getHistory: (n) => sampler.history(n),
+  minFreeMemMb: parseInt(process.env.SCRAPER_SERVICE_MIN_FREE_MB ?? '500', 10),
 }));
 server.requestTimeout = 180_000;
 server.listen(port, bind, () => {

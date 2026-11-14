@@ -104,11 +104,18 @@ async function safeClose(what: string, fn: () => Promise<unknown>, ms = 8_000): 
   catch (e) { console.warn(`[scraper] ${what} no cerró limpio: ${(e as Error).message}`); return false; }
 }
 
-function forceKillChromium(): void {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    require('child_process').execFile('pkill', ['-9', '-f', 'chromium'], () => {});
-  } catch { /* best effort */ }
+// pkill is asynchronous: a launch that starts before it has finished would be killed too
+// ("browserType.launch: Target page, context or browser has been closed", seen on the Pi after
+// a hard timeout). So callers AWAIT the returned promise before launching a new browser.
+let _killing: Promise<void> | null = null;
+function forceKillChromium(): Promise<void> {
+  _killing = new Promise<void>((resolve) => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      require('child_process').execFile('pkill', ['-9', '-f', 'chromium'], () => setTimeout(resolve, 500));
+    } catch { resolve(); }
+  }).finally(() => { _killing = null; });
+  return _killing;
 }
 
 let _browserNeedsRecycle = false;
@@ -297,8 +304,9 @@ function getBrowser(): Promise<Browser> {
       if (_browser) {
         const old = _browser;
         const closed = await safeClose('browser.close', () => old.close());
-        if (!closed || _browserNeedsRecycle) forceKillChromium();
+        if (!closed || _browserNeedsRecycle) await forceKillChromium();
       }
+      if (_killing) await _killing;   // a watchdog restartBrowser() may still be killing
       _browserNeedsRecycle = false;
       _storageStatePromise = null;
       const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;

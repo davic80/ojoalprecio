@@ -27,3 +27,13 @@ CPU del contenedor (en % de 1 núcleo), memoria del contenedor frente a su lími
 - **Protección automática:** si la Pi llega a estado crítico (memoria libre < 600 MB, temperatura ≥ 82 °C, swap +1,5 GB, carga > 3,8), el worker remoto se pausa 10 minutos, te llega un correo y se reanuda tras 2 comprobaciones sanas seguidas.
   Avisos (sin pausa) desde: memoria libre < 1 GB, 75 °C, swap +600 MB, carga > 3, o el contenedor al 90 % de su límite.
 
+## Notas de la instalación en la Pi 4 (2026-11-14)
+- Ejecutor `pi4` → `http://100.108.118.84:8890`. Límites: 2 CPUs. **El kernel de esa Pi no tiene cgroup de memoria**
+  (`docker info` avisa "No memory limit support"), así que `mem_limit` no se aplica: se protege con `oom_score_adj: 1000`,
+  el rechazo de scrapes nuevos si la memoria libre baja de 500 MB y la pausa automática del servidor principal.
+  Para tener el límite real hay que añadir `cgroup_enable=memory cgroup_memory=1` a `/boot/firmware/cmdline.txt` y reiniciar
+  (la Pi 4 es el DNS/DHCP de la casa: hacerlo en un momento tranquilo).
+- Es lenta con la ficha pesada de Amazon: ~27-36 s por ficha con los 2 núcleos al 100 %. Por eso el servidor principal usa
+  `scraper_remote_timeout_seconds` (75 s por defecto) para los ejecutores remotos, aparte de `scraper_timeout_seconds`.
+- Medido bajo carga: la latencia DNS de Pi-hole no cambió (mediana 23 ms, máx 31 ms; en reposo 0-27 ms).
+

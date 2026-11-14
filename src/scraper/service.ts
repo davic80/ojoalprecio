@@ -22,6 +22,8 @@ export interface ServiceDeps {
   getSystem?: () => SystemSample | null;
   /** Recent samples for /metrics. */
   getHistory?: (maxPoints: number) => SystemSample[];
+  /** Refuse NEW scrapes (503) while the host's free memory is below this. Protects whatever else runs there (Pi-hole). */
+  minFreeMemMb?: number;
 }
 
 const AMAZON_DP = /^https:\/\/www\.amazon\.es\/dp\/[A-Z0-9]{10}(\?[A-Za-z0-9=&_%.-]*)?$/;
@@ -82,6 +84,10 @@ export function createService(deps: ServiceDeps): http.RequestListener {
     // Only product pages of amazon.es: this service must not become an open fetch proxy.
     if (!AMAZON_DP.test(url)) return send(res, 400, { error: 'url not allowed' });
     const timeout = Math.max(15, Math.min(120, Number(payload.timeoutSeconds) || 30));
+
+    // Self-protection, independent of the main server's polling: no new Chromium work when memory is nearly gone.
+    const sys = deps.getSystem?.();
+    if (deps.minFreeMemMb && sys && sys.hostMemAvailMb < deps.minFreeMemMb) return send(res, 503, { error: 'memory pressure' });
 
     if (!(await acquire())) return send(res, 503, { error: 'busy' });
     try {
