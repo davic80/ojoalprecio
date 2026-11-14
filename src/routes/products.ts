@@ -16,6 +16,7 @@ import {
 } from '../marketplaces/aliexpress';
 
 import { collectState } from '../lib/collecting';
+import { getSystemUserId } from '../lib/system-user';
 
 const router = Router();
 
@@ -105,16 +106,23 @@ router.get('/', (req: Request, res: Response, next) => {
   if (status === 'pending')    whereClauses.push(sql`NOT EXISTS (SELECT 1 FROM price_history ph WHERE ph.product_id = p.id)`);
   // Variant groups: one card per article (group), not one per size/colour. Variants discovered by the system
   // that nobody follows are hidden from the admin list (they are catalog plumbing, not something to manage).
-  const SYS = sql`(SELECT id FROM users WHERE email = 'system@ojoalprecio.local')`;
+  const SYS = await getSystemUserId();
+  const realFollower = (a: string) => sql`EXISTS (SELECT 1 FROM user_products rf WHERE rf.product_id = ${sql.raw(a)}.id AND rf.user_id <> ${SYS})`;
   const visible = (a: string) => adminUser
-    ? sql`(${sql.raw(a)}.group_id IS NULL OR ${sql.raw(a)}.created_by_user_id IS DISTINCT FROM ${SYS}
-           OR EXISTS (SELECT 1 FROM user_products rf WHERE rf.product_id = ${sql.raw(a)}.id AND rf.user_id <> ${SYS}))`
+    ? sql`(${sql.raw(a)}.group_id IS NULL OR ${sql.raw(a)}.created_by_user_id IS DISTINCT FROM ${SYS} OR ${realFollower(a)})`
     : sql`EXISTS (SELECT 1 FROM user_products uv WHERE uv.product_id = ${sql.raw(a)}.id AND uv.user_id = ${userId})`;
-  const repOrder = adminUser
-    ? sql`(EXISTS (SELECT 1 FROM user_products rf WHERE rf.product_id = x.id AND rf.user_id <> ${SYS})) DESC, x.id ASC`
-    : sql`(SELECT MIN(ur.added_at) FROM user_products ur WHERE ur.product_id = x.id AND ur.user_id = ${userId}) ASC, x.id ASC`;
   whereClauses.push(visible('p'));
-  whereClauses.push(sql`(p.group_id IS NULL OR p.id = (SELECT x.id FROM products x WHERE x.group_id = p.group_id AND x.is_active = TRUE AND ${visible('x')} ORDER BY ${repOrder} LIMIT 1))`);
+  // One representative per group, picked in a single pass (not one subquery per row).
+  whereClauses.push(adminUser
+    ? sql`(p.group_id IS NULL OR p.id IN (
+        SELECT DISTINCT ON (x.group_id) x.id FROM products x
+        WHERE x.group_id IS NOT NULL AND x.is_active = TRUE AND ${visible('x')}
+        ORDER BY x.group_id, (${realFollower('x')}) DESC, x.id ASC))`
+    : sql`(p.group_id IS NULL OR p.id IN (
+        SELECT DISTINCT ON (x.group_id) x.id FROM products x
+        JOIN user_products ur ON ur.product_id = x.id AND ur.user_id = ${userId}
+        WHERE x.group_id IS NOT NULL AND x.is_active = TRUE
+        ORDER BY x.group_id, ur.added_at ASC, x.id ASC))`);
   const where = whereClauses.length ? sql.join(whereClauses, sql` AND `) : sql`TRUE`;
 
   const [countRow, rows, allCategories] = await Promise.all([
@@ -198,21 +206,23 @@ router.get('/', (req: Request, res: Response, next) => {
   const statsWhere = adminUser
     ? sql`TRUE`
     : sql`EXISTS (SELECT 1 FROM user_products up WHERE up.product_id = p.id AND up.user_id = ${userId})`;
-  const allRows = await db.execute(sql`
-    SELECT p.is_available, p.last_error, p.is_on_sale, p.is_failed,
-      (SELECT ph.price FROM price_history ph WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1) AS "currentPrice",
-      (SELECT MIN(ph2.price) FROM price_history ph2 WHERE ph2.product_id = p.id) AS "minPrice",
-      (SELECT COUNT(*) FROM price_history ph4 WHERE ph4.product_id = p.id) AS "checkCount"
+  const statsRes = await db.execute(sql`
+    SELECT COUNT(*)::int AS total,
+      COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM price_history ph WHERE ph.product_id = p.id))::int AS "withPrice",
+      COUNT(*) FILTER (WHERE p.is_on_sale)::int AS "onSale",
+      COUNT(*) FILTER (WHERE p.last_error IS NOT NULL AND p.last_error <> '')::int AS "withError",
+      COUNT(*) FILTER (WHERE p.is_failed)::int AS "failed"
     FROM products p WHERE ${statsWhere}
   `);
-  const all = allRows.rows as any[];
+  // One aggregate query (it used to fetch current/min price and row count of EVERY product just to count them: ~2 s for the admin).
+  const st = statsRes.rows[0] as { total: number; withPrice: number; onSale: number; withError: number; failed: number };
   const stats = {
-    total:     all.length,
-    withPrice: all.filter(p => p.currentPrice !== null).length,
-    pending:   all.filter(p => p.currentPrice === null).length,
-    onSale:    all.filter(p => p.is_on_sale).length,
-    withError: all.filter(p => p.last_error).length,
-    failed:    all.filter(p => p.is_failed).length,
+    total:     st.total,
+    withPrice: st.withPrice,
+    pending:   st.total - st.withPrice,
+    onSale:    st.onSale,
+    withError: st.withError,
+    failed:    st.failed,
   };
 
   // AliExpress tracks for this user — separate query (different schema,

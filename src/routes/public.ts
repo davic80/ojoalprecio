@@ -321,6 +321,9 @@ async function buildOptionsView(product: { id: number; asin: string; variants_js
   };
 }
 
+// Products whose AliExpress equivalent is being looked up right now (see the product page).
+const _aeLookups = new Set<number>();
+
 // ── GET /ofertas — Public deals page ─────────────────────────────────────────
 router.get('/ofertas', async (req: Request, res: Response) => {
   const rows = await db.execute(sql`
@@ -595,26 +598,17 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
   const SYNC_DISCOVERY_TIMEOUT_MS = 5000;
   const aeClient = getAliExpressClient();
 
-  // STATE 3 — cache miss: block render up to 5s for a single API call.
-  // The discovery races against a timeout so a slow AE endpoint can't
-  // hang the page. If it wins, we re-read the row we just wrote.
-  if (!aeEqRow && aeClient && currentPrice && productView.name) {
-    try {
-      await Promise.race([
-        discoverAndPersistEquivalent(aeClient, productView.id, {
-          title: productView.name,
-          price: Number(currentPrice),
-        }),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('ae-sync-discovery-timeout')), SYNC_DISCOVERY_TIMEOUT_MS),
-        ),
-      ]);
-      aeEqRow = (await db.execute(aeEqSelect)).rows[0] as any | undefined;
-    } catch (err) {
-      // Failure is silent for the user — they'll see the manual search button.
-      // Background refresh on subsequent visits will retry.
-      console.warn(`[ae-equivalent] sync discovery for product ${productView.id} failed: ${(err as Error).message}`);
-    }
+  // STATE 3 — cache miss: look the equivalent up in the BACKGROUND. The page used to wait for it (up to 5 s,
+  // 1.4-1.7 s measured) on the first visit of every product, which is the slowest thing a new product
+  // does. Now the page renders at once and the banner shows from the next visit on. One lookup per product
+  // at a time, so reloading does not pile up API calls.
+  if (!aeEqRow && aeClient && currentPrice && productView.name && !_aeLookups.has(productView.id)) {
+    _aeLookups.add(productView.id);
+    void discoverAndPersistEquivalent(aeClient, productView.id, {
+      title: productView.name,
+      price: Number(currentPrice),
+    }).catch((err: unknown) => console.warn(`[ae-equivalent] background discovery for product ${productView.id} failed: ${(err as Error).message}`))
+      .finally(() => { _aeLookups.delete(productView.id); });
   }
 
   // STATE 2 — cache stale: fire-and-forget refresh. The user sees the stale
