@@ -34,6 +34,7 @@ const server = http.createServer(createService({
 }));
 server.requestTimeout = 180_000;
 server.listen(port, bind, () => {
+  void sampler.probeDns();
   const s0 = sampler.latest();
   if (s0) console.log(`[metrics] arranque: ${formatSample(s0)}`);
   console.log(`[scraper-service] listening on ${bind}:${port} (concurrency ${concurrency}, v${process.env.APP_VERSION ?? 'dev'})`);

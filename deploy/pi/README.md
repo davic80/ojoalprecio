@@ -24,8 +24,9 @@ CPU del contenedor (en % de 1 núcleo), memoria del contenedor frente a su lími
 
 - Ver el estado ahora: `curl -s -H "Authorization: Bearer $TOKEN" http://$TAILSCALE_IP:8890/health` (campo `system`) y el historial en `/metrics`.
 - El servidor principal lo consulta cada 30 s, lo guarda cada minuto en la tabla `executor_metrics` (14 días) y lo muestra en `https://ojoalprecio.com/healthz/scraper`.
-- **Protección automática:** si la Pi llega a estado crítico (memoria libre < 600 MB, temperatura ≥ 82 °C, swap +1,5 GB, carga > 3,8), el worker remoto se pausa 10 minutos, te llega un correo y se reanuda tras 2 comprobaciones sanas seguidas.
-  Avisos (sin pausa) desde: memoria libre < 1 GB, 75 °C, swap +600 MB, carga > 3, o el contenedor al 90 % de su límite.
+- **Protección automática:** si la Pi llega a estado crítico (memoria libre < 600 MB, temperatura ≥ 82 °C, swap +1,5 GB, **DNS de la Pi tardando ≥ 400 ms**, o carga > 10), el worker remoto se pausa 10 minutos, te llega un correo y se reanuda tras 2 comprobaciones sanas seguidas.
+  Avisos (sin pausa) desde: memoria libre < 1 GB, 75 °C, swap +600 MB, DNS ≥ 120 ms, carga > 6, o el contenedor al 90 % de su límite.
+  La carga media es solo una red de seguridad: un Chromium con prioridad baja y 2 núcleos mantiene la Pi 4 entre 2 y 6 con normalidad. Lo que protege de verdad a Pi-hole es la latencia DNS medida desde el propio contenedor.
 
 ## Notas de la instalación en la Pi 4 (2026-11-14)
 - Ejecutor `pi4` → `http://100.108.118.84:8890`. Límites: 2 CPUs. **El kernel de esa Pi no tiene cgroup de memoria**

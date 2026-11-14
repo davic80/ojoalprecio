@@ -26,6 +26,20 @@ describe('parsers', () => {
   });
 });
 
+describe('DNS probe', () => {
+  it('reports the MEDIAN of the last 3 probes so one slow query cannot trip an alarm', async () => {
+    const probes = [20, 3000, 22, 21, 25];
+    let i = 0;
+    const readers: SampleReaders = { now: () => 1, meminfo: () => 'MemTotal: 1 kB\nMemAvailable: 1 kB\nSwapTotal: 0 kB\nSwapFree: 0 kB\n', cgroupCpuStat: () => null, cgroupMemCurrent: () => null, cgroupMemMax: () => null, tempMilli: () => null, load1: () => 0, dnsProbe: async () => probes[i++] };
+    const s = new MetricsSampler(readers);
+    expect(s.sample().dnsMs).toBeNull();                  // nothing measured yet
+    await s.probeDns(); await s.probeDns(); await s.probeDns();
+    expect(s.sample().dnsMs).toBe(22);                    // median of [20, 3000, 22]
+    await s.probeDns(); await s.probeDns();
+    expect(s.sample().dnsMs).toBe(22);                    // last 3 = [22, 21, 25]
+  });
+});
+
 describe('MetricsSampler', () => {
   function fake() {
     let t = 1_000_000, usec = 0, swapFreeKb = 3801088, availKb = 3348000;
@@ -90,12 +104,17 @@ describe('evaluateSystem', () => {
     expect(evaluateSystem(base({ tempC: 83 })).level).toBe('critical');
     expect(evaluateSystem(base({ swapGrowthMb: 700 })).level).toBe('warn');
     expect(evaluateSystem(base({ swapGrowthMb: 1600 })).level).toBe('critical');
-    expect(evaluateSystem(base({ load1: 3.2 })).level).toBe('warn');
-    expect(evaluateSystem(base({ load1: 4.0 })).level).toBe('critical');
+    expect(evaluateSystem(base({ load1: 6.5 })).level).toBe('warn');
+    expect(evaluateSystem(base({ load1: 10.5 })).level).toBe('critical');
+    expect(evaluateSystem(base({ load1: 3.9 })).level).toBe('ok');            // normal for a nice-15, 2-core Chromium
+    expect(evaluateSystem(base({ dnsMs: 150 })).level).toBe('warn');
+    expect(evaluateSystem(base({ dnsMs: 450 })).level).toBe('critical');
+    expect(evaluateSystem(base({ dnsMs: 25 })).level).toBe('ok');
+    expect(evaluateSystem(base({ dnsMs: null })).level).toBe('ok');
     expect(evaluateSystem(base({ containerMemMb: 950 })).level).toBe('warn');
   });
   it('critical wins and lists every reason; missing temperature is not an error', () => {
-    const r = evaluateSystem(base({ hostMemAvailMb: 400, load1: 4.5, tempC: null }));
+    const r = evaluateSystem(base({ hostMemAvailMb: 400, load1: 11, tempC: null }));
     expect(r.level).toBe('critical');
     expect(r.reasons.length).toBe(2);
     expect(PI_THRESHOLDS.memAvailCritMb).toBeLessThan(PI_THRESHOLDS.memAvailWarnMb);

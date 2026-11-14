@@ -4,6 +4,7 @@
 // Pi is under pressure. Parsers are pure so they are unit-testable.
 import fs from 'fs';
 import os from 'os';
+import dns from 'dns';
 
 export interface SystemSample {
   ts: number;
@@ -21,6 +22,12 @@ export interface SystemSample {
   /** CPU use of this container, in % of ONE core. */
   containerCpuPct: number | null;
   tempC: number | null;
+  /**
+   * Latency of a DNS lookup through the machine's own resolver (median of the last 3 probes).
+   * On a Pi that is the household's Pi-hole this is THE signal that matters: if the scraper ever
+   * starves it, this is what shows. A failed/timed-out probe counts as 3000 ms.
+   */
+  dnsMs?: number | null;
   inFlight?: number;
 }
 
@@ -53,6 +60,8 @@ export interface SampleReaders {
   tempMilli: () => string | null;
   load1: () => number;
   now: () => number;
+  /** Resolve a name through the resolver and return the milliseconds taken (null = not measured). */
+  dnsProbe?: () => Promise<number | null>;
 }
 
 const tryRead = (p: string) => () => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
@@ -65,6 +74,12 @@ export const defaultReaders: SampleReaders = {
   tempMilli: tryRead('/sys/class/thermal/thermal_zone0/temp'),
   load1: () => os.loadavg()[0],
   now: () => Date.now(),
+  dnsProbe: async () => {
+    const r = new dns.promises.Resolver({ timeout: 2000, tries: 1 });
+    const t0 = process.hrtime.bigint();
+    try { await r.resolve4('ghcr.io'); } catch { return 3000; }
+    return Number((process.hrtime.bigint() - t0) / 1_000_000n);
+  },
 };
 
 export class MetricsSampler {
@@ -72,6 +87,7 @@ export class MetricsSampler {
   private lastCpuUsec: number | null = null;
   private lastCpuAt = 0;
   private baselineSwapMb: number | null = null;
+  private dnsProbes: number[] = [];
   private readonly samples: SystemSample[] = [];
   inFlight: () => number = () => 0;
 
@@ -111,6 +127,7 @@ export class MetricsSampler {
       containerMemLimitMb: mem.limitMb,
       containerCpuPct: cpuPct,
       tempC,
+      dnsMs: this.currentDnsMs(),
       inFlight: this.inFlight(),
     };
     this.samples.push(s);
@@ -118,10 +135,24 @@ export class MetricsSampler {
     return s;
   }
 
+  /** One DNS probe; keeps the last 3 for a median (a single slow query must not trip an alarm). */
+  async probeDns(): Promise<void> {
+    if (!this.readers.dnsProbe) return;
+    const ms = await this.readers.dnsProbe().catch(() => null);
+    if (ms === null) return;
+    this.dnsProbes.push(ms);
+    if (this.dnsProbes.length > 3) this.dnsProbes.shift();
+  }
+  private currentDnsMs(): number | null {
+    if (!this.dnsProbes.length) return null;
+    const s = [...this.dnsProbes].sort((a, b) => a - b);
+    return s[Math.floor(s.length / 2)];
+  }
+
   start(intervalMs = 10_000): void {
     if (this.timer) return;
     this.sample();
-    this.timer = setInterval(() => { try { this.sample(); } catch { /* keep sampling */ } }, intervalMs);
+    this.timer = setInterval(() => { void this.probeDns(); try { this.sample(); } catch { /* keep sampling */ } }, intervalMs);
     this.timer.unref();
   }
   stop(): void { if (this.timer) clearInterval(this.timer); this.timer = null; }
@@ -136,7 +167,7 @@ export class MetricsSampler {
 
 export function formatSample(s: SystemSample): string {
   return `cpu=${s.containerCpuPct ?? '?'}% mem=${s.containerMemMb ?? '?'}/${s.containerMemLimitMb ?? '?'}MB ` +
-    `hostLibre=${s.hostMemAvailMb}MB swap+${s.swapGrowthMb}MB temp=${s.tempC ?? '?'}°C load1=${s.load1}`;
+    `hostLibre=${s.hostMemAvailMb}MB swap+${s.swapGrowthMb}MB temp=${s.tempC ?? '?'}°C load1=${s.load1} dns=${s.dnsMs ?? '?'}ms`;
 }
 
 // ── Health evaluation (used by the main server) ──────────────────────────────────────────────
@@ -147,6 +178,7 @@ export interface Thresholds {
   tempWarnC: number;      tempCritC: number;
   swapGrowthWarnMb: number; swapGrowthCritMb: number;
   loadWarn: number;       loadCrit: number;
+  dnsWarnMs: number;      dnsCritMs: number;
   containerMemWarnPct: number;
 }
 
@@ -155,7 +187,10 @@ export const PI_THRESHOLDS: Thresholds = {
   memAvailWarnMb: 1000, memAvailCritMb: 600,
   tempWarnC: 75, tempCritC: 82,
   swapGrowthWarnMb: 600, swapGrowthCritMb: 1500,
-  loadWarn: 3.0, loadCrit: 3.8,
+  // Load average is only a sanity net: a nice-15, CPU-capped Chromium legitimately keeps a 4-core Pi at
+  // 2-6 (measured). What matters for the house is the DNS latency below.
+  loadWarn: 6.0, loadCrit: 10.0,
+  dnsWarnMs: 120, dnsCritMs: 400,
   containerMemWarnPct: 90,
 };
 
@@ -171,6 +206,10 @@ export function evaluateSystem(s: SystemSample, t: Thresholds = PI_THRESHOLDS): 
   else if (s.swapGrowthMb > t.swapGrowthWarnMb) warn.push(`el swap ha crecido ${s.swapGrowthMb} MB`);
   if (s.load1 > t.loadCrit) crit.push(`carga del host ${s.load1} (4 núcleos)`);
   else if (s.load1 > t.loadWarn) warn.push(`carga del host ${s.load1}`);
+  if (s.dnsMs !== undefined && s.dnsMs !== null) {
+    if (s.dnsMs >= t.dnsCritMs) crit.push(`el DNS tarda ${s.dnsMs} ms (el resolutor de la Pi va lento)`);
+    else if (s.dnsMs >= t.dnsWarnMs) warn.push(`el DNS tarda ${s.dnsMs} ms`);
+  }
   if (s.containerMemMb !== null && s.containerMemLimitMb) {
     const pct = (s.containerMemMb / s.containerMemLimitMb) * 100;
     if (pct >= t.containerMemWarnPct) warn.push(`el contenedor usa el ${Math.round(pct)} % de su límite de memoria`);
