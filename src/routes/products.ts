@@ -5,6 +5,7 @@ import { products, priceHistory, alerts, categories, userProducts } from '../db/
 import { eq, and, desc, sql, asc, inArray } from 'drizzle-orm';
 import { extractAsin, normaliseAmazonUrl, scrapeProduct, scrapeWishlist, affiliateUrl, ProductUnavailableError, CaptchaDetectedError, WrongLocationError } from '../scraper/amazon';
 import { persistScrapeResult, checkProduct } from '../scheduler';
+import { parseThreshold } from '../lib/variants';
 import { requireAuth } from '../middleware/auth';
 import { isAdmin, requireAdmin } from '../middleware/admin';
 import {
@@ -34,6 +35,25 @@ function persistScrapeFromManualAdd(url: string, productId: number, defaultAlert
       const msg = err instanceof Error ? err.message : String(err);
       await db.update(products).set({ lastError: msg }).where(eq(products.id, productId));
     }
+  });
+}
+
+/**
+ * Set THE price target of a user for a product: replaces the auto-created "-10 %" default alert and
+ * updates the user's existing price alert when there is one (no piling up of duplicates).
+ */
+async function setPriceAlert(userId: number, email: string, productId: number, threshold: number): Promise<void> {
+  await db.delete(alerts).where(and(eq(alerts.productId, productId), eq(alerts.userId, userId), eq(alerts.isDefault, true)));
+  const [existing] = await db.select({ id: alerts.id }).from(alerts)
+    .where(and(eq(alerts.productId, productId), eq(alerts.userId, userId), eq(alerts.alertType, 'price'), eq(alerts.isDefault, false)))
+    .orderBy(desc(alerts.id)).limit(1);
+  if (existing) {
+    await db.update(alerts).set({ thresholdPrice: threshold.toFixed(2), isActive: true, notifiedAt: null }).where(eq(alerts.id, existing.id));
+    return;
+  }
+  await db.insert(alerts).values({
+    productId, userId, alertType: 'price', thresholdPrice: threshold.toFixed(2),
+    notificationEmail: email, notificationChannel: 'email', isActive: true, isDefault: false,
   });
 }
 
@@ -290,6 +310,15 @@ router.post(
         .where(and(eq(userProducts.userId, userId), eq(userProducts.productId, product.id)))
         .limit(1);
       if (follow) {
+        // "Follow this option at THIS price" for an option already followed = just update its price.
+        const t = parseThreshold(req.body.threshold);
+        if (t !== null) {
+          await setPriceAlert(userId, req.session.userEmail!, product.id, t);
+          const back = String(req.body.next ?? '').startsWith('/') ? String(req.body.next) : `/p/${product.asin}?opciones=1`;
+          if (req.headers['hx-request']) { res.setHeader('HX-Redirect', back); return res.status(200).send(''); }
+          if (req.headers.accept?.includes('text/html')) return res.redirect(back);
+          return res.status(200).json({ success: true, updated: true });
+        }
         if (req.headers['hx-request']) {
           res.setHeader('HX-Redirect', '/');
           return res.status(200).send('');
@@ -321,7 +350,11 @@ router.post(
     const userEmail   = req.session.userEmail!;
     const intentAlert = String(req.body.intent ?? '') === 'alert';
     let defaultAlertId: number | null = null;
-    if (intentAlert || !isAdmin(req)) {
+    const threshold = parseThreshold(req.body.threshold);
+    if (threshold !== null) {
+      // The user chose a price for this option: that IS the alert (no default -10 % one).
+      await setPriceAlert(userId, userEmail, product.id, threshold);
+    } else if (intentAlert || !isAdmin(req)) {
       // If product already had price history, anchor the reference now; otherwise null until first scrape
       const [latest] = await db.select({ price: priceHistory.price }).from(priceHistory)
         .where(eq(priceHistory.productId, product.id))
@@ -351,7 +384,8 @@ router.post(
 
     // Optional next= redirect (e.g. coming from /p/:asin "follow" button)
     const nextUrl = String(req.body.next ?? '').trim();
-    const safeNext = nextUrl.startsWith('/') ? nextUrl : '/';
+    // After adding, send regular users to the product page to pick option(s) and price(s); admins keep the dashboard.
+    const safeNext = nextUrl.startsWith('/') ? nextUrl : (isAdmin(req) ? '/' : `/p/${product.asin}?opciones=1`);
 
     if (req.headers['hx-request']) {
       res.setHeader('HX-Redirect', safeNext);
@@ -450,6 +484,26 @@ router.post('/products/:id/refresh', requireAuth, requireAdmin, async (req: Requ
 
   if (req.headers['hx-request']) return res.redirect(`/p/${product.asin}`);
   res.json({ success: true, unavailable: fresh ? !fresh.isAvailable : false, lastError: fresh?.lastError ?? null });
+});
+
+// ── POST /products/:id/price-alert — set my price target for this option ──────────
+router.post('/products/:id/price-alert', requireAuth, async (req: Request, res: Response) => {
+  const productId = parseInt(String(req.params.id), 10);
+  const userId = req.session.userId!;
+  const t = parseThreshold(req.body.threshold);
+  if (t === null) return res.status(400).json({ error: 'Indica un precio válido (por ejemplo 29,99).' });
+
+  const [product] = await db.select({ id: products.id, asin: products.asin }).from(products).where(eq(products.id, productId)).limit(1);
+  if (!product) return res.status(404).json({ error: 'Producto no encontrado.' });
+
+  await db.insert(userProducts).values({ userId, productId }).onConflictDoNothing();   // a price target implies following
+  await setPriceAlert(userId, req.session.userEmail!, productId, t);
+
+  const nextUrl = String(req.body.next ?? '').trim();
+  const back = nextUrl.startsWith('/') ? nextUrl : `/p/${product.asin}?opciones=1`;
+  if (req.headers['hx-request']) { res.setHeader('HX-Redirect', back); return res.status(200).send(''); }
+  if (req.headers.accept?.includes('text/html')) return res.redirect(back);
+  res.json({ success: true, threshold: t });
 });
 
 // ── POST /products/:id/toggle-public — Cycle feature_lock: auto → pin → mute → auto ─

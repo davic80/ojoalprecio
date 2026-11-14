@@ -3,6 +3,8 @@ import { db } from '../db/client';
 import { products, priceHistory, alerts, userProducts, categories, users } from '../db/schema';
 import { eq, desc, sql, and, asc, inArray } from 'drizzle-orm';
 import { affiliateUrl } from '../scraper/amazon';
+import { cleanVariantLabel } from '../lib/variants';
+import { requireAuth } from '../middleware/auth';
 import { isAdmin } from '../middleware/admin';
 import { onScrapeUpdate } from '../lib/product-events';
 import { getAliExpressClient, discoverAndPersistEquivalent, extractBrandModel } from '../marketplaces/aliexpress';
@@ -253,6 +255,57 @@ router.get('/m', async (req: Request, res: Response) => {
     isAdmin:   isAdmin(req),
   });
 });
+
+
+// ── "Choose your option and price" panel ─────────────────────────────────────────────────────
+export interface OptionRow {
+  asin: string; label: string; selectable: boolean;
+  productId: number | null; price: number | null; available: boolean | null;
+  followed: boolean; threshold: number | null;
+}
+export interface OptionsView {
+  asin: string;
+  current: OptionRow;
+  others: OptionRow[];
+  /** The scrape that reads the options is still running (shown right after adding a product). */
+  pending: boolean;
+  /** Open the panel automatically (coming from "add product"). */
+  open: boolean;
+}
+
+/** One row per option of a product (the product itself + its variants) for a logged-in user. */
+async function buildOptionsView(product: { id: number; asin: string; variants_json?: string | null; created_at?: Date | string | null }, userId: number, opts: { open: boolean }): Promise<OptionsView> {
+  let variants: Array<{ asin: string; label: string; selectable: boolean }> = [];
+  try { variants = product.variants_json ? JSON.parse(String(product.variants_json)) : []; } catch { /* malformed */ }
+  variants = variants.filter(v => v && /^[A-Z0-9]{10}$/.test(v.asin) && v.asin !== product.asin);
+
+  const asins = [product.asin, ...variants.map(v => v.asin)];
+  const rows = await db.execute(sql`
+    SELECT p.id, p.asin, p.is_available AS "available",
+      (SELECT price::float FROM price_history WHERE product_id = p.id ORDER BY scraped_at DESC LIMIT 1) AS price,
+      EXISTS (SELECT 1 FROM user_products up WHERE up.product_id = p.id AND up.user_id = ${userId}) AS followed,
+      (SELECT threshold_price::float FROM alerts a WHERE a.product_id = p.id AND a.user_id = ${userId}
+         AND a.alert_type = 'price' AND a.is_active ORDER BY a.id DESC LIMIT 1) AS threshold
+    FROM products p
+    WHERE p.is_active = TRUE AND p.asin IN (${sql.join(asins.map(a => sql`${a}`), sql`, `)})
+    ORDER BY (SELECT COUNT(*) FROM price_history ph WHERE ph.product_id = p.id) DESC
+  `);
+  const byAsin = new Map<string, any>();
+  for (const r of rows.rows as any[]) if (!byAsin.has(r.asin)) byAsin.set(r.asin, r);   // most-history row wins
+
+  const mk = (asin: string, label: string, selectable: boolean): OptionRow => {
+    const r = byAsin.get(asin);
+    return { asin, label, selectable, productId: r?.id ?? null, price: r?.price ?? null, available: r ? !!r.available : null, followed: !!r?.followed, threshold: r?.threshold ?? null };
+  };
+  const ageMs = product.created_at ? Date.now() - new Date(product.created_at).getTime() : Infinity;
+  return {
+    asin: product.asin,
+    current: mk(product.asin, 'Esta opción', true),
+    others: variants.map(v => mk(v.asin, cleanVariantLabel(v.label), v.selectable !== false)),
+    pending: variants.length === 0 && ageMs < 3 * 60 * 1000,
+    open: opts.open,
+  };
+}
 
 // ── GET /ofertas — Public deals page ─────────────────────────────────────────
 router.get('/ofertas', async (req: Request, res: Response) => {
@@ -615,7 +668,10 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
     }
   }
 
+  const optionsView = userId ? await buildOptionsView(product, userId, { open: req.query.opciones === '1' }) : null;
+
   res.render('public-product', {
+    options: optionsView,
     product: productView,
     history,
     currentPrice,
@@ -634,6 +690,19 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
     aeEquivalentDebug,
     aeSearchKeywords: productView.name ? extractBrandModel(productView.name) : '',
   });
+});
+
+// ── GET /p/:asin/fragment/options — the options panel (polled right after adding a product) ──
+router.get('/p/:asin/fragment/options', requireAuth, async (req: Request, res: Response) => {
+  const asin = String(req.params.asin).toUpperCase();
+  const rows = await db.execute(sql`
+    SELECT p.* FROM products p WHERE p.asin = ${asin} AND p.is_active = TRUE
+    ORDER BY (SELECT COUNT(*) FROM price_history ph WHERE ph.product_id = p.id) DESC LIMIT 1
+  `);
+  const product = (rows.rows as any[])[0];
+  if (!product) return res.status(404).send('');
+  const options = await buildOptionsView(product, req.session.userId!, { open: req.query.opciones === '1' });
+  res.render('partials/options-panel', { options });
 });
 
 // ── GET /p/:asin/fragment/price — HTML fragment of just the price card ────────
