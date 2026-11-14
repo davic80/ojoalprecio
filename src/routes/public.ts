@@ -4,6 +4,7 @@ import { products, priceHistory, alerts, userProducts, categories, users } from 
 import { eq, desc, sql, and, asc, inArray } from 'drizzle-orm';
 import { affiliateUrl } from '../scraper/amazon';
 import { cleanVariantLabel } from '../lib/variants';
+import { collectState, pollAction } from '../lib/collecting';
 import { requireAuth } from '../middleware/auth';
 import { isAdmin } from '../middleware/admin';
 import { onScrapeUpdate } from '../lib/product-events';
@@ -455,6 +456,22 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
     .orderBy(desc(priceHistory.scrapedAt))
     .limit(20000);
 
+  // Just added, nothing scraped yet: show a "collecting information" screen instead of an empty page.
+  const collecting = collectState({
+    historyCount: history.length, createdAt: product.created_at,
+    lastError: product.last_error, isAvailable: product.is_available,
+  });
+  if (collecting !== 'ready') {
+    return res.render('public-product-collecting', {
+      state: collecting,
+      opciones: req.query.opciones === '1',
+      product: { asin: product.asin, amazonUrl: affiliateUrl(product.url) },
+      user: userId ? { email: req.session.userEmail } : null,
+      isAdmin: adminUser,
+      siteUrl: process.env.SITE_URL ?? 'http://localhost:3000',
+    });
+  }
+
   const prices = history.map(h => parseFloat(String(h.price)));
   const currentPrice = prices[0] ?? null;
   const minPrice = prices.length ? Math.min(...prices) : null;
@@ -690,6 +707,25 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
     aeEquivalentDebug,
     aeSearchKeywords: productView.name ? extractBrandModel(productView.name) : '',
   });
+});
+
+// ── GET /p/:asin/fragment/status — polled by the "collecting information" screen ──
+// 204 while the first scrape is still running (htmx leaves the page alone); once the data is there
+// (or the wait has run out) it asks htmx to reload the page, which then renders the real product.
+router.get('/p/:asin/fragment/status', async (req: Request, res: Response) => {
+  const asin = String(req.params.asin).toUpperCase();
+  const rows = await db.execute(sql`
+    SELECT p.created_at, p.last_error, p.is_available,
+      (SELECT COUNT(*) FROM price_history ph WHERE ph.product_id = p.id)::int AS n
+    FROM products p WHERE p.asin = ${asin} AND p.is_active = TRUE
+    ORDER BY n DESC LIMIT 1
+  `);
+  const p = (rows.rows as any[])[0];
+  if (!p) return res.status(404).send('');
+  const state = collectState({ historyCount: p.n, createdAt: p.created_at, lastError: p.last_error, isAvailable: p.is_available });
+  if (pollAction(state, req.query.was === 'delayed' ? 'delayed' : 'working') === 'wait') return res.status(204).end();
+  res.setHeader('HX-Refresh', 'true');
+  return res.status(200).send('');
 });
 
 // ── GET /p/:asin/fragment/options — the options panel (polled right after adding a product) ──

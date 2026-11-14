@@ -15,6 +15,8 @@ import {
   AliExpressError,
 } from '../marketplaces/aliexpress';
 
+import { collectState } from '../lib/collecting';
+
 const router = Router();
 
 // Background helper: scrape a freshly-added product and persist via the same
@@ -135,6 +137,12 @@ router.get('/', (req: Request, res: Response, next) => {
   const totalCount = parseInt(String((countRow.rows[0] as any).total), 10);
   const totalPages = Math.ceil(totalCount / perPage);
   const prods = rows.rows as any[];
+  // Rows whose first scrape is still running get a spinner + auto-refresh instead of a bare "Cargando…".
+  for (const p of prods) {
+    p.collecting = collectState({
+      historyCount: Number(p.checkCount) || 0, createdAt: p.createdAt, lastError: p.lastError, isAvailable: p.isAvailable,
+    }) === 'working';
+  }
 
   // stats computed over all visible products (all for admin, followed for regular users)
   const statsWhere = adminUser

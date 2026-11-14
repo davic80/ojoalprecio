@@ -1489,3 +1489,12 @@ body:has(.bottom-nav) {
     padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px));
   }
 }
+
+/* Product whose first scrape is still running (dashboard row) */
+.price-collecting { font-size: var(--fs-base); color: var(--gray-500, #6b7280); }
+.mini-spinner { display: inline-block; width: 14px; height: 14px; vertical-align: -2px; margin-right: 4px;
+  border: 2px solid var(--gray-200, #e5e7eb); border-top-color: var(--primary, #e63946); border-radius: 50%; animation: mini-spin .9s linear infinite; }
+.mini-bar { height: 4px; background: var(--gray-200, #e5e7eb); border-radius: 99px; overflow: hidden; margin-top: 6px; }
+.mini-bar > span { display: block; height: 100%; width: 4%; background: var(--primary, #e63946); border-radius: 99px; animation: mini-fill 60s cubic-bezier(.1,.6,.3,1) forwards; }
+@keyframes mini-spin { to { transform: rotate(360deg); } }
+@keyframes mini-fill { from { width: 4%; } to { width: 94%; } }

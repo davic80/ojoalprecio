@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<%- include('partials/head', {
+  title: 'Recogiendo información del producto | OjoAlPrecio',
+  description: 'Estamos leyendo el precio y los datos del producto en Amazon.es.',
+  canonicalPath: '/p/' + product.asin,
+  includeHtmx: true,
+}) %>
+<meta name="robots" content="noindex">
+<style>
+  .collect-card { max-width: 560px; margin: 48px auto; text-align: center; padding: 32px 24px; }
+  .collect-spinner { width: 52px; height: 52px; margin: 0 auto 18px; border: 5px solid var(--gray-200, #e5e7eb);
+    border-top-color: var(--primary, #e63946); border-radius: 50%; animation: collect-spin .9s linear infinite; }
+  .collect-bar { height: 8px; background: var(--gray-200, #e5e7eb); border-radius: 99px; overflow: hidden; margin: 20px auto 8px; max-width: 360px; }
+  .collect-bar > span { display: block; height: 100%; width: 4%; background: var(--primary, #e63946); border-radius: 99px;
+    animation: collect-fill 60s cubic-bezier(.1,.6,.3,1) forwards; }
+  .collect-steps { list-style: none; padding: 0; margin: 16px auto 0; max-width: 360px; text-align: left; font-size: 14px; color: var(--gray-500, #6b7280); }
+  .collect-steps li { padding: 3px 0; }
+  .collect-asin { font-size: 13px; color: var(--gray-500, #6b7280); word-break: break-all; }
+  @keyframes collect-spin { to { transform: rotate(360deg); } }
+  @keyframes collect-fill { from { width: 4%; } to { width: 94%; } }
+  @media (prefers-reduced-motion: reduce) { .collect-spinner { animation-duration: 3s; } }
+</style>
+</head>
+<body class="product-page">
+<%
+  const isLogged = typeof user !== 'undefined' && user;
+%>
+<%- include('partials/navbar', { variant: 'product', isLogged, user: isLogged ? user : null, adminMode: typeof isAdmin !== 'undefined' ? isAdmin : false, product }) %>
+
+<main class="container">
+  <div class="back-link"><a href="/ofertas">← Ver todas las ofertas</a></div>
+
+  <% if (state === 'working') { %>
+    <!-- Polls every 2 s; the server answers 204 (nothing to do) until the data is there, then HX-Refresh reloads the page. -->
+    <div class="card collect-card" role="status" aria-live="polite"
+         hx-get="/p/<%= product.asin %>/fragment/status" hx-trigger="every 2s" hx-swap="none">
+      <div class="collect-spinner" aria-hidden="true"></div>
+      <h1 style="font-size:20px;margin:0 0 6px">Estamos recogiendo la información…</h1>
+      <p class="hint" style="margin:0">Leyendo el precio y los datos del producto en Amazon.es. Suele tardar entre 10 y 60 segundos; esta página se actualizará sola.</p>
+      <div class="collect-bar" aria-hidden="true"><span></span></div>
+      <ul class="collect-steps" aria-hidden="true">
+        <li>✓ Producto añadido</li>
+        <li>⏳ Consultando Amazon.es…</li>
+        <li>○ Guardando precio y opciones</li>
+      </ul>
+      <p class="collect-asin" style="margin-top:18px">ASIN <strong><%= product.asin %></strong></p>
+      <noscript><p class="hint">Recarga la página en unos segundos para ver el resultado.</p></noscript>
+    </div>
+  <% } else { %>
+    <!-- Keeps checking every 10 s: reloads by itself as soon as the price is there. -->
+    <div class="card collect-card" role="status"
+         hx-get="/p/<%= product.asin %>/fragment/status?was=delayed" hx-trigger="every 10s" hx-swap="none">
+      <div style="font-size:40px;margin-bottom:8px" aria-hidden="true">⏳</div>
+      <h1 style="font-size:20px;margin:0 0 6px">Todavía no hemos podido leer este producto</h1>
+      <p class="hint" style="margin:0 0 14px">Amazon está tardando más de lo normal en responder. No hace falta que hagas nada: seguimos intentándolo automáticamente y, en cuanto tengamos el precio, esta página se actualizará sola<% if (isLogged) { %> y se activará tu aviso<% } %>.</p>
+      <a class="btn btn-primary" href="/p/<%= product.asin %><%= opciones ? '?opciones=1' : '' %>">Comprobar de nuevo</a>
+      <p class="collect-asin" style="margin-top:18px">ASIN <strong><%= product.asin %></strong> ·
+        <a href="<%= product.amazonUrl %>" target="_blank" rel="noopener sponsored">ver en Amazon.es ↗</a></p>
+    </div>
+  <% } %>
+</main>
+
+<%- include('partials/bottom-nav', { user: isLogged ? user : null, activeNav: 'ofertas' }) %>
+</body>
+</html>

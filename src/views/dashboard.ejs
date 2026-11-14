@@ -313,7 +313,15 @@ function trendBadge(current, previous) {
           <% } %>
           <div class="price-checks"><%= p.checkCount %> registros</div>
         <% } else { %>
-          <div class="price-pending">Cargando…</div>
+          <% if (p.collecting) { %>
+            <!-- First scrape still running: poll; the server answers HX-Refresh (full reload) once the data is there. -->
+            <div class="price-collecting" role="status" hx-get="/p/<%= p.asin %>/fragment/status" hx-trigger="every 3s" hx-swap="none">
+              <span class="mini-spinner" aria-hidden="true"></span> Recogiendo información…
+              <div class="mini-bar" aria-hidden="true"><span></span></div>
+            </div>
+          <% } else { %>
+            <div class="price-pending">Pendiente de leer</div>
+          <% } %>
         <% } %>
       </div>
 
