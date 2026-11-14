@@ -77,7 +77,8 @@
       <a href="<%= product.amazonUrl %>" target="_blank" rel="noopener sponsored" class="amazon-link">Ver en Amazon.es ↗</a>
 
       <% if (!product.isAvailable) { %>
-        <div class="alert-box alert-unavailable" style="margin-top:8px">Sin stock en Amazon — recibirás una notificación cuando vuelva a estar disponible.</div>
+        <% const _hasStockAlert = (typeof userAlerts !== 'undefined' ? userAlerts : []).some(a => a.alertType === 'stock' && a.isActive); %>
+        <div class="alert-box alert-unavailable" style="margin-top:8px">Sin stock en Amazon ahora mismo.<% if (_hasStockAlert) { %> Te avisaremos por email cuando vuelva a estar disponible.<% } else if (isLogged && followsThis) { %> Si quieres que te avisemos cuando vuelva, crea un aviso de tipo «Stock» más abajo.<% } %></div>
       <% } %>
       <% if (adminMode && product.lastError) { %>
         <div class="alert-box alert-error" style="margin-top:8px">⚠ Último error: <%= product.lastError %></div>

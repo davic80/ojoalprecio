@@ -5,8 +5,12 @@
   const back = '/p/' + o.asin + '?opciones=1';
   const inputStyle = 'width:120px;padding:6px 8px;border:1px solid var(--gray-300,#d1d5db);border-radius:6px;font-size:14px';
 %>
+<%# Polls while something is still being read. 204 = nothing changed (no swap). Skipped while the user is typing in the panel. -%>
 <div id="options-panel" class="card" style="margin-top:20px;<%= o.open ? 'border-left:3px solid var(--primary,#e63946)' : '' %>"
-  <% if (o.pending) { %>hx-get="/p/<%= o.asin %>/fragment/options?opciones=1" hx-trigger="every 4s" hx-swap="outerHTML"<% } %>>
+  <% if (o.pending) { %>hx-get="/p/<%= o.asin %>/fragment/options?opciones=<%= o.open ? 1 : 0 %>&sig=<%= o.sig %>"
+  hx-trigger="every 4s [!document.querySelector('#options-panel input:focus') && !Array.from(document.querySelectorAll('#options-panel input[name=threshold]')).some(function(i){return i.value!==i.defaultValue})]"
+  hx-vals='js:{d: (document.querySelector("#options-panel details")||{}).open ? 1 : 0}'
+  hx-swap="outerHTML"<% } %>>
   <h2 style="margin-top:0;font-size:16px">Tus opciones y precios</h2>
   <% if (o.open) { %>
     <p class="hint" style="margin:0 0 12px">✓ Producto añadido. Indica a qué precio quieres que te avisemos para <strong>esta opción</strong>; si el producto tiene más opciones (color, tamaño…), puedes añadir otra y ponerle su propio precio.</p>
@@ -18,7 +22,7 @@
   <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:10px 0;border-top:1px solid var(--gray-200,#e5e7eb)">
     <div>
       <div style="font-weight:600"><%= o.current.label %> <span class="hint" style="font-weight:400">(la de tu enlace)</span></div>
-      <div class="hint">Precio ahora: <%= eur(o.current.price) %><% if (o.current.available === false) { %> · sin stock<% } %><% if (o.current.followed) { %> · ✓ la sigues<% } %></div>
+      <div class="hint"><% if (o.current.price === null && o.current.reading) { %><span class="mini-spinner" aria-hidden="true"></span>Leyendo el precio…<% } else { %>Precio ahora: <%= eur(o.current.price) %><% } %><% if (o.current.available === false) { %> · sin stock<% } %><% if (o.current.followed) { %> · ✓ la sigues<% } %></div>
     </div>
     <% if (o.current.productId) { %>
     <form method="POST" action="/products/<%= o.current.productId %>/price-alert" style="display:flex;gap:6px;align-items:center">
@@ -31,17 +35,18 @@
   </div>
 
   <!-- Otras opciones -->
-  <% if (o.pending) { %>
-    <p class="hint" style="margin:10px 0 0">Leyendo las demás opciones de Amazon (color, tamaño…). Esta sección se actualiza sola en unos segundos.</p>
-  <% } else if (o.others.length) { %>
-    <details style="margin-top:6px;border-top:1px solid var(--gray-200,#e5e7eb);padding-top:10px">
+  <% if (o.pending && !o.others.length) { %>
+    <p class="hint" style="margin:10px 0 0"><span class="mini-spinner" aria-hidden="true"></span>Leyendo las demás opciones de Amazon (color, tamaño…). Esta sección se actualiza sola en unos segundos.</p>
+  <% } %>
+  <% if (o.others.length) { %>
+    <details <%= o.detailsOpen ? "open" : "" %> style="margin-top:6px;border-top:1px solid var(--gray-200,#e5e7eb);padding-top:10px">
       <summary style="cursor:pointer;font-weight:600">+ Seguir otra opción de este producto <span class="hint" style="font-weight:400">(<%= o.others.length %>)</span></summary>
       <% o.others.slice(0, 40).forEach(function(v, i) { %>
         <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:8px 0;<%= v.selectable ? '' : 'opacity:.6' %>">
           <div>
             <div style="font-weight:500"><%= v.label %></div>
             <div class="hint">
-              <% if (v.price !== null) { %>Precio ahora: <%= eur(v.price) %><% if (v.available === false) { %> · sin stock<% } %><% } else { %>Aún sin precio (lo leeremos al añadirla)<% } %>
+              <% if (v.price !== null) { %>Precio ahora: <%= eur(v.price) %><% if (v.available === false) { %> · sin stock<% } %><% } else if (v.reading) { %><span class="mini-spinner" aria-hidden="true"></span>Leyendo el precio…<% } else if (v.available === false) { %>Amazon no lo tiene disponible ahora<% } else if (v.productId === null) { %>Aún sin precio (lo leeremos al añadirla)<% } else { %>Pendiente de leer<% } %>
               <% if (v.followed) { %> · ✓ la sigues<% } %>
               · <a href="https://www.amazon.es/dp/<%= v.asin %>" target="_blank" rel="noopener nofollow">ver en Amazon</a>
             </div>

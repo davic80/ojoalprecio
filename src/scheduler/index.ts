@@ -482,10 +482,9 @@ export async function persistScrapeResult(
   // own siblings (they'd be the same set we just discovered).
   if (!opts.skipVariantIngest && result.variants && result.variants.length) {
     try {
-      const newOnes = await ingestNewVariants(productId, result.variants.map(v => v.asin));
-      for (const { productId: vId, asin: vAsin } of newOnes) {
-        queueImmediateVariantScrape(vId, `https://www.amazon.es/dp/${vAsin}`, vAsin);
-      }
+      // The new rows have last_checked_at = NULL: the first-scrape loop (startFirstScrapeLoop) picks them up
+      // within seconds. It reads the database, so a restart in between loses nothing.
+      await ingestNewVariants(productId, result.variants.map(v => v.asin));
     } catch (err) {
       console.error(`[scheduler] variant ingest failed for ${result.asin}:`, err);
     }
@@ -494,44 +493,47 @@ export async function persistScrapeResult(
   return saleInfo;
 }
 
-// ── Immediate variant scrape queue ────────────────────────────────────────────
-// Sequential drain so we don't spawn N concurrent Chromium contexts when a
-// parent reveals many new variants. Fire-and-forget from the caller.
-interface VariantScrapeJob { productId: number; url: string; asin: string }
-const _variantQueue: VariantScrapeJob[] = [];
-let _variantDraining = false;
+// ── First-scrape loop ────────────────────────────────────────────────────────
+// Products nobody has scraped yet (freshly discovered variants above all) are read right away instead of
+// waiting for the next 50-minute cycle, which builds its list at the start. State lives in the database
+// (last_checked_at IS NULL and no price yet), so a deploy/restart in between loses nothing. One product at
+// a time, user-added ones first, and it backs off when the scraper is struggling.
+let _firstScrapeRunning = false;
 
-function queueImmediateVariantScrape(productId: number, url: string, asin: string): void {
-  _variantQueue.push({ productId, url, asin });
-  if (!_variantDraining) void drainVariantQueue();
+async function pickNeverScraped(): Promise<{ id: number; asin: string; url: string; name: string | null } | null> {
+  const systemId = await getSystemUserId();
+  const r = await db.execute(sql`
+    SELECT p.id, p.asin, p.url, p.name FROM products p
+    WHERE p.is_active = TRUE AND p.last_checked_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM price_history ph WHERE ph.product_id = p.id)
+      AND p.created_at > NOW() - INTERVAL '3 days'
+      -- a product the user just added is being read by the add request itself: give that a moment
+      AND (p.created_by_user_id IS NOT DISTINCT FROM ${systemId} OR p.created_at < NOW() - INTERVAL '90 seconds')
+    ORDER BY (p.created_by_user_id IS NOT DISTINCT FROM ${systemId}) ASC, p.id ASC
+    LIMIT 1
+  `);
+  return (r.rows[0] as any) ?? null;
 }
 
-async function drainVariantQueue(): Promise<void> {
-  if (_variantDraining) return;
-  _variantDraining = true;
-  try {
-    while (_variantQueue.length > 0) {
-      const job = _variantQueue.shift()!;
+export function startFirstScrapeLoop(): void {
+  if (_firstScrapeRunning) return;
+  _firstScrapeRunning = true;
+  const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
+  void (async () => {
+    await sleep(20_000);
+    for (;;) {
       try {
-        // Use a generous timeout — the parent's already cached the storage state
-        // so subsequent contexts navigate fast.
-        const r = await scrapeProduct(job.url, 30);
-        await persistScrapeResult(job.productId, r, { skipVariantIngest: true, label: `variant ${job.asin}` });
+        const next = await pickNeverScraped();
+        if (!next) { await sleep(10_000); continue; }
+        await checkProduct(next.id, next.url, next.name ?? next.asin, 40);
+        await sleep(1_500);
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (err instanceof ProductUnavailableError) {
-          // Variant exists but Amazon shows no Amazon offer for it — mark
-          // unavailable so the auto-purge can clean it up later.
-          await db.update(products).set({ isAvailable: false }).where(eq(products.id, job.productId));
-        } else {
-          await db.update(products).set({ lastError: msg }).where(eq(products.id, job.productId));
-          console.warn(`[scheduler] immediate variant scrape failed for ${job.asin}: ${msg}`);
-        }
+        console.warn('[first-scrape] paused 2 min:', err instanceof Error ? err.message : err);
+        await sleep(120_000);
       }
     }
-  } finally {
-    _variantDraining = false;
-  }
+  })();
+  console.log('[first-scrape] Lectura inmediata de productos nuevos sin precio (variantes descubiertas incluidas).');
 }
 
 let _systemUserIdCache: number | null = null;
@@ -1286,6 +1288,7 @@ export function startScheduler(): void {
   cron.schedule(CHECK_INTERVAL, () => { checkAllProducts(); });
 
   startExecutorMonitor();
+  startFirstScrapeLoop();
 
   // Watchdog: abandon a wedged cycle, restart Chromium, email the admin.
   cron.schedule('*/5 * * * *', () => {

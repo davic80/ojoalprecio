@@ -48,6 +48,17 @@
       <p class="collect-asin" style="margin-top:18px">ASIN <strong><%= product.asin %></strong></p>
       <noscript><p class="hint">Recarga la página en unos segundos para ver el resultado.</p></noscript>
     </div>
+  <% } else if (state === 'unavailable') { %>
+    <div class="card collect-card" role="status">
+      <div style="font-size:40px;margin-bottom:8px" aria-hidden="true">🚫</div>
+      <h1 style="font-size:20px;margin:0 0 6px">Amazon no tiene este producto disponible</h1>
+      <p class="hint" style="margin:0 0 10px"><%= reason %></p>
+      <% if (follows) { %>
+        <p class="hint" style="margin:0 0 14px">Lo volveremos a comprobar en 24 horas. Si sigue igual tras 3 comprobaciones, lo retiraremos de tu lista. No te enviaremos ningún aviso por este producto salvo que tú crees uno.</p>
+      <% } %>
+      <a class="btn btn-primary" href="<%= product.amazonUrl %>" target="_blank" rel="noopener sponsored">Ver en Amazon.es ↗</a>
+      <p class="collect-asin" style="margin-top:18px">ASIN <strong><%= product.asin %></strong></p>
+    </div>
   <% } else { %>
     <!-- Keeps checking every 10 s: reloads by itself as soon as the price is there. -->
     <div class="card collect-card" role="status"

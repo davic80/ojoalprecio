@@ -4,7 +4,7 @@ import { products, priceHistory, alerts, userProducts, categories, users } from 
 import { eq, desc, sql, and, asc, inArray } from 'drizzle-orm';
 import { affiliateUrl } from '../scraper/amazon';
 import { cleanVariantLabel } from '../lib/variants';
-import { collectState, pollAction } from '../lib/collecting';
+import { collectState, pollAction, unavailableText } from '../lib/collecting';
 import { requireAuth } from '../middleware/auth';
 import { isAdmin } from '../middleware/admin';
 import { onScrapeUpdate } from '../lib/product-events';
@@ -263,6 +263,8 @@ export interface OptionRow {
   asin: string; label: string; selectable: boolean;
   productId: number | null; price: number | null; available: boolean | null;
   followed: boolean; threshold: number | null;
+  /** In the catalog, never read yet and recent: its price is about to appear. */
+  reading: boolean;
 }
 export interface OptionsView {
   asin: string;
@@ -272,10 +274,14 @@ export interface OptionsView {
   pending: boolean;
   /** Open the panel automatically (coming from "add product"). */
   open: boolean;
+  /** Keep the "Seguir otra opción" list expanded (it was open when the panel refreshed). */
+  detailsOpen: boolean;
+  /** Changes whenever something the panel shows changes; the poll sends it back to skip useless swaps. */
+  sig: string;
 }
 
 /** One row per option of a product (the product itself + its variants) for a logged-in user. */
-async function buildOptionsView(product: { id: number; asin: string; variants_json?: string | null; created_at?: Date | string | null }, userId: number, opts: { open: boolean }): Promise<OptionsView> {
+async function buildOptionsView(product: { id: number; asin: string; variants_json?: string | null; created_at?: Date | string | null }, userId: number, opts: { open: boolean; detailsOpen?: boolean }): Promise<OptionsView> {
   let variants: Array<{ asin: string; label: string; selectable: boolean }> = [];
   try { variants = product.variants_json ? JSON.parse(String(product.variants_json)) : []; } catch { /* malformed */ }
   variants = variants.filter(v => v && /^[A-Z0-9]{10}$/.test(v.asin) && v.asin !== product.asin);
@@ -283,6 +289,7 @@ async function buildOptionsView(product: { id: number; asin: string; variants_js
   const asins = [product.asin, ...variants.map(v => v.asin)];
   const rows = await db.execute(sql`
     SELECT p.id, p.asin, p.is_available AS "available",
+      (p.last_checked_at IS NULL AND p.created_at > NOW() - INTERVAL '20 minutes') AS "reading",
       (SELECT price::float FROM price_history WHERE product_id = p.id ORDER BY scraped_at DESC LIMIT 1) AS price,
       EXISTS (SELECT 1 FROM user_products up WHERE up.product_id = p.id AND up.user_id = ${userId}) AS followed,
       (SELECT threshold_price::float FROM alerts a WHERE a.product_id = p.id AND a.user_id = ${userId}
@@ -296,15 +303,20 @@ async function buildOptionsView(product: { id: number; asin: string; variants_js
 
   const mk = (asin: string, label: string, selectable: boolean): OptionRow => {
     const r = byAsin.get(asin);
-    return { asin, label, selectable, productId: r?.id ?? null, price: r?.price ?? null, available: r ? !!r.available : null, followed: !!r?.followed, threshold: r?.threshold ?? null };
+    return { asin, label, selectable, productId: r?.id ?? null, price: r?.price ?? null, available: r ? !!r.available : null, followed: !!r?.followed, threshold: r?.threshold ?? null, reading: !!r && r.price == null && !!r.reading };
   };
   const ageMs = product.created_at ? Date.now() - new Date(product.created_at).getTime() : Infinity;
+  const current = mk(product.asin, 'Esta opción', true);
+  const others = variants.map(v => mk(v.asin, cleanVariantLabel(v.label), v.selectable !== false));
+  const waiting = variants.length === 0 && ageMs < 3 * 60 * 1000;     // twister not read yet
+  const readingCount = [current, ...others].filter(r => r.reading).length;
   return {
     asin: product.asin,
-    current: mk(product.asin, 'Esta opción', true),
-    others: variants.map(v => mk(v.asin, cleanVariantLabel(v.label), v.selectable !== false)),
-    pending: variants.length === 0 && ageMs < 3 * 60 * 1000,
+    current, others,
+    pending: waiting || readingCount > 0,
     open: opts.open,
+    detailsOpen: !!opts.detailsOpen,
+    sig: `${variants.length}:${[current, ...others].filter(r => r.price !== null).length}:${readingCount}:${waiting ? 1 : 0}`,
   };
 }
 
@@ -459,11 +471,13 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
   // Just added, nothing scraped yet: show a "collecting information" screen instead of an empty page.
   const collecting = collectState({
     historyCount: history.length, createdAt: product.created_at,
-    lastError: product.last_error, isAvailable: product.is_available,
+    lastError: product.last_error, isAvailable: product.is_available, checked: !!product.last_checked_at,
   });
   if (collecting !== 'ready') {
     return res.render('public-product-collecting', {
       state: collecting,
+      reason: unavailableText(product.last_error),
+      follows: userId ? !!(await db.select({ id: userProducts.productId }).from(userProducts).where(and(eq(userProducts.userId, userId), eq(userProducts.productId, product.id))).limit(1))[0] : false,
       opciones: req.query.opciones === '1',
       product: { asin: product.asin, amazonUrl: affiliateUrl(product.url) },
       user: userId ? { email: req.session.userEmail } : null,
@@ -715,14 +729,14 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
 router.get('/p/:asin/fragment/status', async (req: Request, res: Response) => {
   const asin = String(req.params.asin).toUpperCase();
   const rows = await db.execute(sql`
-    SELECT p.created_at, p.last_error, p.is_available,
+    SELECT p.created_at, p.last_error, p.is_available, (p.last_checked_at IS NOT NULL) AS checked,
       (SELECT COUNT(*) FROM price_history ph WHERE ph.product_id = p.id)::int AS n
     FROM products p WHERE p.asin = ${asin} AND p.is_active = TRUE
     ORDER BY n DESC LIMIT 1
   `);
   const p = (rows.rows as any[])[0];
   if (!p) return res.status(404).send('');
-  const state = collectState({ historyCount: p.n, createdAt: p.created_at, lastError: p.last_error, isAvailable: p.is_available });
+  const state = collectState({ historyCount: p.n, createdAt: p.created_at, lastError: p.last_error, isAvailable: p.is_available, checked: !!p.checked });
   if (pollAction(state, req.query.was === 'delayed' ? 'delayed' : 'working') === 'wait') return res.status(204).end();
   res.setHeader('HX-Refresh', 'true');
   return res.status(200).send('');
@@ -737,7 +751,11 @@ router.get('/p/:asin/fragment/options', requireAuth, async (req: Request, res: R
   `);
   const product = (rows.rows as any[])[0];
   if (!product) return res.status(404).send('');
-  const options = await buildOptionsView(product, req.session.userId!, { open: req.query.opciones === '1' });
+  const options = await buildOptionsView(product, req.session.userId!, {
+    open: req.query.opciones === '1', detailsOpen: req.query.d === '1',
+  });
+  // Nothing the panel shows has changed since the page/fragment the browser has: leave it alone.
+  if (typeof req.query.sig === 'string' && req.query.sig === options.sig) return res.status(204).end();
   res.render('partials/options-panel', { options });
 });
 

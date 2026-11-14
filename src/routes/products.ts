@@ -23,7 +23,16 @@ const router = Router();
 // path the scheduler uses (atomic txn, sale tier, was_price, auto-curation).
 // Optionally anchors the auto-created default alert's reference price.
 function persistScrapeFromManualAdd(url: string, productId: number, defaultAlertId: number | null): void {
-  scrapeProduct(url).then(async (result) => {
+  const scrapeOnce = () => scrapeProduct(url);
+  // Amazon sometimes serves a page with no qualified buy box for a moment: look once more before saying "no".
+  const scrapeWithRetry = () => scrapeOnce().catch(async (err) => {
+    if (err instanceof ProductUnavailableError && err.reason === 'unqualified') {
+      await new Promise(r => setTimeout(r, 4000));
+      return scrapeOnce();
+    }
+    throw err;
+  });
+  scrapeWithRetry().then(async (result) => {
     await persistScrapeResult(productId, result);
     if (defaultAlertId !== null) {
       await db.update(alerts)
@@ -32,7 +41,12 @@ function persistScrapeFromManualAdd(url: string, productId: number, defaultAlert
     }
   }).catch(async (err) => {
     if (err instanceof ProductUnavailableError) {
-      await db.update(products).set({ isAvailable: false, lastError: null }).where(eq(products.id, productId));
+      // First confirmation of the lifecycle (the scheduler adds the 2 extra checks, 24 h apart, before removing it).
+      const fillName = err.productName && err.productName.trim() ? sql`, name = COALESCE(name, ${err.productName})` : sql``;
+      await db.execute(sql`
+        UPDATE products SET is_available = FALSE, last_error = ${err.message}, last_checked_at = NOW(),
+          unavailable_confirmations = unavailable_confirmations + 1 ${fillName}
+        WHERE id = ${productId}`);
     } else {
       const msg = err instanceof Error ? err.message : String(err);
       await db.update(products).set({ lastError: msg }).where(eq(products.id, productId));
@@ -112,6 +126,7 @@ router.get('/', (req: Request, res: Response, next) => {
         p.total_failures       AS "totalFailures",
         p.last_error   AS "lastError",
         p.created_at   AS "createdAt",
+        p.last_checked_at AS "lastCheckedAt",
         (SELECT ph.price  FROM price_history ph WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1) AS "currentPrice",
         (SELECT ph.price  FROM price_history ph WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC OFFSET 1 LIMIT 1) AS "previousPrice",
         (SELECT MIN(ph2.price) FROM price_history ph2 WHERE ph2.product_id = p.id) AS "minPrice",
@@ -141,6 +156,7 @@ router.get('/', (req: Request, res: Response, next) => {
   for (const p of prods) {
     p.collecting = collectState({
       historyCount: Number(p.checkCount) || 0, createdAt: p.createdAt, lastError: p.lastError, isAvailable: p.isAvailable,
+      checked: !!p.lastCheckedAt,
     }) === 'working';
   }
 
