@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { parseSpanishPrice, extractAsin, normaliseAmazonUrl, affiliateUrl } from '../src/scraper/util';
 
 describe('parseSpanishPrice', () => {
@@ -49,21 +49,42 @@ describe('normaliseAmazonUrl', () => {
   });
 });
 
+describe('affiliateUrl tag configuration', () => {
+  const saved = process.env.AMAZON_AFFILIATE_TAG;
+  afterEach(() => { if (saved === undefined) delete process.env.AMAZON_AFFILIATE_TAG; else process.env.AMAZON_AFFILIATE_TAG = saved; });
+  it('defaults to ojoalprecio0d-21 and never to the old ID', () => {
+    delete process.env.AMAZON_AFFILIATE_TAG;
+    const out = affiliateUrl('https://www.amazon.es/dp/B07VP5X239');
+    expect(out).toContain('tag=ojoalprecio0d-21');
+    expect(out).not.toContain('canidrone');
+  });
+  it('can be overridden with AMAZON_AFFILIATE_TAG', () => {
+    process.env.AMAZON_AFFILIATE_TAG = 'otro-21';
+    expect(affiliateUrl('https://www.amazon.es/dp/B07VP5X239')).toContain('tag=otro-21');
+  });
+  it('ignores an empty or malformed value', () => {
+    process.env.AMAZON_AFFILIATE_TAG = 'x y&z';
+    expect(affiliateUrl('https://www.amazon.es/dp/B07VP5X239')).toContain('tag=ojoalprecio0d-21');
+    process.env.AMAZON_AFFILIATE_TAG = '  ';
+    expect(affiliateUrl('https://www.amazon.es/dp/B07VP5X239')).toContain('tag=ojoalprecio0d-21');
+  });
+});
+
 describe('affiliateUrl', () => {
   it('appends our affiliate tag and language=es_ES', () => {
     const out = affiliateUrl('https://www.amazon.es/dp/B07VP5X239');
-    expect(out).toContain('tag=canidrone-21');
+    expect(out).toContain('tag=ojoalprecio0d-21');
     expect(out).toContain('language=es_ES');
   });
   it('overrides a pre-existing tag with ours', () => {
     const out = affiliateUrl('https://www.amazon.es/dp/B07VP5X239?tag=foo-21');
-    expect(out).toContain('tag=canidrone-21');
+    expect(out).toContain('tag=ojoalprecio0d-21');
     expect(out).not.toContain('tag=foo-21');
   });
   it('preserves unrelated query params (e.g. th=1)', () => {
     const out = affiliateUrl('https://www.amazon.es/dp/B07VP5X239?th=1');
     expect(out).toContain('th=1');
-    expect(out).toContain('tag=canidrone-21');
+    expect(out).toContain('tag=ojoalprecio0d-21');
   });
   it('returns the input unchanged on malformed URLs', () => {
     expect(affiliateUrl('not-a-url')).toBe('not-a-url');

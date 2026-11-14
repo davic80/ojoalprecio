@@ -6,7 +6,18 @@
  * callers; new code should import here.
  */
 
-const AFFILIATE_TAG = 'canidrone-21';
+/** Amazon Associates tracking ID used when AMAZON_AFFILIATE_TAG is not set. */
+export const DEFAULT_AFFILIATE_TAG = 'ojoalprecio0d-21';
+
+/**
+ * Tracking ID appended to every outbound Amazon link. Configurable through the AMAZON_AFFILIATE_TAG
+ * environment variable (read on every call, so tests and a restart pick up a change); an empty or
+ * malformed value falls back to the default instead of producing broken links.
+ */
+export function getAffiliateTag(): string {
+  const t = (process.env.AMAZON_AFFILIATE_TAG ?? '').trim();
+  return /^[A-Za-z0-9_-]{3,40}$/.test(t) ? t : DEFAULT_AFFILIATE_TAG;
+}
 
 /** "33,70€" → 33.70 ; "1.234,56 €" → 1234.56 */
 export function parseSpanishPrice(raw: string): number {
@@ -54,7 +65,7 @@ export function affiliateUrl(url: string): string {
   try {
     const u = new URL(url);
     u.searchParams.delete('tag');
-    u.searchParams.set('tag', AFFILIATE_TAG);
+    u.searchParams.set('tag', getAffiliateTag());
     u.searchParams.set('language', 'es_ES');
     return u.toString();
   } catch {

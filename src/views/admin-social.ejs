@@ -54,7 +54,7 @@
         const pct = parseFloat(nextDeal.pctOffMedian).toFixed(1);
         const price = parseFloat(nextDeal.currentPrice).toFixed(2);
         const name = nextDeal.name ? (nextDeal.name.length > 80 ? nextDeal.name.slice(0,80) + '…' : nextDeal.name) : nextDeal.asin;
-        const amzUrl = nextDeal.url + (nextDeal.url.includes('?') ? '&' : '?') + 'tag=canidrone-21';
+        const amzUrl = affiliateUrl(nextDeal.url);
         const histUrl = siteUrl + '/p/' + nextDeal.asin;
         const tweetText = `👁 Oferta del día\n\n${name}\n\n💰 ${price} €  📉 −${pct}% vs precio habitual\n\n🛒 ${amzUrl}\n📊 Historial: ${histUrl}\n\n#chollos #amazon #ofertas #ahorro`;
       %>

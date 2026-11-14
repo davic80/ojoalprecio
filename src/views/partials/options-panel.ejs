@@ -48,7 +48,7 @@
             <div class="hint">
               <% if (v.price !== null) { %>Precio ahora: <%= eur(v.price) %><% if (v.available === false) { %> · sin stock<% } %><% } else if (v.reading) { %><span class="mini-spinner" aria-hidden="true"></span>Leyendo el precio…<% } else if (v.available === false) { %>Amazon no lo tiene disponible ahora<% } else if (v.productId === null) { %>Aún sin precio (lo leeremos al añadirla)<% } else { %>Pendiente de leer<% } %>
               <% if (v.followed) { %> · ✓ la sigues<% } %>
-              · <a href="https://www.amazon.es/dp/<%= v.asin %>" target="_blank" rel="noopener nofollow">ver en Amazon</a>
+              · <a href="<%= affiliateUrl('https://www.amazon.es/dp/' + v.asin) %>" target="_blank" rel="noopener sponsored">ver en Amazon</a>
             </div>
           </div>
           <form method="POST" action="/products" style="display:flex;gap:6px;align-items:center">

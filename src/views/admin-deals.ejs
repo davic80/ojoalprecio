@@ -122,7 +122,7 @@
             ><%= d.isPublic ? 'Destacado' : 'No destacado' %></button>
           </td>
           <td style="white-space:nowrap">
-            <a href="<%= d.url %>?tag=canidrone-21" target="_blank" rel="noopener" class="btn btn-sm btn-ghost" style="font-size:12px">Amazon ↗</a>
+            <a href="<%= affiliateUrl(d.url) %>" target="_blank" rel="noopener" class="btn btn-sm btn-ghost" style="font-size:12px">Amazon ↗</a>
           </td>
         </tr>
         <% }); %>

@@ -1,3 +1,4 @@
+import { affiliateUrl } from '../scraper/util';
 import nodemailer, { type Transporter } from 'nodemailer';
 
 interface MailerConfig {
@@ -446,7 +447,7 @@ export async function sendProductRemovedEmail(opts: ProductRemovedOptions): Prom
     return;
   }
   const siteUrl = process.env.SITE_URL ?? 'http://localhost:3000';
-  const amazonUrl = `https://www.amazon.es/dp/${opts.asin}`;
+  const amazonUrl = affiliateUrl(`https://www.amazon.es/dp/${opts.asin}`);
   const text = [
     `Hemos dejado de seguir "${opts.productName}" en OjoAlPrecio.`,
     '',
