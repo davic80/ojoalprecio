@@ -77,6 +77,7 @@
             </div>
             <div class="product-info">
               <p class="product-name"><%= r.title %></p>
+              <% if (r.groupCount > 1) { %><p class="group-summary"><%= r.groupCount %> opciones<% if (r.groupMinPrice != null) { %> · desde <strong><%= Number(r.groupMinPrice).toFixed(2).replace('.', ',') %> €</strong><% } %></p><% } %>
               <p class="product-asin" style="margin-top:var(--sp-1)">
                 <span class="marketplace-tag <%= r.marketplace === 'aliexpress' ? 'marketplace-tag-aliexpress' : 'marketplace-tag-amazon' %>">
                   <%= r.marketplace === 'aliexpress' ? '🛒 AliExpress' : '📦 Amazon' %>

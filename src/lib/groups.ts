@@ -135,3 +135,32 @@ export function dimTitle(dim: string | null | undefined): string {
     default: return 'Opción';
   }
 }
+
+/**
+ * Public listings (/ofertas, categories, search): show an article once, not once per size/colour.
+ * Inside each group the best offer (highest discount score, then lowest price) represents it, in the
+ * position that product already had; `groupCount` options and the lowest `groupMinPrice` are attached.
+ */
+export function collapseByGroup<T extends { groupId?: number | null; dealScore?: number | string | null; currentPrice?: number | string | null }>(
+  rows: T[],
+): Array<T & { groupCount: number; groupMinPrice: number | null }> {
+  const price = (r: T): number | null => (r.currentPrice === null || r.currentPrice === undefined || r.currentPrice === '' ? null : Number(r.currentPrice));
+  const score = (r: T): number => (r.dealScore === null || r.dealScore === undefined ? -1 : Number(r.dealScore));
+  const best = new Map<number, T>(), count = new Map<number, number>(), min = new Map<number, number>();
+  for (const r of rows) {
+    const g = r.groupId;
+    if (typeof g !== 'number') continue;
+    count.set(g, (count.get(g) ?? 0) + 1);
+    const p = price(r);
+    if (p !== null && p < (min.get(g) ?? Infinity)) min.set(g, p);
+    const cur = best.get(g);
+    if (!cur || score(r) > score(cur) || (score(r) === score(cur) && (price(r) ?? Infinity) < (price(cur) ?? Infinity))) best.set(g, r);
+  }
+  const out: Array<T & { groupCount: number; groupMinPrice: number | null }> = [];
+  for (const r of rows) {
+    const g = r.groupId;
+    if (typeof g !== 'number') out.push({ ...r, groupCount: 1, groupMinPrice: price(r) });
+    else if (best.get(g) === r) out.push({ ...r, groupCount: count.get(g)!, groupMinPrice: min.get(g) ?? null });
+  }
+  return out;
+}

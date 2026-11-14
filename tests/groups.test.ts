@@ -42,7 +42,7 @@ describe('variantLabels / dimTitle', () => {
   });
 });
 
-import { buildSelector, ownLabel, type CatalogInfo } from '../src/lib/groups';
+import { buildSelector, ownLabel, collapseByGroup, type CatalogInfo } from '../src/lib/groups';
 
 describe('composed option names', () => {
   const selfEntries = [
@@ -103,5 +103,24 @@ describe('buildSelector', () => {
   it('nothing to choose → null', () => {
     expect(buildSelector([], 'B0SELF0001', lookup, null)).toBeNull();
     expect(buildSelector([{ asin: 'B0SELF0001', label: 'Negro', dim: 'color_name', self: true }], 'B0SELF0001', lookup, null)).toBeNull();
+  });
+});
+
+describe('collapseByGroup', () => {
+  const r = (id: number, groupId: number | null, dealScore: number | null, currentPrice: number) => ({ id, groupId, dealScore, currentPrice });
+  it('keeps the best offer of each group at its own position and counts the options', () => {
+    const out = collapseByGroup([r(1, 7, 10, 50), r(2, null, 5, 20), r(3, 7, 30, 60), r(4, 7, 30, 55), r(5, 8, null, 9)]);
+    expect(out.map(x => x.id)).toEqual([2, 4, 5]);            // group 7 → #4 (score 30, cheaper than #3); original order of survivors kept
+    expect(out.find(x => x.id === 4)).toMatchObject({ groupCount: 3, groupMinPrice: 50 });
+    expect(out.find(x => x.id === 2)).toMatchObject({ groupCount: 1, groupMinPrice: 20 });
+  });
+  it('standalone rows pass through untouched and an empty list is fine', () => {
+    expect(collapseByGroup([])).toEqual([]);
+    expect(collapseByGroup([r(1, null, null, 5)])).toHaveLength(1);
+  });
+  it('copes with prices/scores coming as strings from Postgres', () => {
+    const out = collapseByGroup([{ id: 1, groupId: 3, dealScore: '12.5', currentPrice: '40.00' }, { id: 2, groupId: 3, dealScore: '12.5', currentPrice: '35.50' }]);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ id: 2, groupMinPrice: 35.5 });
   });
 });

@@ -16,6 +16,7 @@ import {
 } from '../marketplaces/aliexpress';
 
 import { collectState } from '../lib/collecting';
+import { parseBareProductId } from '../lib/product-input';
 import { getSystemUserId } from '../lib/system-user';
 
 const router = Router();
@@ -287,7 +288,10 @@ router.post(
       return res.status(400).json({ error: errors.array()[0].msg });
     }
 
-    const { url } = req.body as { url: string };
+    // A bare ASIN (B0DJC3WYTP) or AliExpress id is accepted too: it becomes the canonical URL of its marketplace.
+    const rawUrl = String((req.body as { url: string }).url);
+    const bare = parseBareProductId(rawUrl);
+    const url = bare ? (bare.kind === 'amazon' ? normaliseAmazonUrl(bare.asin) : `https://es.aliexpress.com/item/${bare.id}.html`) : rawUrl;
     const userId = req.session.userId!;
 
     // ── AliExpress branch ─────────────────────────────────────────────────

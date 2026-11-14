@@ -5,7 +5,7 @@ import { eq, desc, sql, and, asc, inArray } from 'drizzle-orm';
 import { affiliateUrl } from '../scraper/amazon';
 import { cleanVariantLabel } from '../lib/variants';
 import { collectState, pollAction, unavailableText } from '../lib/collecting';
-import { buildSelector, ownLabel, type RawVariant, type CatalogInfo } from '../lib/groups';
+import { buildSelector, ownLabel, collapseByGroup, type RawVariant, type CatalogInfo } from '../lib/groups';
 import { requireAuth } from '../middleware/auth';
 import { isAdmin } from '../middleware/admin';
 import { onScrapeUpdate } from '../lib/product-events';
@@ -116,12 +116,13 @@ router.get('/search', async (req: Request, res: Response) => {
         p.deal_score::float   AS "dealScore",
         p.is_on_sale          AS "isOnSale",
         p.sale_tier           AS "saleTier",
+        p.group_id            AS "groupId",
         '/p/' || p.asin       AS "href"
       FROM products p
       WHERE p.is_active = TRUE AND p.is_available = TRUE
         AND p.name ILIKE ${pattern} ESCAPE '\\'
     `);
-    amazonRows = az.rows as any[];
+    amazonRows = collapseByGroup(az.rows as any[]);   // one result per article, not per size/colour
 
     const aeRowsSql = sql`
       SELECT
@@ -213,6 +214,7 @@ router.get('/m', async (req: Request, res: Response) => {
       p.id, p.asin, p.name, p.image_url AS "imageUrl",
       p.deal_score::float AS "dealScore",
       p.sale_tier         AS "saleTier",
+      p.group_id          AS "groupId",
       p.url,
       (SELECT ph.price::float FROM price_history ph WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1) AS "currentPrice",
       (SELECT MAX(ph2.price)::float FROM price_history ph2 WHERE ph2.product_id = p.id) AS "maxPrice"
@@ -222,10 +224,10 @@ router.get('/m', async (req: Request, res: Response) => {
       AND p.is_on_sale   = TRUE
       AND p.deal_score IS NOT NULL
     ORDER BY p.deal_score DESC NULLS LAST
-    LIMIT 5
+    LIMIT 40
   `);
 
-  const deals = (rows.rows as any[]).map(p => ({
+  const deals = collapseByGroup(rows.rows as any[]).slice(0, 5).map(p => ({
     ...p,
     amazonUrl: affiliateUrl(p.url),
     savedPct: (p.maxPrice && p.currentPrice && p.maxPrice > 0)
@@ -335,7 +337,8 @@ router.get('/ofertas', async (req: Request, res: Response) => {
       to_json(h.sp) AS "sparkline",
       p.is_on_sale AS "isOnSale",
       p.sale_tier  AS "saleTier",
-      p.deal_score::float AS "dealScore"
+      p.deal_score::float AS "dealScore",
+      p.group_id AS "groupId"
     FROM products p
     LEFT JOIN categories c ON c.id = p.category_id
     LEFT JOIN LATERAL (
@@ -349,7 +352,8 @@ router.get('/ofertas', async (req: Request, res: Response) => {
     ORDER BY c.name ASC NULLS LAST, p.deal_score DESC NULLS LAST
   `);
 
-  const deals = (rows.rows as any[])
+  // One card per article: the sizes/colours of a group collapse into its best offer.
+  const deals = collapseByGroup((rows.rows as any[])
     .filter(p => p.currentPrice)
     .map(p => ({
       ...p,
@@ -360,7 +364,7 @@ router.get('/ofertas', async (req: Request, res: Response) => {
       isAtLow: p.minPrice && parseFloat(p.currentPrice) <= parseFloat(p.minPrice) + 0.01,
       sparkline: Array.isArray(p.sparkline) ? p.sparkline.map(Number) : [],
       extraImages: (() => { try { return JSON.parse(p.extraImages ?? '[]'); } catch { return []; } })(),
-    }));
+    })));
 
   // Group by category; uncategorized goes last under "Otros"
   const groupMap = new Map<string, { name: string; slug: string | null; deals: any[] }>();
@@ -408,7 +412,8 @@ router.get('/c/:slug', async (req: Request, res: Response) => {
       to_json(h.sp) AS "sparkline",
       p.is_on_sale AS "isOnSale",
       p.sale_tier  AS "saleTier",
-      p.deal_score::float AS "dealScore"
+      p.deal_score::float AS "dealScore",
+      p.group_id AS "groupId"
     FROM products p
     LEFT JOIN LATERAL (
       SELECT (array_agg(price ORDER BY scraped_at DESC))[1]    AS cur,
@@ -423,7 +428,7 @@ router.get('/c/:slug', async (req: Request, res: Response) => {
     ORDER BY p.is_on_sale DESC, p.is_public DESC, p.created_at DESC
   `);
 
-  const deals = (rows.rows as any[])
+  const deals = collapseByGroup((rows.rows as any[])
     .filter(p => p.currentPrice)
     .map(p => ({
       ...p,
@@ -434,7 +439,7 @@ router.get('/c/:slug', async (req: Request, res: Response) => {
       isAtLow: p.minPrice && parseFloat(p.currentPrice) <= parseFloat(p.minPrice) + 0.01,
       sparkline: Array.isArray(p.sparkline) ? p.sparkline.map(Number) : [],
       extraImages: (() => { try { return JSON.parse(p.extraImages ?? '[]'); } catch { return []; } })(),
-    }));
+    })));
 
   res.render('category', { category: cat, deals, isAdmin: admin, user: { email: req.session.userEmail ?? '' } });
 });

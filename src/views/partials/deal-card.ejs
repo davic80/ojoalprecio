@@ -47,6 +47,7 @@ _%>
     </div>
     <div class="product-info">
       <p class="product-name"><%= d.name ?? d.asin %></p>
+      <% if (d.groupCount > 1) { %><p class="group-summary"><%= d.groupCount %> opciones<% if (d.groupMinPrice != null) { %> · desde <strong><%= Number(d.groupMinPrice).toFixed(2).replace('.', ',') %> €</strong><% } %></p><% } %>
     </div>
   </a>
   <div class="product-prices">
