@@ -20,6 +20,9 @@ services:
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
       # PASSWORD_SIGNUP=off closes the email+password sign-up form (new accounts only through Google).
       - PASSWORD_SIGNUP=${PASSWORD_SIGNUP:-on}
+      # Cloudflare Turnstile captcha on the sign-up form; enforced only when both keys are set.
+      - TURNSTILE_SITE_KEY=${TURNSTILE_SITE_KEY:-}
+      - TURNSTILE_SECRET_KEY=${TURNSTILE_SECRET_KEY:-}
       - PORT=3000
       # Scheduler: default every hour. Override with cron expression.
       # Examples: "0 * * * *" = every hour, "*/30 * * * *" = every 30 min

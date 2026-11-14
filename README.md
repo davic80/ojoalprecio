@@ -48,6 +48,7 @@ La aplicación estará disponible en `http://<ip-raspberry>:3000`.
 | `SITE_URL` | URL pública de la app | `http://localhost:3000` |
 | `AMAZON_AFFILIATE_TAG` | ID de seguimiento de Amazon Afiliados que lleva cada enlace saliente (`tag=`) | `ojoalprecio0d-21` |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Credenciales OAuth para «Continuar con Google» (sin ellas el botón no aparece) | — |
+| `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` | Captcha de Cloudflare Turnstile en el formulario de registro (se exige solo si están las dos) | — |
 | `PASSWORD_SIGNUP` | `off` cierra el registro con email y contraseña (solo se crean cuentas con Google) | `on` |
 | `SESSION_COOKIE_SECURE` | Cookies seguras (HTTPS) | `true` |
 | `CLOUDFLARE_TUNNEL_TOKEN` | Token del tunnel Cloudflare | — |

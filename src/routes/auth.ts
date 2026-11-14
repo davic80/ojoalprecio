@@ -7,6 +7,7 @@ import { users, emailVerifications, passwordResets } from '../db/schema';
 import { eq, and, gt } from 'drizzle-orm';
 import { sendVerificationEmail, sendPasswordResetEmail, sendWelcomeEmail } from '../mailer/index';
 import { googleConfig, randomToken, pkcePair, buildAuthUrl, exchangeCode, verifyIdToken, passwordSignupEnabled } from '../lib/google-auth';
+import { turnstileConfig, verifyTurnstile } from '../lib/turnstile';
 import { resolveGoogleUser, GoogleEmailNotVerified, GoogleAccountConflict } from '../lib/google-user';
 
 const router = Router();
@@ -89,6 +90,13 @@ router.post(
     }
     const errors = validationResult(req);
     const next = safeNext(req.body.next ?? req.query.next);
+    // Anti-bot: invisible honeypot field (people never fill it) and, when configured, the Turnstile captcha.
+    const rejectBot = (msg: string) => res.status(400).render('register', { error: msg, email: String(req.body.email ?? ''), next });
+    if (String(req.body.website ?? '').trim() !== '') return rejectBot('No hemos podido crear la cuenta.');
+    const ts = turnstileConfig();
+    if (ts && !(await verifyTurnstile(req.body['cf-turnstile-response'], req.ip, ts))) {
+      return rejectBot('No hemos podido comprobar que eres una persona. Inténtalo de nuevo.');
+    }
     if (!errors.isEmpty()) {
       return res.render('register', {
         error: errors.array()[0].msg,

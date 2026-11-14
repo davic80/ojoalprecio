@@ -17,6 +17,7 @@ import aliexpressRouter from './routes/aliexpress';
 import { affiliateUrl } from './scraper/util';
 import { friendlyScrapeError } from './lib/transient';
 import { googleConfig, passwordSignupEnabled } from './lib/google-auth';
+import { turnstileConfig } from './lib/turnstile';
 import './types/session';
 
 const PgSession = connectPgSimple(session);
@@ -113,6 +114,7 @@ export function createApp() {
     // Login/register views: show the Google button only when it is configured; hide the password sign-up form when closed.
     res.locals.googleEnabled = !!googleConfig();
     res.locals.passwordSignup = passwordSignupEnabled();
+    res.locals.turnstileSiteKey = turnstileConfig()?.siteKey ?? '';
     next();
   });
 
