@@ -968,6 +968,18 @@ export const MIGRATIONS: string[] = [
      new_asin   VARCHAR(10) NOT NULL,
      created_at TIMESTAMP NOT NULL DEFAULT NOW()
    );`,
+  // Variant groups (size/colour options of one article, like Amazon's twister). Every ASIN stays its own
+  // product (history, follows, alerts); the group only decides how they are shown together.
+  // key = Amazon's parent ASIN when known, otherwise the ASIN of the product the group was built from.
+  `CREATE TABLE IF NOT EXISTS product_groups (
+     id         SERIAL PRIMARY KEY,
+     key        VARCHAR(20) NOT NULL UNIQUE,
+     created_at TIMESTAMP NOT NULL DEFAULT NOW()
+   );
+   ALTER TABLE products ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES product_groups(id) ON DELETE SET NULL;
+   ALTER TABLE products ADD COLUMN IF NOT EXISTS variant_label TEXT;
+   ALTER TABLE products ADD COLUMN IF NOT EXISTS variant_dim VARCHAR(30);
+   CREATE INDEX IF NOT EXISTS idx_products_group_id ON products (group_id) WHERE group_id IS NOT NULL;`,
 ];
 
 export async function migrate(pool: Pool = defaultPool): Promise<void> {

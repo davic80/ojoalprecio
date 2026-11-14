@@ -103,6 +103,18 @@ router.get('/', (req: Request, res: Response, next) => {
   if (status === 'error')      whereClauses.push(sql`p.last_error IS NOT NULL`);
   if (status === 'failed')     whereClauses.push(sql`p.is_failed = TRUE`);
   if (status === 'pending')    whereClauses.push(sql`NOT EXISTS (SELECT 1 FROM price_history ph WHERE ph.product_id = p.id)`);
+  // Variant groups: one card per article (group), not one per size/colour. Variants discovered by the system
+  // that nobody follows are hidden from the admin list (they are catalog plumbing, not something to manage).
+  const SYS = sql`(SELECT id FROM users WHERE email = 'system@ojoalprecio.local')`;
+  const visible = (a: string) => adminUser
+    ? sql`(${sql.raw(a)}.group_id IS NULL OR ${sql.raw(a)}.created_by_user_id IS DISTINCT FROM ${SYS}
+           OR EXISTS (SELECT 1 FROM user_products rf WHERE rf.product_id = ${sql.raw(a)}.id AND rf.user_id <> ${SYS}))`
+    : sql`EXISTS (SELECT 1 FROM user_products uv WHERE uv.product_id = ${sql.raw(a)}.id AND uv.user_id = ${userId})`;
+  const repOrder = adminUser
+    ? sql`(EXISTS (SELECT 1 FROM user_products rf WHERE rf.product_id = x.id AND rf.user_id <> ${SYS})) DESC, x.id ASC`
+    : sql`(SELECT MIN(ur.added_at) FROM user_products ur WHERE ur.product_id = x.id AND ur.user_id = ${userId}) ASC, x.id ASC`;
+  whereClauses.push(visible('p'));
+  whereClauses.push(sql`(p.group_id IS NULL OR p.id = (SELECT x.id FROM products x WHERE x.group_id = p.group_id AND x.is_active = TRUE AND ${visible('x')} ORDER BY ${repOrder} LIMIT 1))`);
   const where = whereClauses.length ? sql.join(whereClauses, sql` AND `) : sql`TRUE`;
 
   const [countRow, rows, allCategories] = await Promise.all([
@@ -126,6 +138,8 @@ router.get('/', (req: Request, res: Response, next) => {
         p.total_failures       AS "totalFailures",
         p.last_error   AS "lastError",
         p.created_at   AS "createdAt",
+        p.group_id     AS "groupId",
+        p.variant_label AS "variantLabel",
         p.last_checked_at AS "lastCheckedAt",
         (SELECT ph.price  FROM price_history ph WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1) AS "currentPrice",
         (SELECT ph.price  FROM price_history ph WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC OFFSET 1 LIMIT 1) AS "previousPrice",
@@ -152,6 +166,26 @@ router.get('/', (req: Request, res: Response, next) => {
   const totalCount = parseInt(String((countRow.rows[0] as any).total), 10);
   const totalPages = Math.ceil(totalCount / perPage);
   const prods = rows.rows as any[];
+  // Options of each article shown on this page: the ones the user follows (admin: anyone real follows)
+  // with their price, plus how many more exist in the catalog.
+  const groupIds = [...new Set(prods.map(p => p.groupId).filter((g: unknown) => typeof g === 'number'))] as number[];
+  const byGroup = new Map<number, { options: Array<{ asin: string; label: string; price: number | null; available: boolean }>; more: number }>();
+  if (groupIds.length) {
+    const gl = sql.join(groupIds.map(g => sql`${g}`), sql`, `);
+    const mem = await db.execute(sql`
+      SELECT x.group_id AS "groupId", x.asin, x.variant_label AS label, x.is_available AS available,
+        (SELECT ph.price::float FROM price_history ph WHERE ph.product_id = x.id ORDER BY ph.scraped_at DESC LIMIT 1) AS price,
+        ${visible('x')} AS shown
+      FROM products x WHERE x.group_id IN (${gl}) AND x.is_active = TRUE
+      ORDER BY x.group_id, x.variant_label NULLS LAST, x.asin`);
+    for (const m of mem.rows as any[]) {
+      const g = byGroup.get(m.groupId) ?? { options: [], more: 0 };
+      if (m.shown) g.options.push({ asin: m.asin, label: m.label || m.asin, price: m.price, available: !!m.available });
+      else g.more++;
+      byGroup.set(m.groupId, g);
+    }
+  }
+  for (const p of prods) p.group = p.groupId ? byGroup.get(p.groupId) ?? null : null;
   // Rows whose first scrape is still running get a spinner + auto-refresh instead of a bare "Cargando…".
   for (const p of prods) {
     p.collecting = collectState({

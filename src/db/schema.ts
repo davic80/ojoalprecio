@@ -42,6 +42,13 @@ export const passwordResets = pgTable('password_resets', {
 
 // ── Products ─────────────────────────────────────────────────────────────────
 
+// Variant groups: the size/colour options of one article, shown together. See migration "product_groups".
+export const productGroups = pgTable('product_groups', {
+  id: serial('id').primaryKey(),
+  key: varchar('key', { length: 20 }).notNull().unique(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
 export const products = pgTable('products', {
   id: serial('id').primaryKey(),
   // Audit-only: who first added this ASIN to the catalog. Ownership and
@@ -80,6 +87,10 @@ export const products = pgTable('products', {
   // { asin, label, selectable }). Used to render "Otras variantes" on the
   // product page and to auto-ingest new variant ASINs into the catalog.
   variantsJson: text('variants_json'),
+  // Group this ASIN belongs to (null = standalone product) and how it is named inside it ("43", "Navy/White").
+  groupId: integer('group_id'),
+  variantLabel: text('variant_label'),
+  variantDim: varchar('variant_dim', { length: 30 }),
   // Counter of consecutive ProductUnavailableError scrapes. Reset to 0 on
   // any successful capture. ≥3 + no alerts + no non-system follower ⇒ purged.
   consecutiveUnavailable: integer('consecutive_unavailable').default(0).notNull(),

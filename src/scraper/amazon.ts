@@ -48,6 +48,8 @@ export interface VariantRef {
   asin: string;
   label: string;
   selectable: boolean;  // swatch isn't disabled (NOT a stock guarantee)
+  /** Which selector row it belongs to: 'size_name', 'color_name', 'style_name'… (twister row id without 'variation_'). */
+  dim?: string;
 }
 
 export interface ScrapeResult {
@@ -60,6 +62,8 @@ export interface ScrapeResult {
   url: string;
   wasPrice: number | null;
   variants: VariantRef[];
+  /** Amazon's parent ASIN (#parentASIN): the same for every size/colour of the article. null when not a variation family. */
+  parentAsin?: string | null;
   /** Best Seller Rank — null if Amazon doesn't show one for this product. */
   bsrValue: number | null;
   bsrCategory: string | null;
@@ -753,6 +757,10 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
         if (wasPrice) console.log(`[scraper] ${asin} → PVP ${wasPrice.toFixed(2)} € (${wasPriceSrc})`);
         else if (wasPriceRaw && wasPriceRaw > price * 4) console.log(`[scraper] ${asin} → PVP descartado (${wasPriceRaw.toFixed(2)} € = ${(wasPriceRaw/price).toFixed(1)}x — probable falso positivo)`);
 
+        const parentAsin = await page.evaluate((): string | null => {
+          const v = (document.querySelector('#parentASIN') as HTMLInputElement | null)?.value?.trim() ?? '';
+          return /^[A-Z0-9]{10}$/.test(v) ? v : null;
+        }).catch(() => null);
         const [extraImages, variants, metadata] = await Promise.all([
           page.evaluate((mainSrc: string | null): string[] => {
             const normalize = (s: string) => s.replace(/\._[^.]+_\./, '.').split('/I/')[1] ?? '';
@@ -777,7 +785,9 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
                 || '';
               const selectable = !li.classList.contains('swatch-disabled')
                 && !li.classList.contains('a-button-disabled');
-              seen.set(asin, { asin, label: altLabel, selectable });
+              const row = li.closest('[id^="variation_"]');
+              const dim = row ? row.id.replace(/^variation_/, '').slice(0, 30) : undefined;
+              seen.set(asin, { asin, label: altLabel, selectable, ...(dim ? { dim } : {}) });
             });
             return [...seen.values()];
           }, asin).catch(() => [] as VariantRef[]),
@@ -892,7 +902,7 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
 
         return {
           asin, name, price, currency: 'EUR', imageUrl, extraImages,
-          url: canonicalUrl, wasPrice, variants,
+          url: canonicalUrl, wasPrice, variants, parentAsin,
           bsrValue:        metadata.bsrValue,
           bsrCategory:     metadata.bsrCategory,
           reviewCount:     metadata.reviewCount,

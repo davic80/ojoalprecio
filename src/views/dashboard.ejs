@@ -284,6 +284,14 @@ function trendBadge(current, previous) {
           <p class="product-name"><%= p.name ?? p.asin %></p>
           <p class="product-asin">ASIN: <%= p.asin %><% if (p.isPublic) { %> · <span class="public-tag" title="Destacado en /ofertas">destacado</span><% } %><% if (typeof isAdmin !== 'undefined' && isAdmin && !p.isOwnProduct) { %> · <span class="hint" style="color:var(--gray-400)">sistema</span><% } %></p>
           <% if (p.categoryName) { %><a href="/c/<%= p.categorySlug %>" class="category-tag"><%= p.categoryName %></a><% } %>
+          <% if (p.group && (p.group.options.length > 1 || p.group.more > 0)) { %>
+            <% const _o = p.group.options; %>
+            <p class="group-summary" title="Cada talla/color es un producto con su propio precio y aviso">
+              <strong><%= _o.length %> <%= _o.length === 1 ? 'opción seguida' : 'opciones seguidas' %>:</strong>
+              <%= _o.slice(0, 4).map(function(o){ return o.label + (o.price != null ? ' · ' + o.price.toFixed(2).replace('.', ',') + ' €' : ''); }).join('  |  ') %><%= _o.length > 4 ? '  …' : '' %>
+              <% if (p.group.more > 0) { %><span class="hint"> — y <%= p.group.more %> más sin seguir</span><% } %>
+            </p>
+          <% } %>
           <% if (p.lastError) { %>
             <p class="product-error">⚠ <%= p.lastError %></p>
           <% } %>

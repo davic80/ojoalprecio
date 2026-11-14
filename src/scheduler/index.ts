@@ -2,6 +2,7 @@ import cron from 'node-cron';
 import { db } from '../db/client';
 import { products, priceHistory, alerts, alertEvents, users, scrapeAnomalies, userProducts, purgedAsins } from '../db/schema';
 import { eq, and, desc, min, isNull, sql, inArray } from 'drizzle-orm';
+import { assignGroup, backfillProductGroups } from './groups';
 import { scrapeProduct, affiliateUrl, ProductUnavailableError, CaptchaDetectedError, WrongLocationError, restartBrowser, isCaptchaBlocked, captchaRemainingMs, type ScrapeResult } from '../scraper/amazon';
 import { autoCategorizeId } from '../scraper/categorize';
 import { emitScrapeUpdate } from '../lib/product-events';
@@ -480,13 +481,15 @@ export async function persistScrapeResult(
   // right away instead of waiting for the next scheduler cycle. skipVariantIngest
   // breaks the recursion: variants scraped from the queue don't re-ingest their
   // own siblings (they'd be the same set we just discovered).
-  if (!opts.skipVariantIngest && result.variants && result.variants.length) {
+  if (result.variants && result.variants.length) {
     try {
       // The new rows have last_checked_at = NULL: the first-scrape loop (startFirstScrapeLoop) picks them up
       // within seconds. It reads the database, so a restart in between loses nothing.
-      await ingestNewVariants(productId, result.variants.map(v => v.asin));
+      if (!opts.skipVariantIngest) await ingestNewVariants(productId, result.variants.map(v => v.asin));
+      // Group the family (size/colour options) so it is shown as one article.
+      await assignGroup(result.asin, result.parentAsin ?? null, result.variants);
     } catch (err) {
-      console.error(`[scheduler] variant ingest failed for ${result.asin}:`, err);
+      console.error(`[scheduler] variant ingest/group failed for ${result.asin}:`, err);
     }
   }
 
@@ -1289,6 +1292,8 @@ export function startScheduler(): void {
 
   startExecutorMonitor();
   startFirstScrapeLoop();
+  // Build the variant groups of what is already in the catalog (idempotent, runs once per start).
+  setTimeout(() => { backfillProductGroups().catch(err => console.error('[groups] backfill failed:', err)); }, 45_000).unref();
 
   // Watchdog: abandon a wedged cycle, restart Chromium, email the admin.
   cron.schedule('*/5 * * * *', () => {
