@@ -5,7 +5,7 @@ import { shouldSendAlert, _resetAlertThrottle } from '../src/lib/ops-alert';
 const H = 3600_000;
 const now = Date.parse('2026-11-10T12:00:00Z');
 const at = (hoursAgo: number) => new Date(now - hoursAgo * H);
-const row = (id: number, o: Partial<{ isAvailable: boolean; lastCheckedAt: Date | null; lastScrapedAt: Date | null }> = {}) =>
+const row = (id: number, o: Partial<{ isAvailable: boolean; lastCheckedAt: Date | null; lastScrapedAt: Date | null; lowPriority: boolean }> = {}) =>
   ({ id, isAvailable: true, lastCheckedAt: null, lastScrapedAt: null, ...o });
 
 describe('selectDue — fair scrape ordering', () => {
@@ -52,5 +52,20 @@ describe('shouldSendAlert — throttling', () => {
     expect(shouldSendAlert('stuck', 1_000 + H, 3 * H)).toBe(false);
     expect(shouldSendAlert('blocks', 1_000 + H, 3 * H)).toBe(true);
     expect(shouldSendAlert('stuck', 1_000 + 3 * H, 3 * H)).toBe(true);
+  });
+});
+
+describe('selectDue — discovered options queue behind followed products', () => {
+  it('a low-priority row goes after normal rows that were checked more recently', () => {
+    const out = selectDue([
+      row(1, { lastCheckedAt: at(20), lowPriority: true }),   // sorts as if checked 8 h ago
+      row(2, { lastCheckedAt: at(14) }),                       // older than that → first
+      row(3, { lastCheckedAt: at(3) }),
+    ], now, 59 * 60_000, 12 * H);
+    expect(out.map(r => r.id)).toEqual([2, 1, 3]);
+  });
+  it('waits an extra 12 h but is never starved', () => {
+    const rows = [row(1, { lastCheckedAt: at(5), lowPriority: true }), row(2, { lastCheckedAt: at(13), lowPriority: true })];
+    expect(selectDue(rows, now, 59 * 60_000, 12 * H).map(r => r.id)).toEqual([2]);
   });
 });

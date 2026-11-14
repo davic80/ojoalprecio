@@ -73,6 +73,7 @@
     <% } %>
     <div class="product-header-info">
       <h1><a href="<%= product.amazonUrl %>" target="_blank" rel="noopener sponsored" class="product-title-link"><%= product.name ?? product.asin %></a></h1>
+      <% if (product.variantLabel) { %><p class="product-variant" style="margin:4px 0 0">Opción: <strong><%= product.variantLabel %></strong></p><% } %>
       <p class="product-asin">ASIN: <strong><%= product.asin %></strong></p>
       <a href="<%= product.amazonUrl %>" target="_blank" rel="noopener sponsored" class="amazon-link">Ver en Amazon.es ↗</a>
 

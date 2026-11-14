@@ -44,6 +44,8 @@ export class WrongLocationError extends Error {
   }
 }
 
+import { extractTwister } from './twister';
+
 export interface VariantRef {
   asin: string;
   label: string;
@@ -776,27 +778,7 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
           // we already loaded — extracts each sibling ASIN, label and whether
           // its swatch is enabled. Selectable does NOT mean "in stock"; only
           // a per-variant scrape can confirm that.
-          page.evaluate((selfAsin: string): VariantRef[] => {
-            const seen = new Map<string, VariantRef>();
-            document.querySelectorAll('li[data-defaultasin], li[data-asin]').forEach((li) => {
-              const asin = li.getAttribute('data-defaultasin') || li.getAttribute('data-asin') || '';
-              if (!/^[A-Z0-9]{10}$/.test(asin)) return;
-              const isSelf = asin === selfAsin;
-              // The page's own option appears once per selector row; every other ASIN only once.
-              const rowEl = li.closest('[id^="variation_"]');
-              const seenKey = isSelf ? asin + '|' + (rowEl ? rowEl.id : '') : asin;
-              if (seen.has(seenKey)) return;
-              const altLabel = li.querySelector('img')?.getAttribute('alt')?.trim()
-                || li.textContent?.trim().slice(0, 40)
-                || '';
-              const selectable = !li.classList.contains('swatch-disabled')
-                && !li.classList.contains('a-button-disabled');
-              const row = li.closest('[id^="variation_"]');
-              const dim = row ? row.id.replace(/^variation_/, '').slice(0, 30) : undefined;
-              seen.set(seenKey, { asin, label: altLabel, selectable, ...(dim ? { dim } : {}), ...(isSelf ? { self: true } : {}) });
-            });
-            return [...seen.values()];
-          }, asin).catch(() => [] as VariantRef[]),
+          page.evaluate(extractTwister, asin).catch(() => [] as VariantRef[]),
           // Popularity metadata — captured best-effort on the same page load.
           // All three signals are optional; the auto-cleanup cron uses
           // their COMBINATION (no badge + few reviews + bad BSR) to decide

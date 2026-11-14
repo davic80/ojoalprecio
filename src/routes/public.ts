@@ -285,7 +285,8 @@ export interface OptionsView {
 async function buildOptionsView(product: { id: number; asin: string; variants_json?: string | null; created_at?: Date | string | null }, userId: number, opts: { open: boolean; detailsOpen?: boolean }): Promise<OptionsView> {
   let variants: Array<{ asin: string; label: string; selectable: boolean }> = [];
   try { variants = product.variants_json ? JSON.parse(String(product.variants_json)) : []; } catch { /* malformed */ }
-  variants = variants.filter(v => v && /^[A-Z0-9]{10}$/.test(v.asin) && v.asin !== product.asin);
+  variants = variants.filter(v => v && /^[A-Z0-9]{10}$/.test(v.asin) && v.asin !== product.asin && !(v as any).self);
+  variants = [...new Map(variants.map(v => [v.asin, v] as const)).values()];   // one row per ASIN
 
   const asins = [product.asin, ...variants.map(v => v.asin)];
   const rows = await db.execute(sql`
@@ -307,7 +308,7 @@ async function buildOptionsView(product: { id: number; asin: string; variants_js
     return { asin, label, selectable, productId: r?.id ?? null, price: r?.price ?? null, available: r ? !!r.available : null, followed: !!r?.followed, threshold: r?.threshold ?? null, reading: !!r && r.price == null && !!r.reading };
   };
   const ageMs = product.created_at ? Date.now() - new Date(product.created_at).getTime() : Infinity;
-  const current = mk(product.asin, 'Esta opción', true);
+  const current = mk(product.asin, (product as any).variant_label || 'Esta opción', true);
   const others = variants.map(v => mk(v.asin, cleanVariantLabel(v.label), v.selectable !== false));
   const waiting = variants.length === 0 && ageMs < 3 * 60 * 1000;     // twister not read yet
   const readingCount = [current, ...others].filter(r => r.reading).length;
@@ -549,6 +550,7 @@ router.get('/p/:asin', async (req: Request, res: Response) => {
     featureLock:          product.feature_lock,
     featuredAt:           product.featured_at,
     variantsJson:         product.variants_json,
+    variantLabel:         product.variant_label,
     createdAt:            product.created_at,
     lastScrapedAt:        history[0]?.scrapedAt ?? null,
     minPriceDate:         minPriceSince(history, minPrice),

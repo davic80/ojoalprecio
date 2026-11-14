@@ -147,11 +147,15 @@ async function checkAllProducts(): Promise<void> {
       }
     }
 
+    const sysId = await getSystemUserId();
     const activeProducts = await db.execute(sql`
       SELECT p.id, p.url, p.name, p.asin,
         p.is_available AS "isAvailable",
         p.last_checked_at AS "lastCheckedAt",
-        (SELECT ph.scraped_at FROM price_history ph WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1) AS "lastScrapedAt"
+        (SELECT ph.scraped_at FROM price_history ph WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1) AS "lastScrapedAt",
+        (p.group_id IS NOT NULL AND p.created_by_user_id IS NOT DISTINCT FROM ${sysId}
+          AND NOT EXISTS (SELECT 1 FROM user_products up WHERE up.product_id = p.id AND up.user_id IS DISTINCT FROM ${sysId})
+          AND NOT EXISTS (SELECT 1 FROM alerts al WHERE al.product_id = p.id)) AS "lowPriority"
       FROM products p
       WHERE p.is_active = TRUE AND p.is_failed = FALSE
     `);
@@ -485,7 +489,12 @@ export async function persistScrapeResult(
     try {
       // The new rows have last_checked_at = NULL: the first-scrape loop (startFirstScrapeLoop) picks them up
       // within seconds. It reads the database, so a restart in between loses nothing.
-      if (!opts.skipVariantIngest) await ingestNewVariants(productId, result.variants.map(v => v.asin));
+      // Discovery starts ONLY from products someone really follows (a system-discovered variant never
+      // discovers its own siblings: colour x size families would multiply the catalog), and only for options
+      // Amazon offers (an unavailable size would just be purged again).
+      if (!opts.skipVariantIngest && ((await getProtection(productId))?.realFollowersN ?? 0) > 0) {
+        await ingestNewVariants(productId, [...new Set(result.variants.filter(v => !v.self && v.selectable !== false).map(v => v.asin))]);
+      }
       // Group the family (size/colour options) so it is shown as one article.
       await assignGroup(result.asin, result.parentAsin ?? null, result.variants);
     } catch (err) {
@@ -547,6 +556,9 @@ async function getSystemUserId(): Promise<number | null> {
   return _systemUserIdCache;
 }
 
+/** Upper bound of new catalog rows one scrape may create (a colour x size family can list 100+ options). */
+const MAX_INGEST_PER_SCRAPE = 60;
+
 async function ingestNewVariants(parentProductId: number, variantAsins: string[]): Promise<Array<{ productId: number; asin: string }>> {
   if (!variantAsins.length) return [];
   const systemUserId = await getSystemUserId();
@@ -573,7 +585,7 @@ async function ingestNewVariants(parentProductId: number, variantAsins: string[]
     .where(and(inArray(purgedAsins.asin, variantAsins), sql`purged_at > NOW() - INTERVAL '30 days'`));
   const purged = new Set(purgedRows.map(r => r.asin));
 
-  const newAsins = variantAsins.filter(a => !existing.has(a) && !purged.has(a));
+  const newAsins = variantAsins.filter(a => !existing.has(a) && !purged.has(a)).slice(0, MAX_INGEST_PER_SCRAPE);
   if (!newAsins.length) return [];
 
   // Inherit category from parent for nicer grouping

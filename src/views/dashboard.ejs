@@ -282,6 +282,7 @@ function trendBadge(current, previous) {
         </div>
         <div class="product-info">
           <p class="product-name"><%= p.name ?? p.asin %></p>
+          <% if (p.variantLabel) { %><p class="product-variant" style="margin:2px 0 0;font-size:13px">Opción: <strong><%= p.variantLabel %></strong></p><% } %>
           <p class="product-asin">ASIN: <%= p.asin %><% if (p.isPublic) { %> · <span class="public-tag" title="Destacado en /ofertas">destacado</span><% } %><% if (typeof isAdmin !== 'undefined' && isAdmin && !p.isOwnProduct) { %> · <span class="hint" style="color:var(--gray-400)">sistema</span><% } %></p>
           <% if (p.categoryName) { %><a href="/c/<%= p.categorySlug %>" class="category-tag"><%= p.categoryName %></a><% } %>
           <% if (p.group && (p.group.options.length > 1 || p.group.more > 0)) { %>
