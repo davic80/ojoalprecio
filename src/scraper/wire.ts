@@ -15,6 +15,7 @@ export interface WireError {
   reason?: string;
   snippet?: string;
   productName?: string;
+  newAsin?: string;
 }
 
 export type WireResponse =
@@ -23,7 +24,7 @@ export type WireResponse =
 
 export function serializeError(e: unknown): WireError {
   if (e instanceof ProductUnavailableError) {
-    return { name: 'ProductUnavailableError', message: e.message, reason: e.reason, snippet: e.snippet, productName: e.productName };
+    return { name: 'ProductUnavailableError', message: e.message, reason: e.reason, snippet: e.snippet, productName: e.productName, newAsin: e.newAsin };
   }
   if (e instanceof CaptchaDetectedError) return { name: 'CaptchaDetectedError', message: e.message };
   if (e instanceof WrongLocationError)   return { name: 'WrongLocationError', message: e.message };
@@ -40,6 +41,7 @@ export function rebuildError(w: WireError): Error {
         (w.reason && REASONS.has(w.reason) ? w.reason : undefined) as ProductUnavailableError['reason'],
         w.snippet,
         w.productName,
+        w.newAsin,
       );
     case 'CaptchaDetectedError': return new CaptchaDetectedError(w.message);
     case 'WrongLocationError':   return new WrongLocationError(w.message);

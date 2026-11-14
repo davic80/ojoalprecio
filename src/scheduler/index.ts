@@ -11,6 +11,7 @@ import { sendTelegramAlert, sendTelegramBackInStock } from '../mailer/telegram';
 import { getSetting } from '../db/settings';
 import { selectDue } from './selection';
 import { Breaker, type ExecutorStatus } from './executors';
+import { sameArticle, ASIN_RE } from './redirect';
 import { startExecutorMonitor, isExecutorPaused, getExecutorSystem, pruneExecutorMetrics } from './executor-monitor';
 import { remoteScrape, parseRemotes, ExecutorUnavailableError } from '../scraper/remote';
 import { sendOpsAlert } from '../lib/ops-alert';
@@ -555,6 +556,9 @@ async function ingestNewVariants(parentProductId: number, variantAsins: string[]
     .from(products)
     .where(inArray(products.asin, variantAsins));
   const existing = new Set(existingRows.map(r => r.asin));
+  // ASINs Amazon already moved to another one must not come back as new products.
+  const aliasRows = await db.execute(sql`SELECT old_asin FROM asin_redirects WHERE old_asin IN (${sql.join(variantAsins.map(a => sql`${a}`), sql`, `)})`);
+  for (const r of aliasRows.rows as any[]) existing.add(String(r.old_asin));
 
   // Also skip ASINs that were recently auto-purged (within 30 days). Without
   // this, the next parent scrape re-discovers them and we churn forever.
@@ -592,6 +596,59 @@ async function ingestNewVariants(parentProductId: number, variantAsins: string[]
     }
   }
   return inserted;
+}
+
+/**
+ * Amazon served the page of another ASIN for this product. If that page is the SAME article (titles
+ * match), Amazon simply moved it: switch our product to the new ASIN — or, when the new ASIN is already
+ * in the catalog, merge followers, alerts and curated lists into it and drop the duplicate. Never hides
+ * the product. A different size/colour (titles differ) is NOT followed: returns false and the normal
+ * unavailable lifecycle applies. The old ASIN is remembered in asin_redirects.
+ */
+export async function handleAsinRedirect(productId: number, label: string, newAsinRaw: string, servedName?: string): Promise<boolean> {
+  const newAsin = newAsinRaw.toUpperCase();
+  if (!ASIN_RE.test(newAsin)) return false;
+  const [old] = await db.select({ asin: products.asin, name: products.name }).from(products).where(eq(products.id, productId)).limit(1);
+  if (!old || old.asin === newAsin) return false;
+  if (!sameArticle(old.name, servedName)) {
+    console.log(`[scheduler] ${label} → redirige a ${newAsin} pero el título no coincide ("${(servedName ?? '').slice(0, 50)}"): no se sigue (puede ser otra talla/color)`);
+    return false;
+  }
+
+  let outcome: 'cambiado' | 'fusionado' = 'cambiado';
+  await db.transaction(async (tx) => {
+    const target = await tx.execute(sql`
+      SELECT id FROM products WHERE asin = ${newAsin} AND id <> ${productId}
+      ORDER BY (SELECT COUNT(*) FROM price_history ph WHERE ph.product_id = products.id) DESC LIMIT 1
+    `);
+    const targetId = (target.rows[0] as any)?.id as number | undefined;
+    if (targetId === undefined) {
+      // New ASIN not tracked yet: this very product becomes it. Due again at once so the next scrape fills it in.
+      await tx.execute(sql`
+        UPDATE products SET asin = ${newAsin}, url = ${`https://www.amazon.es/dp/${newAsin}`}, last_error = NULL,
+          consecutive_unavailable = 0, unavailable_confirmations = 0, last_checked_at = NULL
+        WHERE id = ${productId}
+      `);
+    } else {
+      outcome = 'fusionado';
+      // Move everything that belongs to people, then drop the duplicate (the rest cascades).
+      await tx.execute(sql`INSERT INTO user_products (user_id, product_id, added_at)
+        SELECT user_id, ${targetId}, added_at FROM user_products WHERE product_id = ${productId} ON CONFLICT DO NOTHING`);
+      await tx.execute(sql`UPDATE alerts SET product_id = ${targetId} WHERE product_id = ${productId}`);
+      await tx.execute(sql`UPDATE alert_events SET product_id = ${targetId} WHERE product_id = ${productId}`);
+      await tx.execute(sql`UPDATE recommendation_items SET product_id = ${targetId}
+        WHERE product_id = ${productId}
+          AND NOT EXISTS (SELECT 1 FROM recommendation_items r2 WHERE r2.product_id = ${targetId} AND r2.list_id = recommendation_items.list_id)`);
+      // If someone follows it, the surviving product must be active (it may have been paused by the cleanup).
+      await tx.execute(sql`UPDATE products SET is_active = TRUE WHERE id = ${targetId}
+        AND (EXISTS (SELECT 1 FROM user_products WHERE product_id = ${targetId}) OR EXISTS (SELECT 1 FROM alerts WHERE product_id = ${targetId}))`);
+      await tx.delete(products).where(eq(products.id, productId));
+    }
+    await tx.execute(sql`INSERT INTO asin_redirects (old_asin, new_asin) VALUES (${old.asin}, ${newAsin})
+      ON CONFLICT (old_asin) DO UPDATE SET new_asin = EXCLUDED.new_asin, created_at = NOW()`);
+  });
+  console.log(`[scheduler] ${label} → ASIN ${old.asin} ahora es ${newAsin} (${outcome}); mismo artículo, no se oculta`);
+  return true;
 }
 
 /** Who still cares about a product: real (non-system) followers and anyone with an alert. */
@@ -831,6 +888,8 @@ async function checkProduct(productId: number, url: string, label: string, timeo
   } catch (err) {
     if (err instanceof ProductUnavailableError) {
       lastOkAt = Date.now(); // Amazon answered definitively
+      // Amazon moved the ARTICLE to another ASIN: follow it instead of hiding the product.
+      if (err.reason === 'redirect' && err.newAsin && await handleAsinRedirect(productId, label, err.newAsin, err.productName)) return;
       // 'unqualified' is the transient kind: Amazon sometimes returns a product
       // page with no qualified buybox for a few minutes then recovers. Mark
       // unavailable only after 3 consecutive strikes so a single glitch doesn't

@@ -961,6 +961,13 @@ export const MIGRATIONS: string[] = [
      container_mem_mb INTEGER, container_cpu_pct REAL, temp_c REAL
    );
    CREATE INDEX IF NOT EXISTS idx_executor_metrics_executor_ts ON executor_metrics (executor, ts DESC);`,
+  // Amazon moved an article to another ASIN: remember old -> new so it is not re-ingested
+  // and so a link with the old ASIN resolves to the current one.
+  `CREATE TABLE IF NOT EXISTS asin_redirects (
+     old_asin   VARCHAR(10) PRIMARY KEY,
+     new_asin   VARCHAR(10) NOT NULL,
+     created_at TIMESTAMP NOT NULL DEFAULT NOW()
+   );`,
 ];
 
 export async function migrate(pool: Pool = defaultPool): Promise<void> {

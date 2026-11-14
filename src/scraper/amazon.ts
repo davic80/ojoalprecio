@@ -8,12 +8,15 @@ export class ProductUnavailableError extends Error {
   //  'redirect' — the page is for a DIFFERENT ASIN (Amazon redirected a retired variant)
   reason?: 'used' | 'unqualified' | 'gone' | 'redirect';
   snippet?: string;
+  /** For reason 'redirect': the ASIN of the page Amazon actually served. */
+  newAsin?: string;
   // Product title captured before the throw, when available. The scheduler
   // persists this so products that fail before reaching persistScrapeResult
   // still have a name for the admin UI / dashboards.
   productName?: string;
-  constructor(message: string, reason?: 'used' | 'unqualified' | 'gone' | 'redirect', snippet?: string, productName?: string) {
+  constructor(message: string, reason?: 'used' | 'unqualified' | 'gone' | 'redirect', snippet?: string, productName?: string, newAsin?: string) {
     super(message);
+    this.newAsin = newAsin;
     this.name = 'ProductUnavailableError';
     this.reason = reason;
     this.snippet = snippet;
@@ -592,7 +595,9 @@ export async function scrapeProduct(url: string, timeoutSeconds = 30): Promise<S
         // page's price under this ASIN would be wrong data, so treat it as a different product.
         const pageAsin = await page.locator('#ASIN').first().getAttribute('value', { timeout: 1500 }).catch(() => null);
         if (pageAsin && /^[A-Z0-9]{10}$/i.test(pageAsin) && pageAsin.toUpperCase() !== asin.toUpperCase()) {
-          throw new ProductUnavailableError(`El ASIN redirige a otra variante (${pageAsin.toUpperCase()})`, 'redirect');
+          // The title of the page that WAS served lets the scheduler decide if it is the same article.
+          const servedTitle = ((await page.locator('#productTitle').first().textContent({ timeout: 2000 }).catch(() => null)) ?? (await page.title().catch(() => ''))).replace(/\s*:\s*Amazon\.es.*$/i, '').replace(/\s+/g, ' ').trim();
+          throw new ProductUnavailableError(`El ASIN redirige a otra variante (${pageAsin.toUpperCase()})`, 'redirect', undefined, servedTitle || undefined, pageAsin.toUpperCase());
         }
 
         // Phase 1: name + availability in parallel. Title races every known

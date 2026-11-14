@@ -265,6 +265,11 @@ router.post(
       return res.status(400).json({ error: 'No se pudo extraer el ASIN. ¿Es una URL válida de Amazon.es?' });
     }
 
+    // A link with an ASIN that Amazon has since moved resolves to the current one.
+    const alias = await db.execute(sql`SELECT new_asin FROM asin_redirects WHERE old_asin = ${asin} LIMIT 1`);
+    const movedTo = (alias.rows[0] as any)?.new_asin as string | undefined;
+    if (movedTo) asin = movedTo;
+
     const canonicalUrl = normaliseAmazonUrl(asin);
 
     // Find an existing product with this ASIN globally (any user). If one exists,
