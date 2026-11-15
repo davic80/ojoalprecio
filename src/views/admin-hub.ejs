@@ -13,7 +13,7 @@
     <div><h1 style="margin:0">Panel de admin</h1><p class="subtitle" style="margin:0">Todo en un sitio.</p></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <form action="/admin/scrape/trigger" method="POST" style="display:inline;margin:0">
-        <button type="submit" class="btn btn-sm btn-outline" <%= scraperStatus.isRunning ? 'disabled' : '' %>>↺ Forzar ciclo</button>
+        <button type="submit" class="btn btn-sm btn-outline" title="El scraper trabaja sin parar; esto reconstruye la cola ahora mismo (productos nuevos, prioridades).">↺ Actualizar cola</button>
       </form>
       <a href="/admin/import-url" class="btn btn-sm btn-outline">+ Importar URL</a>
       <form hx-post="/admin/categories/auto-categorize-uncategorized" hx-confirm="Aplicar el diccionario de auto-categorización a todos los productos sin categoría. ¿Seguir?" style="display:inline;margin:0">
@@ -27,7 +27,7 @@
   <div class="card" style="padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;gap:12px;background:#fef3c7;border-color:#fde68a">
     <span style="width:10px;height:10px;border-radius:50%;background:#dc2626;display:inline-block;animation:pulse 1.2s infinite"></span>
     <span style="font-size:14px;flex:1">
-      Scraper activo — <%= scraperStatus.done %>/<%= scraperStatus.total %> productos
+      Scraper activo — <%= scraperStatus.done %> leídos en esta hora · <%= Math.max(0, scraperStatus.total - scraperStatus.done) %> en cola
       <% if (scraperStatus.current) { %><span class="hint">· <%= scraperStatus.current.name.slice(0,60) %></span><% } %>
     </span>
   </div>

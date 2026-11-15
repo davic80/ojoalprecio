@@ -918,10 +918,10 @@ router.get('/admin/system-stats', requireAuth, requireAdmin, (_req: Request, res
   });
 });
 
-// ── POST /admin/scrape/trigger — Force-start a new scrape cycle ───────────────
+// ── POST /admin/scrape/trigger — Rebuild the scrape queue now ───────────────
 router.post('/admin/scrape/trigger', requireAuth, requireAdmin, (_req: Request, res: Response) => {
   const started = triggerScrape();
-  res.json({ started, message: started ? 'Ciclo iniciado.' : 'Ya hay un ciclo en marcha.' });
+  res.json({ started, message: 'Cola actualizada: el scraper trabaja sin parar y ya ha recogido los productos pendientes.' });
 });
 
 // ── GET /admin/deals ──────────────────────────────────────────────────────────

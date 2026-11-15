@@ -11,6 +11,7 @@ import { decideAfterConfirmedUnavailable, describeReason, DEFAULT_LIFECYCLE, typ
 import { sendTelegramAlert, sendTelegramBackInStock } from '../mailer/telegram';
 import { getSetting } from '../db/settings';
 import { selectDue } from './selection';
+import { WorkQueue, RateWindow } from './queue';
 import { Breaker, type ExecutorStatus } from './executors';
 import { sameArticle, ASIN_RE } from './redirect';
 import { startExecutorMonitor, isExecutorPaused, getExecutorSystem, pruneExecutorMetrics } from './executor-monitor';
@@ -47,8 +48,7 @@ let cycleStartedAt = 0;
 let lastProgressAt = Date.now();
 let lastOkAt = Date.now();      // last time Amazon gave us a definitive answer
 let lastDueCount = 0;
-const CYCLE_MAX_MS           = 50 * 60 * 1000;      // end before the next hourly tick
-const STUCK_AFTER_MS         = 8 * 60 * 1000;       // nothing finished for 8 min
+const STUCK_AFTER_MS         = 8 * 60 * 1000;       // work waiting but nothing finished for 8 min
 const NO_OK_ALERT_AFTER_MS   = 3 * 60 * 60 * 1000;  // no definitive answer for 3 h
 const MAX_CONSECUTIVE_BLOCKS = 3;
 
@@ -68,14 +68,14 @@ function statFor(e: Executor): ExecutorStatus {
 
 export function getScraperHealth() {
   const now = Date.now();
-  const stuck = isRunning && now - lastProgressAt > STUCK_AFTER_MS;
+  const stuck = isRunning && (queue.size + queue.running) > 0 && now - lastProgressAt > STUCK_AFTER_MS;
   const noAnswers = lastDueCount > 0 && now - lastOkAt > NO_OK_ALERT_AFTER_MS;
   return {
     ok: !stuck && !noAnswers,
     isRunning, stuck, noAnswers,
     lastProgressAgeSec: Math.round((now - lastProgressAt) / 1000),
     lastAnswerAgeSec:   Math.round((now - lastOkAt) / 1000),
-    cycleAgeSec:        isRunning ? Math.round((now - cycleStartedAt) / 1000) : null,
+    cycleAgeSec:        isRunning ? Math.round((now - passStartedAt) / 1000) : null,
     done: state.done, total: state.total,
     executors: [...executorStats.values()].map(e => ({
       ...e,
@@ -86,223 +86,276 @@ export function getScraperHealth() {
   };
 }
 
-// A cron tick that arrives while a cycle is still running is remembered, so the next cycle
-// starts right after the current one instead of idling until the following hour. Without
-// this, a mid-hour restart left the scraper stopped for up to ~50 min (the 50 min cycle
-// deadline ended just past :00, that tick was skipped, and the next one was an hour away).
-let tickSkipped = false;
+// ── Continuous scraping ──────────────────────────────────────────────────────
+// Until 2026-11-16 the scraper worked in hourly cycles: it built the list of due products, worked it
+// for at most 50 minutes and then did nothing until the next :00 (about 17 % of every hour). Now the
+// workers never stop: they take the next due product from a queue (queue.ts) that is rebuilt from the
+// database every few minutes with the same fair order (selection.ts). Nothing is lost on a restart:
+// what is due is always derived from products.last_checked_at.
+// SCRAPER_TIME_SCALE shrinks every wait of the loop (tests only): 1 in production.
+const TIME_SCALE         = Number(process.env.SCRAPER_TIME_SCALE ?? 1) || 1;
+const REFILL_EVERY_MS    = 5 * 60 * 1000 * TIME_SCALE;    // rebuild the queue this often (new products, changed priorities)
+const REFILL_MIN_GAP_MS  = 30 * 1000 * TIME_SCALE;        // …and never more often than this, even when it runs dry
+const SUPERVISOR_TICK_MS = 10 * 1000 * TIME_SCALE;
+const WORKER_IDLE_MS     = 5 * 1000 * TIME_SCALE;         // a worker with nothing to take looks again after this
+const RETRY_FAILED_EVERY_MS = 60 * 60 * 1000;
+const EXECUTOR_GIVE_UP_MS   = 10 * 60 * 1000; // after repeated Amazon blocks / wrong location an executor rests this long
 
-async function checkAllProducts(): Promise<void> {
-  if (isRunning) {
-    console.log('[scheduler] Previous run still active, skipping.');
-    tickSkipped = true;
-    return;
-  }
-  tickSkipped = false;
-  isRunning = true;
-  const gen = ++cycleGen;
-  const alive = () => gen === cycleGen;
-  cycleStartedAt = Date.now();
-  lastProgressAt = Date.now();
-  state.isRunning = true;
-  state.done = 0;
-  state.log = [];
+type DueRow = { id: number; url: string; name: string | null; asin: string } & Record<string, any>;
 
-  // Abort cycle early if IP is still in captcha cooldown
-  if (isCaptchaBlocked()) {
-    const secs = Math.round(captchaRemainingMs() / 1000);
-    console.log(`[scheduler] IP bloqueada, saltando ciclo. Cooldown restante: ${secs}s`);
-    isRunning = false;
-    state.isRunning = false;
-    return;
-  }
+interface ScrapeSettings {
+  concurrency: number; remoteCount: number; scraperTimeout: number; remoteTimeout: number;
+  minAgeMs: number; unavailableRecheckMs: number; retryFailedPerCycle: number;
+}
+let settings: ScrapeSettings = { concurrency: 1, remoteCount: 0, scraperTimeout: 30, remoteTimeout: 75, minAgeMs: 59 * 60_000, unavailableRecheckMs: 24 * 3600_000, retryFailedPerCycle: 30 };
 
-  // Read live settings from DB each cycle — DB is source of truth, no env fallbacks
-  const CONCURRENCY            = Math.max(1, Math.min(8,   Number(await getSetting('scraper_concurrency',    2))));
-  const RETRY_FAILED_PER_CYCLE = Math.max(0, Math.min(100, Number(await getSetting('retry_failed_per_cycle', 30))));
-  const MIN_AGE_MINUTES        = Math.max(1, Math.min(1440,Number(await getSetting('min_age_minutes',        59))));
-  const SCRAPER_TIMEOUT        = Math.max(15,Math.min(120, Number(await getSetting('scraper_timeout_seconds',30))));
-  // Remote executors (the Pi 4) are several times slower per page (measured 27-36 s vs ~7 s here), so they
-  // need their own, longer plazo; with the local 24 s almost every product page timed out there.
-  const REMOTE_TIMEOUT         = Math.max(30,Math.min(120, Number(await getSetting('scraper_remote_timeout_seconds', 75))));
-  const MIN_AGE_MS = MIN_AGE_MINUTES * 60 * 1000;
-  // Unavailable products are "paused": rechecked only this often (grace period before removal).
-  const UNAVAILABLE_RECHECK_MS = Math.max(1, Math.min(168, Number(await getSetting('unavailable_pause_hours', 24)))) * 60 * 60 * 1000;
+let queue = new WorkQueue<DueRow>();
+const rate = new RateWindow(Date.now());
+let refillRequested = false;
+let lastRefillAt = 0;
+let lastRetryAt = 0;
+let passStartedAt = Date.now();
+const givenUpUntil = new Map<string, number>();
+/** Per product: how many times an executor failure sent it back (it gives up after two). */
+const requeues = new Map<number, number>();
 
-  let processed = 0, answered = 0;
-  try {
-    // Release up to RETRY_FAILED_PER_CYCLE failed products back into the normal cycle.
-    // Ordered by id ASC so the backlog drains predictably (30/cycle ≈ 17 cycles for 512 products).
-    if (RETRY_FAILED_PER_CYCLE > 0) {
-      const retried = await db.execute(sql`
-        UPDATE products
-        SET is_failed = FALSE, consecutive_failures = 0
-        WHERE id IN (
-          SELECT id FROM products
-          WHERE is_active = TRUE AND is_failed = TRUE
-          ORDER BY id ASC
-          LIMIT ${RETRY_FAILED_PER_CYCLE}
-        )
-        RETURNING id
-      `);
-      if (retried.rows.length > 0) {
-        console.log(`[scheduler] Retry: ${retried.rows.length} failed products re-queued for this cycle`);
-      }
-    }
+async function loadSettings(): Promise<ScrapeSettings> {
+  const concurrency = Math.max(1, Math.min(8, Number(await getSetting('scraper_concurrency', 2))));
+  return {
+    concurrency,
+    remoteCount: Math.max(0, Math.min(4, Number(await getSetting('scraper_remote_concurrency', 0)))),
+    scraperTimeout: Math.max(15, Math.min(120, Number(await getSetting('scraper_timeout_seconds', 30)))),
+    // Remote executors (the Pi 4) are several times slower per page (measured 27-36 s vs ~7 s here), so they
+    // need their own, longer plazo; with the local 24 s almost every product page timed out there.
+    remoteTimeout: Math.max(30, Math.min(120, Number(await getSetting('scraper_remote_timeout_seconds', 75)))),
+    minAgeMs: Math.max(1, Math.min(1440, Number(await getSetting('min_age_minutes', 59)))) * 60_000,
+    // Unavailable products are "paused": rechecked only this often (grace period before removal).
+    unavailableRecheckMs: Math.max(1, Math.min(168, Number(await getSetting('unavailable_pause_hours', 24)))) * 3600_000,
+    retryFailedPerCycle: Math.max(0, Math.min(100, Number(await getSetting('retry_failed_per_cycle', 30)))),
+  };
+}
 
-    const sysId = await getSystemUserId();
-    const activeProducts = await db.execute(sql`
-      SELECT p.id, p.url, p.name, p.asin,
-        p.is_available AS "isAvailable",
-        p.last_checked_at AS "lastCheckedAt",
-        (SELECT ph.scraped_at FROM price_history ph WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1) AS "lastScrapedAt",
-        (p.group_id IS NOT NULL AND p.created_by_user_id IS NOT DISTINCT FROM ${sysId}
-          AND NOT EXISTS (SELECT 1 FROM user_products up WHERE up.product_id = p.id AND up.user_id IS DISTINCT FROM ${sysId})
-          AND NOT EXISTS (SELECT 1 FROM alerts al WHERE al.product_id = p.id)) AS "lowPriority"
-      FROM products p
-      WHERE p.is_active = TRUE AND p.is_failed = FALSE
+/** Rebuild the waiting list from the database, in the fair order of selection.ts. */
+async function refillQueue(q: WorkQueue<DueRow>): Promise<void> {
+  const wasIdle = q.size === 0 && q.running === 0;
+  settings = await loadSettings();
+
+  // Release up to RETRY_FAILED_PER_CYCLE failed products back into the normal flow (at most once an hour).
+  if (settings.retryFailedPerCycle > 0 && Date.now() - lastRetryAt >= RETRY_FAILED_EVERY_MS) {
+    lastRetryAt = Date.now();
+    const retried = await db.execute(sql`
+      UPDATE products
+      SET is_failed = FALSE, consecutive_failures = 0
+      WHERE id IN (
+        SELECT id FROM products
+        WHERE is_active = TRUE AND is_failed = TRUE
+        ORDER BY id ASC
+        LIMIT ${settings.retryFailedPerCycle}
+      )
+      RETURNING id
     `);
-    // Oldest-checked first; unavailable products are rechecked at most every 12 h.
-    const toCheck = selectDue(activeProducts.rows as any[], Date.now(), MIN_AGE_MS, UNAVAILABLE_RECHECK_MS);
-    state.total = toCheck.length;
-    state.activeCount = activeProducts.rows.length;
-    lastDueCount = toCheck.length;
-    console.log(`[scheduler] ${toCheck.length}/${activeProducts.rows.length} products due for check (${CONCURRENCY} workers)…`);
+    if (retried.rows.length > 0) console.log(`[scheduler] Retry: ${retried.rows.length} failed products re-queued`);
+  }
 
-    // Worker pool. Workers run on EXECUTORS: this process (CONCURRENCY workers) plus, when
-    // `scraper_remote_concurrency` > 0 and SCRAPER_REMOTES is set, workers whose scrapes run
-    // on a remote machine (the Pi). The queue, persistence and alerts stay here either way.
-    const localExec: Executor = { name: 'local', kind: 'local', scrape: scrapeProduct };
-    const remoteCount = Math.max(0, Math.min(4, Number(await getSetting('scraper_remote_concurrency', 0))));
-    const remoteExecs: Executor[] = remoteCount > 0
-      ? parseRemotes(process.env.SCRAPER_REMOTES, process.env.SCRAPER_REMOTE_TOKEN).map(cfg => {
-          if (!remoteBreakers.has(cfg.name)) remoteBreakers.set(cfg.name, new Breaker());
-          return { name: cfg.name, kind: 'remote' as const, scrape: (u: string, t: number) => remoteScrape(cfg, u, t), breaker: remoteBreakers.get(cfg.name)! };
-        })
-      : [];
-    const executors: Executor[] = [
-      ...Array.from({ length: CONCURRENCY }, () => localExec),
-      ...(remoteExecs.length ? Array.from({ length: remoteCount }, (_, i) => remoteExecs[i % remoteExecs.length]) : []),
-    ];
-    if (remoteExecs.length) console.log(`[scheduler] Ejecutores remotos: ${remoteCount} worker(s) en ${[...new Set(remoteExecs.map(e => e.name))].join(', ')}`);
+  const sysId = await getSystemUserId();
+  const activeProducts = await db.execute(sql`
+    SELECT p.id, p.url, p.name, p.asin,
+      p.is_available AS "isAvailable",
+      p.last_checked_at AS "lastCheckedAt",
+      (SELECT ph.scraped_at FROM price_history ph WHERE ph.product_id = p.id ORDER BY ph.scraped_at DESC LIMIT 1) AS "lastScrapedAt",
+      (p.group_id IS NOT NULL AND p.created_by_user_id IS NOT DISTINCT FROM ${sysId}
+        AND NOT EXISTS (SELECT 1 FROM user_products up WHERE up.product_id = p.id AND up.user_id IS DISTINCT FROM ${sysId})
+        AND NOT EXISTS (SELECT 1 FROM alerts al WHERE al.product_id = p.id)) AS "lowPriority"
+    FROM products p
+    WHERE p.is_active = TRUE AND p.is_failed = FALSE
+  `);
+  // Oldest-checked first; unavailable products are rechecked at most every 24 h.
+  const due = selectDue(activeProducts.rows as any[], Date.now(), settings.minAgeMs, settings.unavailableRecheckMs) as DueRow[];
+  const queued = q.replace(due);
+  lastRefillAt = Date.now();
+  state.activeCount = activeProducts.rows.length;
+  lastDueCount = queued + q.running;
+  if (wasIdle && queued > 0) { passStartedAt = Date.now(); state.done = 0; }
+  state.total = state.done + queued + q.running;
+  if (wasIdle && queued > 0) {
+    console.log(`[scheduler] ${queued}/${activeProducts.rows.length} products due for check (${settings.concurrency} local + ${settings.remoteCount} remote workers)…`);
+  }
+}
 
-    // A product handed back after its executor failed is retried by another worker, at most twice.
-    const requeues = new Map<number, number>();
-    let idx = 0;
-    const counters = new Map<string, { blocks: number; wrongLoc: number }>();
-    const stopped = new Set<string>();     // executors that gave up for this cycle
-    const countersFor = (name: string) => { let c = counters.get(name); if (!c) { c = { blocks: 0, wrongLoc: 0 }; counters.set(name, c); } return c; };
+interface WorkerSlot { key: string; exec: Executor }
 
-    async function worker(exec: Executor): Promise<void> {
-      const st = statFor(exec);
-      const cnt = countersFor(exec.name);
-      while (alive() && !stopped.has(exec.name) && idx < toCheck.length && Date.now() - cycleStartedAt < CYCLE_MAX_MS) {
-        // A remote executor whose breaker is open sits out (and keeps the watchdog calm) until it closes.
-        if (exec.breaker?.isOpen(Date.now()) || (exec.kind === 'remote' && isExecutorPaused(exec.name)) || (recyclingUntil.get(exec.name) ?? 0) > Date.now()) { lastProgressAt = Date.now(); await sleep(5000); continue; }
-        const product = toCheck[idx++];
-        state.current = { id: product.id, name: product.name ?? product.asin, asin: product.asin };
-        let ok = true;
-        try {
-          await checkProduct(product.id, product.url, product.name ?? product.asin, exec.kind === 'remote' ? REMOTE_TIMEOUT : SCRAPER_TIMEOUT, exec.scrape);
-          cnt.blocks = 0; cnt.wrongLoc = 0; answered++; st.done++;
-          exec.breaker?.success();
-        } catch (e) {
-          ok = false;
-          if (e instanceof ExecutorRecyclingError) {
-            // The remote service is restarting on purpose to free memory (a few seconds): not a failure,
-            // so no breaker, no counters, no email. Put the product back and come back shortly.
-            toCheck.push(product);
-            recyclingUntil.set(exec.name, Date.now() + 45_000);   // Docker needs a few seconds to bring it back; don't knock meanwhile
-            lastProgressAt = Date.now();
+/** The worker slots the current settings ask for: local workers plus, when configured, workers on remote executors. */
+function desiredSlots(): WorkerSlot[] {
+  const local: Executor = { name: 'local', kind: 'local', scrape: scrapeProduct };
+  const slots: WorkerSlot[] = Array.from({ length: settings.concurrency }, (_, i) => ({ key: `local#${i}`, exec: local }));
+  if (settings.remoteCount > 0) {
+    const remotes: Executor[] = parseRemotes(process.env.SCRAPER_REMOTES, process.env.SCRAPER_REMOTE_TOKEN).map(cfg => {
+      if (!remoteBreakers.has(cfg.name)) remoteBreakers.set(cfg.name, new Breaker());
+      return { name: cfg.name, kind: 'remote' as const, scrape: (u: string, t: number) => remoteScrape(cfg, u, t), breaker: remoteBreakers.get(cfg.name)! };
+    });
+    if (remotes.length) for (let i = 0; i < settings.remoteCount; i++) slots.push({ key: `${remotes[i % remotes.length].name}#${i}`, exec: remotes[i % remotes.length] });
+  }
+  return slots;
+}
+
+const counters = new Map<string, { blocks: number; wrongLoc: number }>();
+const countersFor = (name: string) => { let c = counters.get(name); if (!c) { c = { blocks: 0, wrongLoc: 0 }; counters.set(name, c); } return c; };
+
+/** One worker: takes the next due product, scrapes it on its executor, persists it, and starts over. Never ends by itself. */
+async function scrapeWorker(slot: WorkerSlot, q: WorkQueue<DueRow>, alive: () => boolean): Promise<void> {
+  const exec = slot.exec;
+  const st = statFor(exec);
+  const cnt = countersFor(exec.name);
+  while (alive()) {
+    // A remote executor whose breaker is open, that is paused for pressure, restarting or resting after blocks sits out.
+    if (exec.breaker?.isOpen(Date.now()) || (exec.kind === 'remote' && isExecutorPaused(exec.name))
+        || (recyclingUntil.get(exec.name) ?? 0) > Date.now() || (givenUpUntil.get(exec.name) ?? 0) > Date.now()) {
+      lastProgressAt = Date.now(); await sleep(5000); continue;
+    }
+    const product = q.take();
+    if (!product) { await sleep(WORKER_IDLE_MS); continue; }
+    state.current = { id: product.id, name: product.name ?? product.asin, asin: product.asin };
+    let ok = true;
+    let handedBack = false;
+    try {
+      try {
+        await checkProduct(product.id, product.url, product.name ?? product.asin, exec.kind === 'remote' ? settings.remoteTimeout : settings.scraperTimeout, exec.scrape);
+        cnt.blocks = 0; cnt.wrongLoc = 0; rate.answered++; st.done++; requeues.delete(product.id);
+        exec.breaker?.success();
+      } catch (e) {
+        ok = false;
+        if (e instanceof ExecutorRecyclingError) {
+          // The remote service is restarting on purpose to free memory (a few seconds): not a failure,
+          // so no breaker, no counters, no email. Put the product back and come back shortly.
+          q.giveBack(product); handedBack = true;
+          recyclingUntil.set(exec.name, Date.now() + 45_000);   // Docker needs a few seconds to bring it back; don't knock meanwhile
+          lastProgressAt = Date.now();
+          continue;
+        }
+        if (e instanceof ExecutorUnavailableError) {
+          st.failed++; st.lastError = e.message.slice(0, 160);
+          const n = (requeues.get(product.id) ?? 0) + 1;
+          requeues.set(product.id, n);
+          if (n <= 2) { q.giveBack(product); handedBack = true; }   // another worker (or this one later) takes it
+          const opened = exec.breaker!.failure(Date.now());
+          console.log(`[scheduler] Ejecutor ${exec.name} no disponible (${e.message.slice(0, 100)})${opened ? ' — se aparta 5 min' : ''}`);
+          if (opened) {
+            await sendOpsAlert(`executor-${exec.name}`, `El ejecutor remoto "${exec.name}" no responde`, [
+              `Tres fallos seguidos hablando con ${exec.name}. Se aparta 5 minutos; el scraper sigue con el resto.`,
+              `Último error: ${e.message.slice(0, 200)}`,
+              'Revisa que la Pi esté encendida, con Tailscale activo y el contenedor del scraper en marcha.',
+            ], 60 * 60 * 1000);
+          }
+          lastProgressAt = Date.now();
+          await sleep(5000);
+          continue;
+        }
+        if (e instanceof CaptchaDetectedError) {
+          // Don't stop everything on one block: pause for the cooldown and carry on.
+          // Only rest (and warn the admin) after several blocks in a row.
+          if (!e.message.startsWith('[PAUSA]')) cnt.blocks++;
+          if (cnt.blocks >= MAX_CONSECUTIVE_BLOCKS) {
+            givenUpUntil.set(exec.name, Date.now() + EXECUTOR_GIVE_UP_MS);
+            cnt.blocks = 0;
+            await sendOpsAlert(`blocks-${exec.name}`, exec.kind === 'local' ? 'Amazon está bloqueando el scraper' : `Amazon está bloqueando el ejecutor "${exec.name}"`, [
+              `${MAX_CONSECUTIVE_BLOCKS} bloqueos seguidos (interstitial/captcha). Este ejecutor descansa 10 minutos y se reintenta.`,
+              `Último mensaje: ${e.message.slice(0, 200)}`,
+            ]);
             continue;
           }
-          if (e instanceof ExecutorUnavailableError) {
-            st.failed++; st.lastError = e.message.slice(0, 160);
-            const n = (requeues.get(product.id) ?? 0) + 1;
-            requeues.set(product.id, n);
-            if (n <= 2) toCheck.push(product);        // another worker (or this one later) takes it
-            const opened = exec.breaker!.failure(Date.now());
-            console.log(`[scheduler] Ejecutor ${exec.name} no disponible (${e.message.slice(0, 100)})${opened ? ' — se aparta 5 min' : ''}`);
-            if (opened) {
-              await sendOpsAlert(`executor-${exec.name}`, `El ejecutor remoto "${exec.name}" no responde`, [
-                `Tres fallos seguidos hablando con ${exec.name}. Se aparta 5 minutos; el scraper sigue con el resto.`,
-                `Último error: ${e.message.slice(0, 200)}`,
-                'Revisa que la Pi esté encendida, con Tailscale activo y el contenedor del scraper en marcha.',
-              ], 60 * 60 * 1000);
-            }
-            lastProgressAt = Date.now();
-            await sleep(5000);
-            continue;
-          }
-          if (e instanceof CaptchaDetectedError) {
-            // Don't abort the whole cycle on one block: pause for the cooldown and carry on.
-            // Only give up (and warn the admin) after several blocks in a row.
-            if (!e.message.startsWith('[PAUSA]')) cnt.blocks++;
-            if (cnt.blocks >= MAX_CONSECUTIVE_BLOCKS) {
-              stopped.add(exec.name);
-              await sendOpsAlert(`blocks-${exec.name}`, exec.kind === 'local' ? 'Amazon está bloqueando el scraper' : `Amazon está bloqueando el ejecutor "${exec.name}"`, [
-                `${cnt.blocks} bloqueos seguidos (interstitial/captcha). Este ejecutor se detiene y se reintenta en el próximo ciclo.`,
-                `Último mensaje: ${e.message.slice(0, 200)}`,
-              ]);
-              break;
-            }
-            // The cooldown clock of a remote machine lives there; use a fixed pause for remotes.
-            const waitMs = (exec.kind === 'local' ? Math.min(captchaRemainingMs(), 11 * 60 * 1000) : 10 * 60 * 1000) + 2000;
-            console.log(`[scheduler] Bloqueo de Amazon en ${exec.name} (${cnt.blocks}/${MAX_CONSECUTIVE_BLOCKS}); pausa ${Math.round(waitMs / 1000)}s y sigo`);
-            for (let waited = 0; waited < waitMs && alive(); waited += 5000) { await sleep(5000); lastProgressAt = Date.now(); }
-            continue;
-          }
-          if (e instanceof WrongLocationError) {
-            cnt.wrongLoc++;
-            if (cnt.wrongLoc === 3) {
-              await sendOpsAlert(`location-${exec.name}`, 'Amazon no respeta la ubicación en España', [
-                `${cnt.wrongLoc} páginas seguidas con ubicación distinta del CP ${process.env.AMAZON_ZIP || '28001'} (ejecutor: ${exec.name}).`,
-                `Detalle: ${e.message}`,
-                'Se reinicia el navegador y se vuelve a fijar el código postal.',
-              ]);
-              if (exec.kind === 'local') restartBrowser();   // a remote service resets its own session on this error
-              await sleep(30_000);
-            } else if (cnt.wrongLoc >= 8) { stopped.add(exec.name); break; }
+          // The cooldown clock of a remote machine lives there; use a fixed pause for remotes.
+          const waitMs = (exec.kind === 'local' ? Math.min(captchaRemainingMs(), 11 * 60 * 1000) : 10 * 60 * 1000) + 2000;
+          console.log(`[scheduler] Bloqueo de Amazon en ${exec.name} (${cnt.blocks}/${MAX_CONSECUTIVE_BLOCKS}); pausa ${Math.round(waitMs / 1000)}s y sigo`);
+          for (let waited = 0; waited < waitMs && alive(); waited += 5000) { await sleep(5000); lastProgressAt = Date.now(); }
+          continue;
+        }
+        if (e instanceof WrongLocationError) {
+          cnt.wrongLoc++;
+          if (cnt.wrongLoc === 3) {
+            await sendOpsAlert(`location-${exec.name}`, 'Amazon no respeta la ubicación en España', [
+              `${cnt.wrongLoc} páginas seguidas con ubicación distinta del CP ${process.env.AMAZON_ZIP || '28001'} (ejecutor: ${exec.name}).`,
+              `Detalle: ${e.message}`,
+              'Se reinicia el navegador y se vuelve a fijar el código postal.',
+            ]);
+            if (exec.kind === 'local') restartBrowser();   // a remote service resets its own session on this error
+            await sleep(30_000);
+          } else if (cnt.wrongLoc >= 8) { givenUpUntil.set(exec.name, Date.now() + EXECUTOR_GIVE_UP_MS); cnt.wrongLoc = 0; continue; }
+        }
+      }
+      rate.processed++;
+      if (!alive()) return;
+      lastProgressAt = Date.now();
+      state.log.unshift({ id: product.id, name: product.name ?? product.asin, asin: product.asin, ok, ts: Date.now() });
+      if (state.log.length > 50) state.log.pop();
+      state.done++;
+      state.total = Math.max(state.total, state.done + q.size + q.running);
+    } finally {
+      if (!handedBack) q.done(product);
+    }
+    // Delay skewed toward lower bound: x² pushes ~75% of values into the bottom half of the range
+    await sleep((1000 + Math.floor(Math.random() ** 2 * 4000)) * TIME_SCALE);
+  }
+}
+
+/** Keeps the queue filled, starts/retires workers when the settings change and writes the hourly summary. */
+async function superviseScraping(gen: number, q: WorkQueue<DueRow>): Promise<void> {
+  const alive = () => gen === cycleGen;
+  const workers = new Map<string, Promise<void>>();
+  const wanted = new Set<string>();
+  while (alive()) {
+    try {
+      const now = Date.now();
+      const due = refillRequested || (q.size === 0 && now - lastRefillAt >= REFILL_MIN_GAP_MS) || now - lastRefillAt >= REFILL_EVERY_MS;
+      if (due) {
+        refillRequested = false;
+        await refillQueue(q);
+        const slots = desiredSlots();
+        wanted.clear(); slots.forEach(s => wanted.add(s.key));
+        for (const s of slots) {
+          if (!workers.has(s.key)) {
+            const p = scrapeWorker(s, q, () => alive() && wanted.has(s.key))
+              .catch(err => console.error(`[scheduler] Worker ${s.key} failed:`, err))
+              .finally(() => { if (workers.get(s.key) === p) workers.delete(s.key); });
+            workers.set(s.key, p);
           }
         }
-        processed++;
-        if (!alive()) return;
-        lastProgressAt = Date.now();
-        state.log.unshift({ id: product.id, name: product.name ?? product.asin, asin: product.asin, ok, ts: Date.now() });
-        if (state.log.length > 50) state.log.pop();
-        state.done++;
-        // Delay skewed toward lower bound: x² pushes ~75% of values into the bottom half of the range
-        await sleep(1000 + Math.floor(Math.random() ** 2 * 4000));
       }
-    }
+      state.isRunning = q.size + q.running > 0;
+      state.total = Math.max(state.total, state.done + q.size + q.running);
+      // Nothing to do is not "stuck": keep the heartbeat while the queue is empty.
+      if (q.size === 0 && q.running === 0) lastProgressAt = Date.now();
 
-    await Promise.all(executors.slice(0, Math.max(1, toCheck.length)).map(exec => worker(exec)));
-
-    if (alive()) {
-      const hitDeadline = Date.now() - cycleStartedAt >= CYCLE_MAX_MS;
-      console.log(`[scheduler] Cycle complete. ${answered}/${processed} respuestas válidas en ${Math.round((Date.now() - cycleStartedAt) / 60000)} min${hitDeadline ? ' (plazo del ciclo agotado)' : ''}.`);
-      if (processed >= 30 && answered / processed < 0.3) {
-        await sendOpsAlert('lowrate', 'El scraper casi no obtiene respuestas válidas', [
-          `Ciclo con ${answered} respuestas válidas de ${processed} intentos (<30 %).`,
-          'Puede ser un cambio en la web de Amazon, un bloqueo o la ubicación.',
-        ], 6 * 60 * 60 * 1000);
+      if (rate.ageMs(Date.now()) >= 60 * 60 * 1000) {
+        console.log(`[scheduler] Última hora: ${rate.answered}/${rate.processed} respuestas válidas; en cola ${q.size}.`);
+        if (rate.isLowRate()) {
+          await sendOpsAlert('lowrate', 'El scraper casi no obtiene respuestas válidas', [
+            `Última hora con ${rate.answered} respuestas válidas de ${rate.processed} intentos (<30 %).`,
+            'Puede ser un cambio en la web de Amazon, un bloqueo o la ubicación.',
+          ], 6 * 60 * 60 * 1000);
+        }
+        rate.reset(Date.now());
+        state.done = 0; state.total = q.size + q.running;    // the panel shows the current hour
       }
+    } catch (err) {
+      console.error('[scheduler] Unexpected error in the scrape supervisor:', err);
     }
-  } catch (err) {
-    console.error('[scheduler] Unexpected error in cycle:', err);
-  } finally {
-    // A watchdog-abandoned generation must not clobber the state of its successor.
-    if (alive()) {
-      isRunning = false;
-      state.isRunning = false;
-      state.current = null;
-      if (tickSkipped) {
-        tickSkipped = false;
-        console.log('[scheduler] Había un aviso pendiente: arranco el siguiente ciclo ya.');
-        setTimeout(() => { checkAllProducts().catch(e => console.error('[scheduler] ciclo encadenado:', e)); }, 3000);
-      }
-    }
+    await sleep(SUPERVISOR_TICK_MS);
   }
+}
+
+/** Start the continuous scraping (idempotent). If it is already running, just ask for a fresh queue. */
+function startScraping(): boolean {
+  if (isRunning) { refillRequested = true; return false; }
+  isRunning = true;
+  const gen = ++cycleGen;
+  queue = new WorkQueue<DueRow>();
+  requeues.clear();
+  passStartedAt = cycleStartedAt = Date.now();
+  lastProgressAt = Date.now();
+  lastRefillAt = 0;
+  console.log('[scheduler] Scraping continuo: los trabajadores cogen siempre el siguiente producto pendiente (sin ciclos por hora).');
+  superviseScraping(gen, queue).catch(err => console.error('[scheduler] Supervisor ended:', err));
+  return true;
 }
 
 /**
@@ -313,7 +366,7 @@ async function checkAllProducts(): Promise<void> {
  */
 export async function runScraperWatchdog(): Promise<void> {
   const now = Date.now();
-  if (isRunning && now - lastProgressAt > STUCK_AFTER_MS) {
+  if (isRunning && (queue.size + queue.running) > 0 && now - lastProgressAt > STUCK_AFTER_MS) {
     const mins = Math.round((now - lastProgressAt) / 60000);
     const lastAsin = state.current?.asin ?? 'desconocido';
     console.error(`[watchdog] Ciclo colgado: ${mins} min sin progreso (${lastAsin}). Reiniciando.`);
@@ -326,7 +379,7 @@ export async function runScraperWatchdog(): Promise<void> {
       `Llevaba ${mins} min sin completar ningún producto (último: ${lastAsin}).`,
       'El vigilante ha matado Chromium y lanza un ciclo nuevo.',
     ], 60 * 60 * 1000);
-    setTimeout(() => { checkAllProducts().catch(e => console.error('[watchdog] relanzar ciclo:', e)); }, 5000);
+    setTimeout(() => { startScraping(); }, 5000);
     return;
   }
   if (lastDueCount > 0 && now - lastOkAt > NO_OK_ALERT_AFTER_MS) {
@@ -1205,9 +1258,16 @@ async function processAlerts(
   }
 }
 
+/** Tests only: stop the supervisor and its workers. */
+export function stopScrapingForTests(): void {
+  cycleGen++; isRunning = false; state.isRunning = false; queue = new WorkQueue<DueRow>(); refillRequested = false; lastRefillAt = 0;
+}
+export { startScraping };
+
 export function triggerScrape(): boolean {
-  if (isRunning) return false;
-  checkAllProducts().catch(err => console.error('[scheduler] Manual trigger error:', err));
+  // The scraper never stops now: "force" means rebuild the queue right away (new products, changed priorities).
+  startScraping();
+  refillRequested = true;
   return true;
 }
 
@@ -1318,8 +1378,9 @@ async function runHourlyMaintenance(): Promise<void> {
 
 export function startScheduler(): void {
   console.log(`[scheduler] Starting with schedule: "${CHECK_INTERVAL}"`);
-  checkAllProducts();
-  cron.schedule(CHECK_INTERVAL, () => { checkAllProducts(); });
+  startScraping();
+  // Safety net: if the supervisor ever died, the hourly tick starts it again (otherwise it only asks for a fresh queue).
+  cron.schedule(CHECK_INTERVAL, () => { startScraping(); });
 
   startExecutorMonitor();
   startFirstScrapeLoop();
