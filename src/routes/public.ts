@@ -24,6 +24,16 @@ function minPriceSince(history: Array<{ price: unknown; scrapedAt: Date }>, minP
 
 const router = Router();
 
+// ── GET /privacidad — Privacy & cookies policy ───────────────────────────────
+// Optional PRIVACY_CONTACT_EMAIL and LEGAL_NAME env vars fill in who to contact / who is responsible.
+router.get('/privacidad', (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  res.render('privacy', {
+    legalName: (process.env.LEGAL_NAME ?? '').trim(),
+    contactEmail: (process.env.PRIVACY_CONTACT_EMAIL ?? '').trim(),
+  });
+});
+
 // ── GET /robots.txt — Crawler directives ─────────────────────────────────────
 // Allow public pages; block admin + auth + bare /search (the URL is
 // query-driven and would produce empty results in the index). Points

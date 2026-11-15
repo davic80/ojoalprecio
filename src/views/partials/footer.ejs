@@ -6,5 +6,5 @@
 %>
 <% const _tg = typeof showTelegram === 'undefined' ? true : showTelegram; -%>
 <footer class="footer">
-  <p>OjoAlPrecio v<%= process.env['APP_VERSION'] ?? 'dev' %> &nbsp;·&nbsp; <%- middleHtml %><% if (_tg && process.env.TELEGRAM_PUBLIC_CHANNEL) { %> &nbsp;·&nbsp; <a href="https://t.me/<%= process.env.TELEGRAM_PUBLIC_CHANNEL.replace('@','') %>" target="_blank" rel="noopener">📢 Telegram</a><% } %></p>
+  <p>OjoAlPrecio v<%= process.env['APP_VERSION'] ?? 'dev' %> &nbsp;·&nbsp; <%- middleHtml %> &nbsp;·&nbsp; <a href="/privacidad">Privacidad</a><% if (_tg && process.env.TELEGRAM_PUBLIC_CHANNEL) { %> &nbsp;·&nbsp; <a href="https://t.me/<%= process.env.TELEGRAM_PUBLIC_CHANNEL.replace('@','') %>" target="_blank" rel="noopener">📢 Telegram</a><% } %></p>
 </footer>

@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<%- include('partials/head', {
+  title: 'Política de privacidad y cookies — OjoAlPrecio',
+  description: 'Qué datos guarda OjoAlPrecio, para qué, con quién se comparten y cómo ejercer tus derechos.',
+}) %>
+</head>
+<body>
+
+<%- include('partials/navbar', { variant: 'anonymous' }) %>
+
+<main class="container">
+  <div class="page-header">
+    <h1>Política de privacidad y cookies</h1>
+    <p class="subtitle">Última actualización: 15 de noviembre de 2026</p>
+  </div>
+
+  <div class="card" style="padding:20px 24px; line-height:1.6;">
+
+    <h2>Quién es el responsable</h2>
+    <p>
+      OjoAlPrecio (<%= siteUrl %>) es un servicio de seguimiento de precios de Amazon.es.
+      <% if (legalName) { %>Responsable del tratamiento: <strong><%= legalName %></strong>.<% } %>
+      <% if (contactEmail) { %>Para cualquier cuestión sobre tus datos, escribe a
+        <a href="mailto:<%= contactEmail %>"><%= contactEmail %></a>.<% } else { %>Para cualquier cuestión sobre tus datos, responde a cualquiera de los correos que te enviamos.<% } %>
+    </p>
+
+    <h2>Sin cuenta</h2>
+    <p>
+      Puedes ver ofertas, fichas de producto y el historial de precios sin registrarte. En ese caso no guardamos
+      datos personales tuyos: solo contamos visitas de forma agregada (página, día, origen y tipo de dispositivo),
+      sin dirección IP ni identificador tuyo.
+    </p>
+
+    <h2>Si creas una cuenta</h2>
+    <ul>
+      <li><strong>Email</strong> y, si te registras con contraseña, la contraseña guardada <em>cifrada</em> (nunca en claro).</li>
+      <li><strong>Inicio de sesión con Google:</strong> guardamos el identificador de tu cuenta de Google y tu email verificado. No recibimos tu contraseña de Google.</li>
+      <li><strong>Lo que haces en el servicio:</strong> los productos que sigues, tus alertas de precio y su historial de avisos.</li>
+      <li><strong>Telegram (opcional):</strong> si enlazas Telegram para recibir avisos, guardamos el identificador de tu chat.</li>
+      <li><strong>Sesión:</strong> una cookie para mantenerte conectado (ver más abajo).</li>
+    </ul>
+    <p>Usamos estos datos solo para darte el servicio: iniciar sesión, vigilar los precios que has pedido y avisarte por email o Telegram. No los vendemos ni los usamos para publicidad de terceros.</p>
+    <p>Base legal: la ejecución del servicio que solicitas al registrarte (art. 6.1.b RGPD) y, para las estadísticas, nuestro interés legítimo o tu consentimiento según corresponda.</p>
+
+    <h2>Con quién compartimos datos</h2>
+    <p>Solo con los proveedores necesarios para que el servicio funcione:</p>
+    <ul>
+      <li><strong>Hetzner</strong> — alojamiento del servidor y la base de datos (Unión Europea).</li>
+      <li><strong>Brevo</strong> — envío de los correos (verificación, recuperación de contraseña y avisos de precio).</li>
+      <li><strong>Cloudflare Turnstile</strong> — comprobación anti-bots al registrarte con contraseña. Puede leer datos técnicos de tu navegador para distinguirte de un robot.</li>
+      <li><strong>Google</strong> — si inicias sesión con Google, y para las estadísticas de uso (Google Analytics, ver cookies).</li>
+      <li><strong>Telegram</strong> — solo si enlazas tu cuenta para recibir avisos.</li>
+    </ul>
+
+    <h2>Cookies</h2>
+    <ul>
+      <li><strong>Cookie de sesión</strong> (necesaria): mantiene tu sesión iniciada hasta 30 días. Sin ella no puedes entrar.</li>
+      <% if (gaMeasurementId) { %>
+      <li><strong>Google Analytics</strong> (estadísticas): mide visitas y páginas vistas de forma agregada. Google puede guardar cookies (por ejemplo <code>_ga</code>) en tu navegador.</li>
+      <% } %>
+    </ul>
+    <p>Puedes borrar o bloquear las cookies desde la configuración de tu navegador; sin la cookie de sesión no podrás iniciar sesión.</p>
+
+    <h2>Enlaces de afiliado</h2>
+    <p>
+      Como afiliado de Amazon, obtenemos ingresos por las compras adscritas que cumplen los requisitos aplicables.
+      Los enlaces a Amazon llevan nuestro identificador de afiliado; a ti no te cuesta más. También usamos enlaces de afiliado de AliExpress.
+    </p>
+
+    <h2>Cuánto tiempo guardamos los datos</h2>
+    <p>Mientras tengas la cuenta. Si la borramos (a petición tuya), se eliminan también tus seguimientos, alertas y avisos. Los precios públicos de los productos no son datos personales y se conservan.</p>
+
+    <h2>Tus derechos</h2>
+    <p>
+      Puedes pedirnos acceso a tus datos, que los corrijamos, que los eliminemos (incluida tu cuenta), limitar su uso, oponerte o recibirlos en un formato portable.
+      <% if (contactEmail) { %>Escríbenos a <a href="mailto:<%= contactEmail %>"><%= contactEmail %></a>.<% } else { %>Responde a cualquier correo que te enviemos.<% } %>
+      Si crees que no hemos tratado bien tus datos, puedes reclamar ante la Agencia Española de Protección de Datos (<a href="https://www.aepd.es" target="_blank" rel="noopener">aepd.es</a>).
+    </p>
+
+    <h2>Cambios</h2>
+    <p>Si cambiamos algo importante lo reflejaremos aquí, con la fecha de la última actualización.</p>
+  </div>
+</main>
+
+<%- include('partials/footer', { middleHtml: '<a href="/ofertas">Ver ofertas</a>' }) %>
+</body>
+</html>
