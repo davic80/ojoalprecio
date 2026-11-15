@@ -9,7 +9,7 @@ async function get(p: string, locals: Record<string, unknown> = {}) {
   const app = express();
   app.set('view engine', 'ejs');
   app.set('views', path.resolve(__dirname, '..', 'src', 'views'));
-  app.use((_req, res, next) => { Object.assign(res.locals, { siteUrl: 'https://ojoalprecio.test', gaMeasurementId: '', affiliateUrl: (u: string) => u }, locals); next(); });
+  app.use((_req, res, next) => { Object.assign(res.locals, { siteUrl: 'https://ojoalprecio.test', affiliateUrl: (u: string) => u }, locals); next(); });
   app.use('/', publicRouter);
   const server = http.createServer(app);
   await new Promise<void>(r => server.listen(0, '127.0.0.1', r));
@@ -28,9 +28,21 @@ describe('/privacidad', () => {
     for (const t of ['Política de privacidad', 'Brevo', 'Hetzner', 'Cloudflare Turnstile', 'Como afiliado de Amazon', 'Tus derechos', 'aepd.es']) expect(r.text).toContain(t);
   });
 
-  it('only mentions Google Analytics cookies when analytics is enabled', async () => {
-    expect((await get('/privacidad', { gaMeasurementId: '' })).text).not.toContain('Google Analytics</strong>');
-    expect((await get('/privacidad', { gaMeasurementId: 'G-TEST' })).text).toContain('Google Analytics</strong>');
+  it('says analytics is cookieless, and only when it is enabled; never mentions Google Analytics', async () => {
+    const off = (await get('/privacidad', { analyticsToken: '' })).text;
+    expect(off).not.toContain('Cloudflare Web Analytics');
+    const on = (await get('/privacidad', { analyticsToken: 'tok123' })).text;
+    expect(on).toContain('Cloudflare Web Analytics');
+    expect(on).toContain('sin cookies');
+    expect(on + off).not.toContain('Google Analytics');
+  });
+
+  it('the beacon is emitted only with a token, and no Google Analytics script ever is', async () => {
+    const on = (await get('/privacidad', { analyticsToken: 'tok123' })).text;
+    expect(on).toContain('static.cloudflareinsights.com/beacon.min.js');
+    expect(on).toContain('tok123');
+    expect(on).not.toContain('googletagmanager');
+    expect((await get('/privacidad')).text).not.toContain('cloudflareinsights');
   });
 
   it('shows the contact email and legal name only when configured (nothing personal in the repo)', async () => {

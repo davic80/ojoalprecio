@@ -50,18 +50,22 @@
       <li><strong>Hetzner</strong> — alojamiento del servidor y la base de datos (Unión Europea).</li>
       <li><strong>Brevo</strong> — envío de los correos (verificación, recuperación de contraseña y avisos de precio).</li>
       <li><strong>Cloudflare Turnstile</strong> — comprobación anti-bots al registrarte con contraseña. Puede leer datos técnicos de tu navegador para distinguirte de un robot.</li>
-      <li><strong>Google</strong> — si inicias sesión con Google, y para las estadísticas de uso (Google Analytics, ver cookies).</li>
+      <li><strong>Google</strong> — solo si inicias sesión con Google.</li>
+      <% if (typeof analyticsToken !== 'undefined' && analyticsToken) { %><li><strong>Cloudflare Web Analytics</strong> — estadísticas de visitas <em>sin cookies</em> (ver abajo).</li><% } %>
       <li><strong>Telegram</strong> — solo si enlazas tu cuenta para recibir avisos.</li>
     </ul>
 
     <h2>Cookies</h2>
     <ul>
       <li><strong>Cookie de sesión</strong> (necesaria): mantiene tu sesión iniciada hasta 30 días. Sin ella no puedes entrar.</li>
-      <% if (gaMeasurementId) { %>
-      <li><strong>Google Analytics</strong> (estadísticas): mide visitas y páginas vistas de forma agregada. Google puede guardar cookies (por ejemplo <code>_ga</code>) en tu navegador.</li>
-      <% } %>
     </ul>
     <p>Puedes borrar o bloquear las cookies desde la configuración de tu navegador; sin la cookie de sesión no podrás iniciar sesión.</p>
+    <% if (typeof analyticsToken !== 'undefined' && analyticsToken) { %>
+    <p>
+      <strong>Estadísticas sin cookies.</strong> Para saber cuántas personas visitan cada página usamos Cloudflare Web Analytics, que no usa cookies ni
+      almacenamiento en tu navegador, no te sigue entre sitios web y no guarda tu dirección IP. Por eso no necesitas aceptar ningún aviso de cookies para navegar.
+    </p>
+    <% } %>
 
     <h2>Enlaces de afiliado</h2>
     <p>

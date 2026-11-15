@@ -101,13 +101,13 @@ export function createApp() {
   }
 
   // Globals exposed to every view via res.locals — saves having to pass
-  // them on every res.render() call. GA_MEASUREMENT_ID is optional; when
-  // unset, the head partial silently omits the gtag.js block.
+  // them on every res.render() call. CF_ANALYTICS_TOKEN (Cloudflare Web Analytics,
+  // cookieless) is optional; when unset, the head partial silently omits the beacon.
   const _siteUrl     = (process.env.SITE_URL ?? 'http://localhost:3000').replace(/\/$/, '');
-  const _gaId        = process.env.GA_MEASUREMENT_ID ?? '';
+  const _analyticsToken = (process.env.CF_ANALYTICS_TOKEN ?? '').trim();
   app.use((_req, res, next) => {
     res.locals.siteUrl          = _siteUrl;
-    res.locals.gaMeasurementId  = _gaId;
+    res.locals.analyticsToken   = _analyticsToken;
     // Outbound Amazon links in views: affiliateUrl(url) adds the configured tracking ID.
     res.locals.affiliateUrl     = affiliateUrl;
     res.locals.friendlyScrapeError = friendlyScrapeError;

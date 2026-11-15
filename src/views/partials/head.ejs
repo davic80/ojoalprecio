@@ -11,7 +11,7 @@
   //
   // res.locals (set by server.ts middleware, available to every view):
   //   siteUrl            — public origin, no trailing slash
-  //   gaMeasurementId    — GA4 ID like "G-XXXXXXXXXX"; empty when not configured
+  //   analyticsToken     — Cloudflare Web Analytics token (cookieless); empty when not configured
   const _title         = typeof title === 'string' ? title : 'OjoAlPrecio';
   const _description   = typeof description === 'string' ? description : null;
   const _canonicalPath = typeof canonicalPath === 'string' ? canonicalPath : null;
@@ -20,7 +20,7 @@
   const _includeHtmx     = typeof includeHtmx === 'boolean' && includeHtmx;
   const _includeHtmxSse  = typeof includeHtmxSse === 'boolean' && includeHtmxSse;
   const _includeChart    = typeof includeChart === 'boolean' && includeChart;
-  // gaMeasurementId and siteUrl come from res.locals — available implicitly.
+  // analyticsToken and siteUrl come from res.locals — available implicitly.
 _%>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -96,15 +96,8 @@ if ('serviceWorker' in navigator) {
   });
 }
 </script>
-<%_ if (typeof gaMeasurementId !== 'undefined' && gaMeasurementId) { _%>
-<%# Google Analytics 4 — only emitted when GA_MEASUREMENT_ID env var is set.
-   gtag.js loaded async so it never blocks render. Default config enables
-   the auto pageview; no extra event needed per route. -%>
-<script async src="https://www.googletagmanager.com/gtag/js?id=<%= gaMeasurementId %>"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-  gtag('config', '<%= gaMeasurementId %>');
-</script>
+<%_ if (typeof analyticsToken !== 'undefined' && analyticsToken) { _%>
+<%# Cloudflare Web Analytics — cookieless: no cookies, no localStorage, no cross-site tracking, no IP stored.
+   Only emitted when CF_ANALYTICS_TOKEN is set. Replaces Google Analytics (which needed a cookie banner). -%>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "<%= analyticsToken %>"}'></script>
 <%_ } _%>

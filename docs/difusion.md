@@ -33,4 +33,4 @@ OjoAlPrecio es un seguimiento de precios de Amazon.es y AliExpress, gratuito y e
 
 1. **Google Search Console** (https://search.google.com/search-console): añadir la propiedad ojoalprecio.com, verificar con un registro TXT en Cloudflare y enviar https://ojoalprecio.com/sitemap.xml. Lo mismo en Bing Webmaster Tools.
 2. **Publicar** los textos de arriba, uno cada vez y con ofertas reales.
-3. **Mirar en el panel /admin/stats** (y en Google Analytics, cuando vuelva a medir) de dónde llegan las visitas, y repetir lo que funcione.
+3. **Mirar en el panel /admin/stats** (y en Cloudflare Web Analytics, cuando esté activo) de dónde llegan las visitas, y repetir lo que funcione.

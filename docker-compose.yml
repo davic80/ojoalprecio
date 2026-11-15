@@ -52,8 +52,8 @@ services:
       - ALIEXPRESS_APP_KEY=${ALIEXPRESS_APP_KEY}
       - ALIEXPRESS_APP_SECRET=${ALIEXPRESS_APP_SECRET}
       - ALIEXPRESS_TRACKING_ID=${ALIEXPRESS_TRACKING_ID}
-      # Google Analytics 4 (optional; head partial omits gtag when empty)
-      - GA_MEASUREMENT_ID=${GA_MEASUREMENT_ID:-}
+      # Cloudflare Web Analytics (cookieless; optional, the head partial omits the beacon when empty)
+      - CF_ANALYTICS_TOKEN=${CF_ANALYTICS_TOKEN:-}
       # Optional remote scrape executors (e.g. the Pi). Off unless the DB setting
       # scraper_remote_concurrency > 0. See deploy/pi/README.md.
       - SCRAPER_REMOTES=${SCRAPER_REMOTES:-}
