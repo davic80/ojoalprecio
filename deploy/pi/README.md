@@ -44,3 +44,12 @@ CPU del contenedor (en % de 1 núcleo), memoria del contenedor frente a su lími
 Con el cgroup de memoria activado (`cgroup_enable=memory cgroup_memory=1` en `/boot/firmware/cmdline.txt`) el límite se aplica de verdad. Con **2 trabajadores** y **1 GB** el contenedor vivía pegado al tope (570-880 MB): llegó a morir el servicio por memoria (`dmesg`: *Memory cgroup out of memory*) y, al rozar el límite, el contenedor se atascaba (swap) y la prueba de DNS hecha desde dentro fallaba aunque el Pi-hole respondía a la casa en ~1 ms (visto en `pihole-FTL.db`). Ahora: **`SCRAPER_MEM=1536m`** y **`memswap_limit` igual** (sin swap para el contenedor). Uso medido tras el cambio: 265-545 MiB, sin eventos de límite.
 
 Para volver al límite anterior: `SCRAPER_MEM=1g` en el `.env` de la Pi y `docker compose up -d --force-recreate` (hay que recrear: el límite se fija al crear el contenedor).
+
+
+## El servicio se recicla solo (2026-11-15)
+
+El proceso Node del servicio (`dist/scraper-service.js`) crece ~300 MB por hora y, aun con 1,5 GiB, el kernel lo mató a las 08:04 y a las 11:28 (*Memory cgroup out of memory*, node con ~890 MB). Ahora **se reinicia él mismo** antes de que pase: cuando el Node supera `SCRAPER_RECYCLE_RSS_MB` (700) o, como red de seguridad, tras `SCRAPER_RECYCLE_AFTER` consultas (400), deja de aceptar trabajo nuevo (responde 503 `recycling`), espera a que terminen las consultas en curso (máx. 90 s), sale, y Docker (`restart: unless-stopped`) lo levanta limpio en unos segundos. El servidor principal lo trata como una pausa normal: no cuenta como fallo, no abre el cortacircuitos ni manda correo, y deja ese ejecutor en reposo 45 s.
+
+Además, el contenedor sube a **2 GiB** (`SCRAPER_MEM=2048m`, sin swap) para que Chromium y el Node tengan holgura. Cada 5 minutos el servicio escribe en el log una línea `[mem] node rss=… heap=… external=… buffers=… consultas=…` para ver de dónde crece la memoria (montón de JS, buffers o nativa) y poder arreglar la causa. Se ve con `docker logs ojoalprecio-scraper | grep '\[mem\]'`.
+
+Para cambiar los límites: `SCRAPER_RECYCLE_RSS_MB` / `SCRAPER_RECYCLE_AFTER` en el `.env` de la Pi (0 = desactivado) y `docker compose up -d --force-recreate`. Marcha atrás de los 2 GiB: `SCRAPER_MEM=1536m` y recrear.

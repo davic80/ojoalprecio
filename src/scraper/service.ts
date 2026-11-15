@@ -24,6 +24,24 @@ export interface ServiceDeps {
   getHistory?: (maxPoints: number) => SystemSample[];
   /** Refuse NEW scrapes (503) while the host's free memory is below this. Protects whatever else runs there (Pi-hole). */
   minFreeMemMb?: number;
+  /**
+   * Self-recycling. The Node process of the service slowly grows (about 300 MB/hour on the Pi 4)
+   * and ends up killed by the kernel in the middle of scrapes. Instead of waiting for that, when it
+   * crosses a limit the service stops taking new work (503 "recycling"), lets the running scrapes
+   * finish and calls onRecycle (the entry point exits; Docker starts it again with fresh memory).
+   */
+  recycle?: {
+    /** Node resident memory (MB) above which the service recycles. 0 = off. */
+    maxRssMb?: number;
+    /** Scrapes served since start above which the service recycles. 0 = off. */
+    maxServed?: number;
+    /** Current resident memory of this Node process in MB. */
+    getRssMb?: () => number;
+    /** Called once, when it is safe to exit (nothing in flight, or the drain took too long). */
+    onRecycle: (why: string) => void;
+    /** Max time to wait for running scrapes before exiting anyway. Default 90 s. */
+    drainMs?: number;
+  };
 }
 
 const AMAZON_DP = /^https:\/\/www\.amazon\.es\/dp\/[A-Z0-9]{10}(\?[A-Za-z0-9=&_%.-]*)?$/;
@@ -41,6 +59,25 @@ export function createService(deps: ServiceDeps): http.RequestListener {
   const maxQueue = deps.maxQueue ?? deps.concurrency * 2;
   let served = 0, failed = 0;
   const startedAt = Date.now();
+  let recycling: string | null = null;
+  let recycled = false;
+  const fire = (why: string) => { if (recycled) return; recycled = true; deps.recycle!.onRecycle(why); };
+
+  /** Decide, after each finished scrape, whether this process should be replaced by a fresh one. */
+  function maybeRecycle() {
+    const r = deps.recycle;
+    if (!r) return;
+    if (!recycling) {
+      const rss = r.getRssMb?.() ?? 0;
+      if (r.maxRssMb && rss >= r.maxRssMb) recycling = `memoria ${Math.round(rss)} MB (límite ${r.maxRssMb})`;
+      else if (r.maxServed && served + failed >= r.maxServed) recycling = `${served + failed} consultas atendidas (límite ${r.maxServed})`;
+      if (recycling) {
+        const t = setTimeout(() => fire(`${recycling} — drenaje agotado`), r.drainMs ?? 90_000);
+        t.unref();
+      }
+    }
+    if (recycling && inFlight === 0 && queued === 0) fire(recycling);
+  }
 
   async function acquire(): Promise<boolean> {
     if (inFlight < deps.concurrency) { inFlight++; return true; }
@@ -65,7 +102,8 @@ export function createService(deps: ServiceDeps): http.RequestListener {
 
     if (req.method === 'GET' && req.url === '/health') {
       return send(res, 200, {
-        ok: true, inFlight, queued, served, failed,
+        ok: true, inFlight, queued, served, failed, recycling: recycling !== null,
+        rssMb: deps.recycle?.getRssMb ? Math.round(deps.recycle.getRssMb()) : undefined,
         uptimeSec: Math.round((Date.now() - startedAt) / 1000), version: deps.version ?? 'dev',
         system: deps.getSystem?.() ?? null,
       });
@@ -89,6 +127,7 @@ export function createService(deps: ServiceDeps): http.RequestListener {
     const sys = deps.getSystem?.();
     if (deps.minFreeMemMb && sys && sys.hostMemAvailMb < deps.minFreeMemMb) return send(res, 503, { error: 'memory pressure' });
 
+    if (recycling) return send(res, 503, { error: 'recycling' });
     if (!(await acquire())) return send(res, 503, { error: 'busy' });
     try {
       const result = await deps.scrape(url, timeout);
@@ -99,6 +138,7 @@ export function createService(deps: ServiceDeps): http.RequestListener {
       send(res, 200, { ok: false, error: serializeError(e) } satisfies WireResponse);
     } finally {
       release();
+      maybeRecycle();
     }
   };
 }

@@ -10,6 +10,14 @@ export class ExecutorUnavailableError extends Error {
   }
 }
 
+/** The remote service is restarting on purpose (it recycled its own memory). Not a failure: retry in a few seconds. */
+export class ExecutorRecyclingError extends ExecutorUnavailableError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ExecutorRecyclingError';
+  }
+}
+
 export interface RemoteExecutorConfig {
   name: string;
   baseUrl: string;
@@ -45,6 +53,10 @@ export async function remoteScrape(
     throw new ExecutorUnavailableError(`${cfg.name}: sin conexión (${e instanceof Error ? e.message : e})`);
   }
   if (res.status === 401 || res.status === 403) throw new ExecutorUnavailableError(`${cfg.name}: token rechazado (${res.status})`);
+  if (res.status === 503) {
+    const b = await res.json().catch(() => null) as { error?: string } | null;
+    if (b?.error === 'recycling') throw new ExecutorRecyclingError(`${cfg.name}: reiniciándose para liberar memoria`);
+  }
   if (res.status === 503 || res.status === 429)  throw new ExecutorUnavailableError(`${cfg.name}: ocupado (${res.status})`);
   if (res.status >= 500)                         throw new ExecutorUnavailableError(`${cfg.name}: error del servicio (${res.status})`);
 

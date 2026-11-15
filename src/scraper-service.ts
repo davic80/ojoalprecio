@@ -21,16 +21,39 @@ const concurrency = Math.max(1, Math.min(4, parseInt(process.env.SCRAPER_SERVICE
 // Resource monitoring starts with the process: CPU/memory/swap/temperature every 10 s.
 const sampler = new MetricsSampler();
 sampler.start();
-setInterval(() => { const s = sampler.latest(); if (s) console.log(`[metrics] ${formatSample(s)}`); }, 5 * 60 * 1000).unref();
+let served = 0;
+const mb = (n: number) => Math.round(n / 1048576);
+setInterval(() => {
+  const s = sampler.latest(); if (s) console.log(`[metrics] ${formatSample(s)}`);
+  // Where the Node process memory goes (JS heap vs Buffers vs native), to find the slow growth.
+  const m = process.memoryUsage();
+  console.log(`[mem] node rss=${mb(m.rss)}MB heap=${mb(m.heapUsed)}/${mb(m.heapTotal)}MB external=${mb(m.external)}MB buffers=${mb(m.arrayBuffers)}MB consultas=${served}`);
+}, 5 * 60 * 1000).unref();
+
+// Recycle the process before the kernel kills it: by Node memory (what actually grows) or, as a safety net, by number of scrapes. 0 = off.
+const recycleRssMb = parseInt(process.env.SCRAPER_RECYCLE_RSS_MB ?? '700', 10);
+const recycleAfter = parseInt(process.env.SCRAPER_RECYCLE_AFTER ?? '400', 10);
+let shuttingDown = false;
+function shutdown(code: number) {
+  if (shuttingDown) return; shuttingDown = true;
+  sampler.stop(); server.close();
+  const t = setTimeout(() => process.exit(code), 15_000); t.unref();
+  closeBrowser().finally(() => process.exit(code));
+}
 
 const server = http.createServer(createService({
   token,
-  scrape: (url, timeout) => scrapeProduct(url, timeout),
+  scrape: async (url, timeout) => { try { return await scrapeProduct(url, timeout); } finally { served++; } },
   concurrency,
   version: process.env.APP_VERSION,
   getSystem: () => sampler.latest(),
   getHistory: (n) => sampler.history(n),
   minFreeMemMb: parseInt(process.env.SCRAPER_SERVICE_MIN_FREE_MB ?? '500', 10),
+  recycle: {
+    maxRssMb: recycleRssMb, maxServed: recycleAfter,
+    getRssMb: () => process.memoryUsage().rss / 1048576,
+    onRecycle: (why) => { console.log(`[scraper-service] reciclando el proceso: ${why}`); shutdown(0); },
+  },
 }));
 server.requestTimeout = 180_000;
 server.listen(port, bind, () => {
@@ -41,5 +64,5 @@ server.listen(port, bind, () => {
 });
 
 for (const sig of ['SIGTERM', 'SIGINT'] as const) {
-  process.on(sig, () => { sampler.stop(); server.close(); closeBrowser().finally(() => process.exit(0)); });
+  process.on(sig, () => shutdown(0));
 }

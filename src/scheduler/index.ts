@@ -14,7 +14,7 @@ import { selectDue } from './selection';
 import { Breaker, type ExecutorStatus } from './executors';
 import { sameArticle, ASIN_RE } from './redirect';
 import { startExecutorMonitor, isExecutorPaused, getExecutorSystem, pruneExecutorMetrics } from './executor-monitor';
-import { remoteScrape, parseRemotes, ExecutorUnavailableError } from '../scraper/remote';
+import { remoteScrape, parseRemotes, ExecutorUnavailableError, ExecutorRecyclingError } from '../scraper/remote';
 import { sendOpsAlert } from '../lib/ops-alert';
 import { optionDisplayName } from '../lib/variants';
 
@@ -58,6 +58,8 @@ const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 interface Executor { name: string; kind: 'local' | 'remote'; scrape: ScrapeFn; breaker?: Breaker; }
 const executorStats = new Map<string, ExecutorStatus>();
 const remoteBreakers = new Map<string, Breaker>();
+/** Remote executors that announced they are restarting on purpose: nobody sends them work until this time. */
+const recyclingUntil = new Map<string, number>();
 function statFor(e: Executor): ExecutorStatus {
   let st = executorStats.get(e.name);
   if (!st) { st = { name: e.name, kind: e.kind, done: 0, failed: 0, breakerOpen: false, lastError: null }; executorStats.set(e.name, st); }
@@ -196,7 +198,7 @@ async function checkAllProducts(): Promise<void> {
       const cnt = countersFor(exec.name);
       while (alive() && !stopped.has(exec.name) && idx < toCheck.length && Date.now() - cycleStartedAt < CYCLE_MAX_MS) {
         // A remote executor whose breaker is open sits out (and keeps the watchdog calm) until it closes.
-        if (exec.breaker?.isOpen(Date.now()) || (exec.kind === 'remote' && isExecutorPaused(exec.name))) { lastProgressAt = Date.now(); await sleep(5000); continue; }
+        if (exec.breaker?.isOpen(Date.now()) || (exec.kind === 'remote' && isExecutorPaused(exec.name)) || (recyclingUntil.get(exec.name) ?? 0) > Date.now()) { lastProgressAt = Date.now(); await sleep(5000); continue; }
         const product = toCheck[idx++];
         state.current = { id: product.id, name: product.name ?? product.asin, asin: product.asin };
         let ok = true;
@@ -206,6 +208,14 @@ async function checkAllProducts(): Promise<void> {
           exec.breaker?.success();
         } catch (e) {
           ok = false;
+          if (e instanceof ExecutorRecyclingError) {
+            // The remote service is restarting on purpose to free memory (a few seconds): not a failure,
+            // so no breaker, no counters, no email. Put the product back and come back shortly.
+            toCheck.push(product);
+            recyclingUntil.set(exec.name, Date.now() + 45_000);   // Docker needs a few seconds to bring it back; don't knock meanwhile
+            lastProgressAt = Date.now();
+            continue;
+          }
           if (e instanceof ExecutorUnavailableError) {
             st.failed++; st.lastError = e.message.slice(0, 160);
             const n = (requeues.get(product.id) ?? 0) + 1;
