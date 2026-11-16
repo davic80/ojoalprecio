@@ -140,15 +140,20 @@ export function restartBrowser(): void {
   forceKillChromium();
 }
 
+// Waits of the delivery-location UI flow, multiplied on slow machines (the Raspberry Pi 4 sets it to 2.5):
+// on a cold, busy Pi the popover took longer than 5 s three times in a row and the session started with no postal code.
+const UI_TIMEOUT_SCALE = uiTimeoutScale(process.env.SCRAPER_UI_TIMEOUT_SCALE);
+const ui = (ms: number) => Math.round(ms * UI_TIMEOUT_SCALE);
+
 async function setSpanishLocation(page: Page): Promise<boolean> {
   try {
-    await page.locator('#sp-cc-rejectall-link, #sp-cc-accept').first().click({ timeout: 1500 }).catch(() => {});
-    await page.locator('#nav-global-location-popover-link, #glow-ingress-block').first().click({ timeout: 5000 });
-    await page.waitForSelector('#GLUXZipUpdateInput', { timeout: 8000 });
+    await page.locator('#sp-cc-rejectall-link, #sp-cc-accept').first().click({ timeout: ui(1500) }).catch(() => {});
+    await page.locator('#nav-global-location-popover-link, #glow-ingress-block').first().click({ timeout: ui(5000) });
+    await page.waitForSelector('#GLUXZipUpdateInput', { timeout: ui(8000) });
     await page.fill('#GLUXZipUpdateInput', AMAZON_ZIP);
-    await page.locator('#GLUXZipUpdate input, #GLUXZipUpdate').first().click({ timeout: 4000 });
+    await page.locator('#GLUXZipUpdate input, #GLUXZipUpdate').first().click({ timeout: ui(4000) });
     await randomDelay(2000, 3000);
-    await page.locator('#GLUXConfirmClose, .a-popover-footer .a-button-primary input, [name="glowDoneButton"]').first().click({ timeout: 3000 }).catch(() => {});
+    await page.locator('#GLUXConfirmClose, .a-popover-footer .a-button-primary input, [name="glowDoneButton"]').first().click({ timeout: ui(3000) }).catch(() => {});
     await randomDelay(1000, 1500);
     return true;
   } catch (e) {
@@ -165,7 +170,7 @@ function randomDelay(minMs: number, maxMs: number): Promise<void> {
 // parseSpanishPrice) live in ./util for testability. Re-exported here so
 // all existing `from '../scraper/amazon'` imports keep working.
 export { extractAsin, normaliseAmazonUrl, scrapeUrl, affiliateUrl, parseSpanishPrice } from './util';
-import { extractAsin, normaliseAmazonUrl, scrapeUrl, parseSpanishPrice } from './util';
+import { extractAsin, normaliseAmazonUrl, scrapeUrl, parseSpanishPrice, uiTimeoutScale } from './util';
 
 // ── Configuración de Timeouts ────────────────────────────────────────────────
 // timeoutSeconds is passed per-call from the scheduler (reads app_settings DB).
@@ -314,6 +319,8 @@ function getBrowser(): Promise<Browser> {
     _browserLaunchPromise = (async () => {
       if (_browser) {
         const old = _browser;
+        // Why the browser is replaced, so an unexplained "Target page, context or browser has been closed" can be traced.
+        console.log(`[scraper] relanzando el navegador: ${!old.isConnected() ? 'estaba desconectado' : _browserNeedsRecycle ? 'marcado para reciclar (cierre sucio o hard_timeout)' : `${_browserUses} usos (límite ${BROWSER_RECYCLE_AFTER})`}`);
         const closed = await safeClose('browser.close', () => old.close());
         if (!closed || _browserNeedsRecycle) await forceKillChromium();
       }
@@ -348,7 +355,7 @@ function getAmazonStorageState(): Promise<any> {
       { const id = identityInitScript(profile); await ctx.addInitScript(id.script, id.arg); }
       const page = await ctx.newPage();
       try {
-        await page.goto('https://www.amazon.es', { waitUntil: 'domcontentloaded', timeout: 25000 });
+        await page.goto('https://www.amazon.es', { waitUntil: 'domcontentloaded', timeout: ui(25000) });
         await randomDelay(1000, 2000);
         // Amazon's "haz clic para seguir comprando" interstitial also shows on the home page.
         const homeBody = ((await page.textContent('body').catch(() => '')) ?? '').slice(0, 300);
@@ -361,12 +368,12 @@ function getAmazonStorageState(): Promise<any> {
         let verified = false;
         for (let attempt = 1; attempt <= 3 && !verified; attempt++) {
           if (attempt > 1) {
-            await page.goto('https://www.amazon.es', { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(() => {});
+            await page.goto('https://www.amazon.es', { waitUntil: 'domcontentloaded', timeout: ui(25000) }).catch(() => {});
             await randomDelay(1000, 2000);
           }
           if (await setSpanishLocation(page)) {
-            await page.reload({ waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {});
-            const label = ((await page.locator('#glow-ingress-block').first().textContent({ timeout: 3000 }).catch(() => '')) ?? '').replace(/\s+/g, ' ');
+            await page.reload({ waitUntil: 'domcontentloaded', timeout: ui(20000) }).catch(() => {});
+            const label = ((await page.locator('#glow-ingress-block').first().textContent({ timeout: ui(3000) }).catch(() => '')) ?? '').replace(/\s+/g, ' ');
             verified = label.includes(AMAZON_ZIP);
           }
         }

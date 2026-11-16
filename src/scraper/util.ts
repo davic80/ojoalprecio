@@ -72,3 +72,13 @@ export function affiliateUrl(url: string): string {
     return url;
   }
 }
+
+/**
+ * Multiplier for the waits of Amazon's delivery-location UI flow. 1 on the server; the Raspberry Pi 4 sets
+ * SCRAPER_UI_TIMEOUT_SCALE=2.5 because on a cold, busy Pi the popover takes longer than 5 s. Never below 1,
+ * and garbage (empty, text, 0, negative) falls back to 1.
+ */
+export function uiTimeoutScale(raw: string | undefined): number {
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 1 ? Math.min(n, 10) : 1;
+}

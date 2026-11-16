@@ -31,6 +31,8 @@ services:
       - SCRAPER_RECYCLE_AFTER=${SCRAPER_RECYCLE_AFTER:-400}
       # Once idle and flagged, keep answering "recycling" this long before exiting, so the caller's next request is told to wait, not refused.
       - SCRAPER_RECYCLE_GRACE_MS=${SCRAPER_RECYCLE_GRACE_MS:-8000}
+      # More patience (x2.5: 5 s becomes 12.5 s) for Amazon's delivery-location popover: on a cold Pi it timed out 3 times and the session started without postal code.
+      - SCRAPER_UI_TIMEOUT_SCALE=${SCRAPER_UI_TIMEOUT_SCALE:-2.5}
       - AMAZON_ZIP=${AMAZON_ZIP:-28001}
       # Chromium at nice 15 so Home Assistant, Plex and Immich always win the CPU.
       - PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/local/bin/chromium-nice
