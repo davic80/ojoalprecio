@@ -93,6 +93,26 @@ describe('the scrape service recycles itself (flag â†’ finish the running work â
     expect(whys).toHaveLength(1);
   });
 
+  it('drain() (what SIGTERM calls): turns new work away, lets the running scrape finish, then exits once', async () => {
+    const whys: string[] = []; let release!: () => void;
+    const gate = new Promise<void>(r => { release = r; });
+    const svc = createService({ token: TOKEN, scrape: async () => { await gate; return result(); }, concurrency: 1,
+      recycle: { maxRssMb: 0, maxServed: 0, graceMs: 10, getRssMb: () => 50, onRecycle: w => whys.push(w) } });
+    server = http.createServer(svc);
+    await new Promise<void>(r => server!.listen(0, '127.0.0.1', r));
+    const cfg = { name: 't', baseUrl: `http://127.0.0.1:${(server!.address() as AddressInfo).port}`, token: TOKEN };
+    const running = remoteScrape(cfg, URL_OK, 30);
+    await wait(40);
+    svc.drain('SIGTERM'); svc.drain('SIGTERM');                      // twice: harmless
+    await expect(remoteScrape(cfg, URL_OK, 30)).rejects.toBeInstanceOf(ExecutorRecyclingError);
+    await wait(100);
+    expect(whys).toEqual([]);                                        // a scrape is still running: do not exit
+    release();
+    expect((await running).price).toBe(30.33);                       // and it is delivered, not cut
+    await wait(60);
+    expect(whys).toEqual(['SIGTERM']);
+  });
+
   it('is off when no limits are configured', async () => {
     const whys: string[] = [];
     const cfg = await start({ maxRssMb: 0, maxServed: 0, graceMs: 10, getRssMb: () => 99999, onRecycle: w => whys.push(w) });

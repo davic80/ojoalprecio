@@ -35,13 +35,6 @@ const recycleRssMb = parseInt(process.env.SCRAPER_RECYCLE_RSS_MB ?? '850', 10);
 const recycleGraceMs = parseInt(process.env.SCRAPER_RECYCLE_GRACE_MS ?? '8000', 10);
 const recycleAfter = parseInt(process.env.SCRAPER_RECYCLE_AFTER ?? '400', 10);
 let shuttingDown = false;
-function shutdown(code: number) {
-  if (shuttingDown) return; shuttingDown = true;
-  sampler.stop(); server.close();
-  const t = setTimeout(() => process.exit(code), 15_000); t.unref();
-  closeBrowser().finally(() => process.exit(code));
-}
-
 /** Planned restart: the port stays open (answering "recycling") while Chromium is closed, and only then the process exits. */
 function recycleExit() {
   if (shuttingDown) return; shuttingDown = true;
@@ -50,7 +43,7 @@ function recycleExit() {
   closeBrowser().finally(() => { server.close(); process.exit(0); });
 }
 
-const server = http.createServer(createService({
+const service = createService({
   token,
   scrape: async (url, timeout) => { try { return await scrapeProduct(url, timeout); } finally { served++; } },
   concurrency,
@@ -63,7 +56,8 @@ const server = http.createServer(createService({
     getRssMb: () => process.memoryUsage().rss / 1048576,
     onRecycle: (why) => { console.log(`[scraper-service] reciclando el proceso: ${why}`); recycleExit(); },
   },
-}));
+});
+const server = http.createServer(service);
 server.requestTimeout = 180_000;
 server.listen(port, bind, () => {
   void sampler.probeDns();
@@ -73,5 +67,7 @@ server.listen(port, bind, () => {
 });
 
 for (const sig of ['SIGTERM', 'SIGINT'] as const) {
-  process.on(sig, () => shutdown(0));
+  // A stop (deploy, docker restart) is a planned recycle: no new work, finish what is running, then exit.
+  // docker-compose gives the container stop_grace_period 120 s for this.
+  process.on(sig, () => { console.log(`[scraper-service] ${sig}: termino las lecturas en curso antes de salir`); service.drain(sig); });
 }

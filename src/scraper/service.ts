@@ -58,7 +58,10 @@ export function tokensMatch(a: string, b: string): boolean {
   return crypto.timingSafeEqual(ha, hb);
 }
 
-export function createService(deps: ServiceDeps): http.RequestListener {
+/** The request listener, plus drain(): start the same "recycling" flag by hand (used on SIGTERM so a stop never cuts a scrape). */
+export type ScrapeService = http.RequestListener & { drain: (reason: string) => void };
+
+export function createService(deps: ServiceDeps): ScrapeService {
   let inFlight = 0;
   let queued = 0;
   const waiters: Array<() => void> = [];
@@ -113,7 +116,7 @@ export function createService(deps: ServiceDeps): http.RequestListener {
     res.end(json);
   };
 
-  return async (req, res) => {
+  const listener: http.RequestListener = async (req, res) => {
     const auth = String(req.headers.authorization ?? '');
     const given = auth.startsWith('Bearer ') ? auth.slice(7) : '';
     if (!given || !tokensMatch(given, deps.token)) return send(res, 401, { error: 'unauthorized' });
@@ -160,4 +163,13 @@ export function createService(deps: ServiceDeps): http.RequestListener {
       maybeRecycle();
     }
   };
+  const drain = (reason: string) => {
+    const r = deps.recycle;
+    if (!r || recycling) return;
+    recycling = reason;
+    const t = setTimeout(() => fire(`${reason} — drenaje agotado`), r.drainMs ?? 90_000);
+    t.unref();
+    exitWhenIdle();
+  };
+  return Object.assign(listener, { drain });
 }

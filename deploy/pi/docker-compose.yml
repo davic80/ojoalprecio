@@ -13,6 +13,8 @@ services:
     container_name: ojoalprecio-scraper
     restart: unless-stopped
     init: true
+    # A stop is a planned recycle: the service finishes running scrapes (up to 90 s) before exiting.
+    stop_grace_period: 120s
     # Many Raspberry Pi kernels have NO memory cgroup (check: `docker info | grep -i "memory limit"`), so
     # mem_limit below is silently ignored there. If memory ever runs out, make the kernel kill THIS
     # container first, never Pi-hole / Home Assistant.

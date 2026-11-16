@@ -67,3 +67,6 @@ Tras el despliegue de las 07:46 la Pi intentó 3 veces fijar el código postal y
 
 ### Prueba: reciclar el navegador en vez del servicio (2026-11-16, v3.63.4)
 El Node del servicio crece ~2-3 MB por consulta con objetos de red de Playwright que se liberan al cerrar el navegador. `SCRAPER_BROWSER_RECYCLE_AFTER` (por defecto 500) fija cada cuántos usos se sustituye Chromium; ahora espera a que terminen las lecturas en curso (hasta 90 s) antes de cerrarlo. Se prueba en la Pi 5 con 60: si el `[mem] node rss` baja al relanzar el navegador sin reiniciar el servicio, el reciclado del proceso casi no hará falta. Pi 5: `SCRAPER_RECYCLE_RSS_MB=450`, `SCRAPER_RECYCLE_AFTER=250`.
+
+### Parar sin cortar lecturas (2026-11-16, v3.64.1)
+`docker stop` / `docker compose up -d` (SIGTERM) ahora funciona como un reciclado: el servicio deja de aceptar trabajo (503 `recycling`), termina las lecturas en curso (máx. 90 s) y sale. El compose lleva `stop_grace_period: 120s` para que Docker espere. Antes, al reiniciar el contenedor las lecturas en curso fallaban con "el navegador se ha cerrado".
