@@ -33,12 +33,13 @@ export function selectDue<T extends DueCandidate>(
   now: number,
   minAgeMs: number,
   unavailableRecheckMs: number,
+  lowPriorityExtraMs: number = LOW_PRIORITY_EXTRA_MS,
 ): T[] {
   const due: Array<{ row: T; ref: number | null; key: number | null }> = [];
   for (const row of rows) {
     const ref = ts(row.lastCheckedAt) ?? ts(row.lastScrapedAt);
     if (ref === null) { due.push({ row, ref, key: null }); continue; } // never scraped → first in line
-    const extra = row.lowPriority ? LOW_PRIORITY_EXTRA_MS : 0;
+    const extra = row.lowPriority ? lowPriorityExtraMs : 0;
     const minAge = (row.isAvailable ? minAgeMs : Math.max(minAgeMs, unavailableRecheckMs)) + extra;
     if (now - ref >= minAge) due.push({ row, ref, key: ref + extra });   // sorted as if checked `extra` later
   }

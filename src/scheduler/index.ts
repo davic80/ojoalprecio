@@ -106,8 +106,10 @@ type DueRow = { id: number; url: string; name: string | null; asin: string } & R
 interface ScrapeSettings {
   concurrency: number; remoteCount: number; scraperTimeout: number; remoteTimeout: number;
   minAgeMs: number; unavailableRecheckMs: number; retryFailedPerCycle: number;
+  /** Extra wait of discovered options nobody follows (setting low_priority_extra_hours, default 6.5 h). */
+  lowPriorityExtraMs: number;
 }
-let settings: ScrapeSettings = { concurrency: 1, remoteCount: 0, scraperTimeout: 30, remoteTimeout: 75, minAgeMs: 59 * 60_000, unavailableRecheckMs: 24 * 3600_000, retryFailedPerCycle: 30 };
+let settings: ScrapeSettings = { concurrency: 1, remoteCount: 0, scraperTimeout: 30, remoteTimeout: 75, minAgeMs: 59 * 60_000, unavailableRecheckMs: 24 * 3600_000, retryFailedPerCycle: 30, lowPriorityExtraMs: 6.5 * 3600_000 };
 
 let queue = new WorkQueue<DueRow>();
 const rate = new RateWindow(Date.now());
@@ -132,6 +134,9 @@ async function loadSettings(): Promise<ScrapeSettings> {
     // Unavailable products are "paused": rechecked only this often (grace period before removal).
     unavailableRecheckMs: Math.max(1, Math.min(168, Number(await getSetting('unavailable_pause_hours', 24)))) * 3600_000,
     retryFailedPerCycle: Math.max(0, Math.min(100, Number(await getSetting('retry_failed_per_cycle', 30)))),
+    // Discovered options nobody follows queue behind followed products by this many hours. 12 h left the scraper
+    // with idle capacity (queue almost empty, average age stuck at 6.3 h); 6.5 h matches ~500 reads/h over ~4,200 products.
+    lowPriorityExtraMs: Math.max(0, Math.min(48, Number(await getSetting('low_priority_extra_hours', 6.5)))) * 3600_000,
   };
 }
 
@@ -170,7 +175,7 @@ async function refillQueue(q: WorkQueue<DueRow>): Promise<void> {
     WHERE p.is_active = TRUE AND p.is_failed = FALSE
   `);
   // Oldest-checked first; unavailable products are rechecked at most every 24 h.
-  const due = selectDue(activeProducts.rows as any[], Date.now(), settings.minAgeMs, settings.unavailableRecheckMs) as DueRow[];
+  const due = selectDue(activeProducts.rows as any[], Date.now(), settings.minAgeMs, settings.unavailableRecheckMs, settings.lowPriorityExtraMs) as DueRow[];
   const queued = q.replace(due);
   lastRefillAt = Date.now();
   state.activeCount = activeProducts.rows.length;

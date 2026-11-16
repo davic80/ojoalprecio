@@ -69,3 +69,20 @@ describe('selectDue — discovered options queue behind followed products', () =
     expect(selectDue(rows, now, 59 * 60_000, 12 * H).map(r => r.id)).toEqual([2]);
   });
 });
+
+describe('selectDue — configurable wait of discovered options (low_priority_extra_hours)', () => {
+  const rows = [row(1, { lastCheckedAt: at(5), lowPriority: true }), row(2, { lastCheckedAt: at(8), lowPriority: true }), row(3, { lastCheckedAt: at(13), lowPriority: true })];
+  it('with 6.5 h they are due from ~7.5 h of age instead of ~13 h', () => {
+    expect(selectDue(rows, now, 59 * 60_000, 12 * H, 6.5 * H).map(r => r.id)).toEqual([3, 2]);
+  });
+  it('with 12 h (the old behaviour) only the oldest is due', () => {
+    expect(selectDue(rows, now, 59 * 60_000, 12 * H, 12 * H).map(r => r.id)).toEqual([3]);
+  });
+  it('with 0 h discovered options are treated like any other product', () => {
+    expect(selectDue(rows, now, 59 * 60_000, 12 * H, 0).map(r => r.id)).toEqual([3, 2, 1]);
+  });
+  it('followed products are not affected by the setting', () => {
+    const mixed = [row(1, { lastCheckedAt: at(2) }), row(2, { lastCheckedAt: at(9), lowPriority: true })];
+    expect(selectDue(mixed, now, 59 * 60_000, 12 * H, 6.5 * H).map(r => r.id)).toEqual([2, 1]);
+  });
+});
