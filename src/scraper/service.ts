@@ -41,6 +41,12 @@ export interface ServiceDeps {
     onRecycle: (why: string) => void;
     /** Max time to wait for running scrapes before exiting anyway. Default 90 s. */
     drainMs?: number;
+    /**
+     * Once idle, keep answering "recycling" this long before exiting (default 8 s). The caller's next request
+     * arrives within a few seconds; it must find a service that says "restarting" (a quiet pause on the caller's
+     * side), not a closed port (counted as a failure).
+     */
+    graceMs?: number;
   };
 }
 
@@ -63,21 +69,33 @@ export function createService(deps: ServiceDeps): http.RequestListener {
   let recycled = false;
   const fire = (why: string) => { if (recycled) return; recycled = true; deps.recycle!.onRecycle(why); };
 
-  /** Decide, after each finished scrape, whether this process should be replaced by a fresh one. */
-  function maybeRecycle() {
+  let graceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * The flag: once the Node process is over its memory limit (or has served enough scrapes) the service is marked
+   * "recycling". From then on it takes NO new work; whatever is running finishes, and the restart is the next thing.
+   */
+  function evaluateRecycle() {
     const r = deps.recycle;
-    if (!r) return;
-    if (!recycling) {
-      const rss = r.getRssMb?.() ?? 0;
-      if (r.maxRssMb && rss >= r.maxRssMb) recycling = `memoria ${Math.round(rss)} MB (límite ${r.maxRssMb})`;
-      else if (r.maxServed && served + failed >= r.maxServed) recycling = `${served + failed} consultas atendidas (límite ${r.maxServed})`;
-      if (recycling) {
-        const t = setTimeout(() => fire(`${recycling} — drenaje agotado`), r.drainMs ?? 90_000);
-        t.unref();
-      }
+    if (!r || recycling) return;
+    const rss = r.getRssMb?.() ?? 0;
+    if (r.maxRssMb && rss >= r.maxRssMb) recycling = `memoria ${Math.round(rss)} MB (límite ${r.maxRssMb})`;
+    else if (r.maxServed && served + failed >= r.maxServed) recycling = `${served + failed} consultas atendidas (límite ${r.maxServed})`;
+    if (recycling) {
+      const t = setTimeout(() => fire(`${recycling} — drenaje agotado`), r.drainMs ?? 90_000);
+      t.unref();
     }
-    if (recycling && inFlight === 0 && queued === 0) fire(recycling);
   }
+
+  /** When flagged and nothing is running, exit after a short grace period (still answering "recycling"). */
+  function exitWhenIdle() {
+    const r = deps.recycle;
+    if (!r || !recycling || inFlight !== 0 || queued !== 0 || graceTimer) return;
+    graceTimer = setTimeout(() => fire(recycling!), r.graceMs ?? 8_000);
+  }
+
+  /** After each finished scrape: flag if needed, and exit if flagged and idle. */
+  function maybeRecycle() { evaluateRecycle(); exitWhenIdle(); }
 
   async function acquire(): Promise<boolean> {
     if (inFlight < deps.concurrency) { inFlight++; return true; }
@@ -127,7 +145,8 @@ export function createService(deps: ServiceDeps): http.RequestListener {
     const sys = deps.getSystem?.();
     if (deps.minFreeMemMb && sys && sys.hostMemAvailMb < deps.minFreeMemMb) return send(res, 503, { error: 'memory pressure' });
 
-    if (recycling) return send(res, 503, { error: 'recycling' });
+    evaluateRecycle();                       // crossed the limit while idle or between scrapes: flag it now, not after one more scrape
+    if (recycling) { exitWhenIdle(); return send(res, 503, { error: 'recycling' }); }
     if (!(await acquire())) return send(res, 503, { error: 'busy' });
     try {
       const result = await deps.scrape(url, timeout);

@@ -53,3 +53,11 @@ El proceso Node del servicio (`dist/scraper-service.js`) crece ~300 MB por hora 
 Además, el contenedor sube a **2 GiB** (`SCRAPER_MEM=2048m`, sin swap) para que Chromium y el Node tengan holgura. Cada 5 minutos el servicio escribe en el log una línea `[mem] node rss=… heap=… external=… buffers=… consultas=…` para ver de dónde crece la memoria (montón de JS, buffers o nativa) y poder arreglar la causa. Se ve con `docker logs ojoalprecio-scraper | grep '\[mem\]'`.
 
 Para cambiar los límites: `SCRAPER_RECYCLE_RSS_MB` / `SCRAPER_RECYCLE_AFTER` en el `.env` de la Pi (0 = desactivado) y `docker compose up -d --force-recreate`. Marcha atrás de los 2 GiB: `SCRAPER_MEM=1536m` y recrear.
+
+
+### Ajuste del 2026-11-16 (v3.64.0): el reinicio es una bandera, no una puerta cerrada
+
+El tercer reciclado (06:08) dejó un aviso suelto: el servicio cerraba el puerto en cuanto terminaba su última consulta, y la siguiente petición del servidor principal encontraba el puerto cerrado ("sin conexión") en vez de un aviso de reinicio. Ahora:
+- **Bandera:** en cuanto el Node supera el límite de memoria (se mira al terminar cada consulta **y al llegar cada petición**) el servicio queda marcado como "reciclando". Desde ese momento **no acepta trabajo nuevo** (responde 503 `recycling`), termina lo que tiene en marcha (máx. 90 s) y **lo siguiente es el reinicio**. Ninguna consulta se queda a medias.
+- **Margen de cortesía:** ya sin trabajo, espera 8 s (`SCRAPER_RECYCLE_GRACE_MS`) con el puerto abierto contestando "reciclando", y solo entonces cierra Chromium y sale. Así la siguiente petición del servidor principal recibe el aviso (una pausa normal de 45 s, sin fallo ni cortacircuitos) y no un puerto cerrado.
+- **Límite más alto:** `SCRAPER_RECYCLE_RSS_MB` pasa de 700 a **850 MB** (reciclado cada ~2,5 h en vez de ~2 h). El contenedor sigue en 2 GiB.

@@ -31,7 +31,8 @@ setInterval(() => {
 }, 5 * 60 * 1000).unref();
 
 // Recycle the process before the kernel kills it: by Node memory (what actually grows) or, as a safety net, by number of scrapes. 0 = off.
-const recycleRssMb = parseInt(process.env.SCRAPER_RECYCLE_RSS_MB ?? '700', 10);
+const recycleRssMb = parseInt(process.env.SCRAPER_RECYCLE_RSS_MB ?? '850', 10);
+const recycleGraceMs = parseInt(process.env.SCRAPER_RECYCLE_GRACE_MS ?? '8000', 10);
 const recycleAfter = parseInt(process.env.SCRAPER_RECYCLE_AFTER ?? '400', 10);
 let shuttingDown = false;
 function shutdown(code: number) {
@@ -39,6 +40,14 @@ function shutdown(code: number) {
   sampler.stop(); server.close();
   const t = setTimeout(() => process.exit(code), 15_000); t.unref();
   closeBrowser().finally(() => process.exit(code));
+}
+
+/** Planned restart: the port stays open (answering "recycling") while Chromium is closed, and only then the process exits. */
+function recycleExit() {
+  if (shuttingDown) return; shuttingDown = true;
+  sampler.stop();
+  const t = setTimeout(() => process.exit(0), 15_000); t.unref();
+  closeBrowser().finally(() => { server.close(); process.exit(0); });
 }
 
 const server = http.createServer(createService({
@@ -50,9 +59,9 @@ const server = http.createServer(createService({
   getHistory: (n) => sampler.history(n),
   minFreeMemMb: parseInt(process.env.SCRAPER_SERVICE_MIN_FREE_MB ?? '500', 10),
   recycle: {
-    maxRssMb: recycleRssMb, maxServed: recycleAfter,
+    maxRssMb: recycleRssMb, maxServed: recycleAfter, graceMs: recycleGraceMs,
     getRssMb: () => process.memoryUsage().rss / 1048576,
-    onRecycle: (why) => { console.log(`[scraper-service] reciclando el proceso: ${why}`); shutdown(0); },
+    onRecycle: (why) => { console.log(`[scraper-service] reciclando el proceso: ${why}`); recycleExit(); },
   },
 }));
 server.requestTimeout = 180_000;

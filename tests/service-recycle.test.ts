@@ -11,8 +11,9 @@ const result = (): ScrapeResult => ({
   asin: 'B0F7TM92ZM', name: 'Mancuernas', price: 30.33, currency: 'EUR', imageUrl: null, extraImages: [],
   url: URL_OK, wasPrice: null, variants: [], bsrValue: null, bsrCategory: null, reviewCount: null, boughtLastMonth: null, brand: null,
 } as ScrapeResult);
+const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
 
-describe('the scrape service recycles itself instead of waiting for the kernel to kill it', () => {
+describe('the scrape service recycles itself (flag → finish the running work → restart) instead of waiting for the kernel to kill it', () => {
   let server: http.Server | null = null;
   afterEach(() => new Promise<void>(r => { server ? server.close(() => r()) : r(); server = null; }));
 
@@ -22,51 +23,70 @@ describe('the scrape service recycles itself instead of waiting for the kernel t
     return { name: 't', baseUrl: `http://127.0.0.1:${(server!.address() as AddressInfo).port}`, token: TOKEN };
   }
 
-  it('after the memory limit: finishes that scrape, exits once, and turns new work away as "recycling"', async () => {
-    let rss = 100; const whys: string[] = [];
-    const cfg = await start({ maxRssMb: 700, getRssMb: () => rss, onRecycle: w => whys.push(w) });
+  it('over the memory limit: the scrape that crossed it still answers, then the service says "recycling" and exits once, after the grace', async () => {
+    let rss = 100; const whys: string[] = []; let n = 0;
+    const cfg = await start({ maxRssMb: 700, graceMs: 120, getRssMb: () => rss, onRecycle: w => whys.push(w) },
+      async () => { n++; if (n === 2) rss = 750; return result(); });      // memory grows DURING the 2nd scrape
     expect((await remoteScrape(cfg, URL_OK, 30)).price).toBe(30.33);
     expect(whys).toEqual([]);
-    rss = 750;
-    expect((await remoteScrape(cfg, URL_OK, 30)).price).toBe(30.33);   // the one that crossed the limit still answers
+    expect((await remoteScrape(cfg, URL_OK, 30)).price).toBe(30.33);   // this one is not lost: it was already being served
+    expect(whys).toEqual([]);                                          // idle, but still in the grace period: the port answers
+    await expect(remoteScrape(cfg, URL_OK, 30)).rejects.toBeInstanceOf(ExecutorRecyclingError);   // quiet "restarting", not a failure
+    await expect(remoteScrape(cfg, URL_OK, 30)).rejects.toBeInstanceOf(ExecutorUnavailableError);  // still an executor problem for old callers
+    await wait(250);
     expect(whys).toHaveLength(1);
     expect(whys[0]).toContain('memoria 750');
+    await wait(150);
+    expect(whys).toHaveLength(1);                                      // never fires twice
+  });
+
+  it('the flag is raised when a request ARRIVES over the limit: that request is turned away (not started and then killed)', async () => {
+    let rss = 100; const whys: string[] = []; let n = 0;
+    const cfg = await start({ maxRssMb: 700, graceMs: 20, getRssMb: () => rss, onRecycle: w => whys.push(w) }, async () => { n++; return result(); });
+    await remoteScrape(cfg, URL_OK, 30);
+    rss = 900;                                                         // grew while idle / between scrapes
     await expect(remoteScrape(cfg, URL_OK, 30)).rejects.toBeInstanceOf(ExecutorRecyclingError);
-    await expect(remoteScrape(cfg, URL_OK, 30)).rejects.toBeInstanceOf(ExecutorUnavailableError);   // still an executor problem for old callers
-    expect(whys).toHaveLength(1);                                                                    // never fires twice
+    expect(n).toBe(1);                                                 // the scrape did not start
+    await wait(80);
+    expect(whys).toHaveLength(1);
   });
 
   it('as a safety net it also recycles after N scrapes', async () => {
     const whys: string[] = [];
-    const cfg = await start({ maxServed: 3, getRssMb: () => 50, onRecycle: w => whys.push(w) });
+    const cfg = await start({ maxServed: 3, graceMs: 10, getRssMb: () => 50, onRecycle: w => whys.push(w) });
     for (let i = 0; i < 3; i++) await remoteScrape(cfg, URL_OK, 30);
+    await wait(60);
     expect(whys).toHaveLength(1);
     expect(whys[0]).toContain('3 consultas');
   });
 
-  it('waits for scrapes still running before exiting', async () => {
-    let rss = 800; const whys: string[] = []; let release!: () => void;
+  it('never exits with a scrape half done: it waits for the running ones', async () => {
+    let rss = 100; const whys: string[] = []; let release!: () => void;
     const gate = new Promise<void>(r => { release = r; });
     let n = 0;
-    const cfg = await start({ maxRssMb: 700, getRssMb: () => rss, onRecycle: w => whys.push(w) }, async () => { n++; if (n === 1) await gate; return result(); }, 2);
+    const cfg = await start({ maxRssMb: 700, graceMs: 10, getRssMb: () => rss, onRecycle: w => whys.push(w) }, async () => { n++; if (n === 1) await gate; return result(); }, 2);
     const slow = remoteScrape(cfg, URL_OK, 30);   // 1st scrape: held open
-    await new Promise(r => setTimeout(r, 50));
-    await remoteScrape(cfg, URL_OK, 30);          // 2nd finishes and crosses the limit while the 1st is still running
-    await new Promise(r => setTimeout(r, 100));
+    await wait(50);
+    rss = 800;                                     // memory crosses the limit while it runs
+    await expect(remoteScrape(cfg, URL_OK, 30)).rejects.toBeInstanceOf(ExecutorRecyclingError);   // the next one is turned away
+    await wait(150);
     expect(whys).toEqual([]);                      // not yet: one scrape in flight
-    release(); await slow;
+    release();
+    expect((await slow).price).toBe(30.33);        // the held one is delivered, not lost
+    await wait(60);
     expect(whys).toHaveLength(1);
   });
 
   it('gives up waiting after the drain time (a stuck scrape cannot keep a leaking process alive forever)', async () => {
-    const whys: string[] = []; let n = 0;
-    const cfg = await start({ maxRssMb: 1, getRssMb: () => 500, drainMs: 60, onRecycle: w => whys.push(w) },
-      async () => { n++; if (n === 1) await new Promise(r => setTimeout(r, 400)); return result(); }, 2);
+    let rss = 100; const whys: string[] = []; let n = 0;
+    const cfg = await start({ maxRssMb: 700, getRssMb: () => rss, drainMs: 60, graceMs: 10, onRecycle: w => whys.push(w) },
+      async () => { n++; if (n === 1) await wait(400); return result(); }, 2);
     const stuck = remoteScrape(cfg, URL_OK, 30);
-    await new Promise(r => setTimeout(r, 30));
-    await remoteScrape(cfg, URL_OK, 30);           // finishes fast, crosses the limit, the first is still running
+    await wait(30);
+    rss = 900;
+    await expect(remoteScrape(cfg, URL_OK, 30)).rejects.toBeInstanceOf(ExecutorRecyclingError);   // flagged on arrival; the first is still running
     expect(whys).toEqual([]);
-    await new Promise(r => setTimeout(r, 120));
+    await wait(120);
     expect(whys).toHaveLength(1);
     expect(whys[0]).toContain('drenaje agotado');
     await stuck;
@@ -75,8 +95,9 @@ describe('the scrape service recycles itself instead of waiting for the kernel t
 
   it('is off when no limits are configured', async () => {
     const whys: string[] = [];
-    const cfg = await start({ maxRssMb: 0, maxServed: 0, getRssMb: () => 99999, onRecycle: w => whys.push(w) });
+    const cfg = await start({ maxRssMb: 0, maxServed: 0, graceMs: 10, getRssMb: () => 99999, onRecycle: w => whys.push(w) });
     for (let i = 0; i < 3; i++) await remoteScrape(cfg, URL_OK, 30);
+    await wait(60);
     expect(whys).toEqual([]);
   });
 });

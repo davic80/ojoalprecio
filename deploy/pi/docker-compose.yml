@@ -27,8 +27,10 @@ services:
       - SCRAPER_SERVICE_MIN_FREE_MB=${SCRAPER_SERVICE_MIN_FREE_MB:-500}
       # The Node process of the service grows ~300 MB/h and used to get killed by the kernel mid-scrape. It now restarts itself
       # (finishing running scrapes first; Docker brings it back) above this Node memory, or after this many scrapes. 0 = off.
-      - SCRAPER_RECYCLE_RSS_MB=${SCRAPER_RECYCLE_RSS_MB:-700}
+      - SCRAPER_RECYCLE_RSS_MB=${SCRAPER_RECYCLE_RSS_MB:-850}
       - SCRAPER_RECYCLE_AFTER=${SCRAPER_RECYCLE_AFTER:-400}
+      # Once idle and flagged, keep answering "recycling" this long before exiting, so the caller's next request is told to wait, not refused.
+      - SCRAPER_RECYCLE_GRACE_MS=${SCRAPER_RECYCLE_GRACE_MS:-8000}
       - AMAZON_ZIP=${AMAZON_ZIP:-28001}
       # Chromium at nice 15 so Home Assistant, Plex and Immich always win the CPU.
       - PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/local/bin/chromium-nice
