@@ -165,7 +165,7 @@ function randomDelay(minMs: number, maxMs: number): Promise<void> {
 // parseSpanishPrice) live in ./util for testability. Re-exported here so
 // all existing `from '../scraper/amazon'` imports keep working.
 export { extractAsin, normaliseAmazonUrl, scrapeUrl, affiliateUrl, parseSpanishPrice } from './util';
-import { extractAsin, normaliseAmazonUrl, scrapeUrl, parseSpanishPrice, uiTimeoutScale } from './util';
+import { extractAsin, normaliseAmazonUrl, scrapeUrl, parseSpanishPrice, uiTimeoutScale, browserRecycleAfter, IdleGate } from './util';
 
 // Waits of the delivery-location UI flow, multiplied on slow machines (the Raspberry Pi 4 sets it to 2.5):
 // on a cold, busy Pi the popover took longer than 5 s three times in a row and the session started with no postal code.
@@ -270,7 +270,9 @@ async function optimizePageForScraping(page: Page) {
 }
 
 // ── Singleton browser ──────────────────────────────────────────────────────
-const BROWSER_RECYCLE_AFTER = 500;
+const BROWSER_RECYCLE_AFTER = browserRecycleAfter(process.env.SCRAPER_BROWSER_RECYCLE_AFTER);
+/** Scrapes (contexts) running on the shared browser: it is replaced only when this is idle, never under a running scrape. */
+const _browserBusy = new IdleGate();
 let _browser: Browser | null = null;
 let _browserUses = 0;
 let _browserLaunchPromise: Promise<Browser> | null = null;
@@ -319,6 +321,11 @@ function getBrowser(): Promise<Browser> {
     _browserLaunchPromise = (async () => {
       if (_browser) {
         const old = _browser;
+        if (old.isConnected() && !_browserNeedsRecycle) {
+          // Replacing it because it was used enough: let the scrapes running on it finish first (up to 90 s).
+          const idle = await _browserBusy.waitIdle(90_000);
+          if (!idle) console.warn(`[scraper] el navegador sigue ocupado tras 90 s (${_browserBusy.active} lecturas); se reemplaza igualmente`);
+        }
         // Why the browser is replaced, so an unexplained "Target page, context or browser has been closed" can be traced.
         console.log(`[scraper] relanzando el navegador: ${!old.isConnected() ? 'estaba desconectado' : _browserNeedsRecycle ? 'marcado para reciclar (cierre sucio o hard_timeout)' : `${_browserUses} usos (límite ${BROWSER_RECYCLE_AFTER})`}`);
         const closed = await safeClose('browser.close', () => old.close());
@@ -473,6 +480,9 @@ async function createNewContext(browser: Browser): Promise<BrowserContext> {
     }
   }, vp);
 
+  _browserBusy.enter();                                  // released when the context closes (also if the browser dies)
+  let released = false;
+  context.once('close', () => { if (!released) { released = true; _browserBusy.leave(); } });
   return context;
 }
 

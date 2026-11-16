@@ -64,3 +64,6 @@ El tercer reciclado (06:08) dejó un aviso suelto: el servicio cerraba el puerto
 
 ### Ubicación (28001) al arrancar en la Pi (2026-11-16, v3.63.2)
 Tras el despliegue de las 07:46 la Pi intentó 3 veces fijar el código postal y Amazon tardó más de 5 s en cada una (Pi fría, 2 lecturas arrancando a la vez, CPU al 200 %): la sesión empezó con "ubicación NO verificada". Ahora los tiempos de espera de ese paso se multiplican por `SCRAPER_UI_TIMEOUT_SCALE` (2,5 en la Pi: 5 s pasan a 12,5 s; en el servidor 1). Además, cuando el navegador se relanza el log dice el motivo (`relanzando el navegador: …`).
+
+### Prueba: reciclar el navegador en vez del servicio (2026-11-16, v3.63.4)
+El Node del servicio crece ~2-3 MB por consulta con objetos de red de Playwright que se liberan al cerrar el navegador. `SCRAPER_BROWSER_RECYCLE_AFTER` (por defecto 500) fija cada cuántos usos se sustituye Chromium; ahora espera a que terminen las lecturas en curso (hasta 90 s) antes de cerrarlo. Se prueba en la Pi 5 con 60: si el `[mem] node rss` baja al relanzar el navegador sin reiniciar el servicio, el reciclado del proceso casi no hará falta. Pi 5: `SCRAPER_RECYCLE_RSS_MB=450`, `SCRAPER_RECYCLE_AFTER=250`.

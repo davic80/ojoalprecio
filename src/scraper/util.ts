@@ -82,3 +82,34 @@ export function uiTimeoutScale(raw: string | undefined): number {
   const n = Number(raw);
   return Number.isFinite(n) && n >= 1 ? Math.min(n, 10) : 1;
 }
+
+/**
+ * How many times the same Chromium is reused before it is replaced (SCRAPER_BROWSER_RECYCLE_AFTER, default 500).
+ * Closing the browser frees what Playwright keeps in memory for it (network objects, about 2-3 MB per scrape),
+ * so a lower value keeps the Node process small without restarting the whole service.
+ */
+export function browserRecycleAfter(raw: string | undefined): number {
+  const n = parseInt(raw ?? '', 10);
+  return Number.isFinite(n) && n >= 10 ? Math.min(n, 5000) : 500;
+}
+
+/** Counts what is using the shared browser right now, so it is never closed under a running scrape. */
+export class IdleGate {
+  private n = 0;
+  private waiters: Array<() => void> = [];
+  enter(): void { this.n++; }
+  leave(): void {
+    if (this.n > 0) this.n--;
+    if (this.n === 0) { const w = this.waiters.splice(0); w.forEach(f => f()); }
+  }
+  get active(): number { return this.n; }
+  /** Resolves true when nothing is active, or false after `ms` if something still is. */
+  waitIdle(ms: number): Promise<boolean> {
+    if (this.n === 0) return Promise.resolve(true);
+    return new Promise<boolean>(resolve => {
+      const done = () => { clearTimeout(t); resolve(true); };
+      const t = setTimeout(() => { this.waiters = this.waiters.filter(w => w !== done); resolve(false); }, ms);
+      this.waiters.push(done);
+    });
+  }
+}

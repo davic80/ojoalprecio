@@ -33,6 +33,8 @@ services:
       - SCRAPER_RECYCLE_GRACE_MS=${SCRAPER_RECYCLE_GRACE_MS:-8000}
       # More patience (x2.5: 5 s becomes 12.5 s) for Amazon's delivery-location popover: on a cold Pi it timed out 3 times and the session started without postal code.
       - SCRAPER_UI_TIMEOUT_SCALE=${SCRAPER_UI_TIMEOUT_SCALE:-2.5}
+      # Reuses of one Chromium before it is replaced (waits for running scrapes). Closing it frees what Playwright retains in Node (~2-3 MB per scrape).
+      - SCRAPER_BROWSER_RECYCLE_AFTER=${SCRAPER_BROWSER_RECYCLE_AFTER:-500}
       - AMAZON_ZIP=${AMAZON_ZIP:-28001}
       # Chromium at nice 15 so Home Assistant, Plex and Immich always win the CPU.
       - PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/local/bin/chromium-nice
