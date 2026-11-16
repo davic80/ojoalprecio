@@ -140,11 +140,6 @@ export function restartBrowser(): void {
   forceKillChromium();
 }
 
-// Waits of the delivery-location UI flow, multiplied on slow machines (the Raspberry Pi 4 sets it to 2.5):
-// on a cold, busy Pi the popover took longer than 5 s three times in a row and the session started with no postal code.
-const UI_TIMEOUT_SCALE = uiTimeoutScale(process.env.SCRAPER_UI_TIMEOUT_SCALE);
-const ui = (ms: number) => Math.round(ms * UI_TIMEOUT_SCALE);
-
 async function setSpanishLocation(page: Page): Promise<boolean> {
   try {
     await page.locator('#sp-cc-rejectall-link, #sp-cc-accept').first().click({ timeout: ui(1500) }).catch(() => {});
@@ -171,6 +166,11 @@ function randomDelay(minMs: number, maxMs: number): Promise<void> {
 // all existing `from '../scraper/amazon'` imports keep working.
 export { extractAsin, normaliseAmazonUrl, scrapeUrl, affiliateUrl, parseSpanishPrice } from './util';
 import { extractAsin, normaliseAmazonUrl, scrapeUrl, parseSpanishPrice, uiTimeoutScale } from './util';
+
+// Waits of the delivery-location UI flow, multiplied on slow machines (the Raspberry Pi 4 sets it to 2.5):
+// on a cold, busy Pi the popover took longer than 5 s three times in a row and the session started with no postal code.
+const UI_TIMEOUT_SCALE = uiTimeoutScale(process.env.SCRAPER_UI_TIMEOUT_SCALE);
+const ui = (ms: number) => Math.round(ms * UI_TIMEOUT_SCALE);
 
 // ── Configuración de Timeouts ────────────────────────────────────────────────
 // timeoutSeconds is passed per-call from the scheduler (reads app_settings DB).
