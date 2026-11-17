@@ -218,3 +218,23 @@ export function evaluateSystem(s: SystemSample, t: Thresholds = PI_THRESHOLDS): 
   if (warn.length) return { level: 'warn', reasons: warn };
   return { level: 'ok', reasons: [] };
 }
+
+/**
+ * Per-executor threshold overrides from EXECUTOR_THRESHOLDS, e.g. {"pi5":{"swapGrowthWarnMb":4000,"swapGrowthCritMb":6000}}.
+ * The defaults suit a Pi that normally has no swap in use. A Pi that already lives on several GB of swap (the Pi 5 with
+ * Home Assistant, Plex...) moves ±1 GB for reasons unrelated to the scraper, and "swap growth" paused its worker every
+ * hour (2026-11-17, nine emails). Unknown keys and non-numbers are ignored.
+ */
+export function thresholdsFor(name: string, raw: string | undefined = process.env.EXECUTOR_THRESHOLDS): Thresholds {
+  if (!raw) return PI_THRESHOLDS;
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw); } catch { return PI_THRESHOLDS; }
+  const mine = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>)[name] : undefined;
+  if (!mine || typeof mine !== 'object') return PI_THRESHOLDS;
+  const out: Thresholds = { ...PI_THRESHOLDS };
+  for (const k of Object.keys(PI_THRESHOLDS) as Array<keyof Thresholds>) {
+    const v = (mine as Record<string, unknown>)[k];
+    if (typeof v === 'number' && Number.isFinite(v) && v >= 0) out[k] = v;
+  }
+  return out;
+}

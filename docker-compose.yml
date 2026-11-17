@@ -57,6 +57,8 @@ services:
       # Optional remote scrape executors (e.g. the Pi). Off unless the DB setting
       # scraper_remote_concurrency > 0. See deploy/pi/README.md.
       - SCRAPER_REMOTES=${SCRAPER_REMOTES:-}
+      # Per-executor monitor thresholds as JSON, e.g. {"pi5":{"swapGrowthWarnMb":4000,"swapGrowthCritMb":6000}} (see scraper/metrics.ts)
+      - EXECUTOR_THRESHOLDS=${EXECUTOR_THRESHOLDS:-}
       - SCRAPER_REMOTE_TOKEN=${SCRAPER_REMOTE_TOKEN:-}
       - NODE_ENV=production
     ports:

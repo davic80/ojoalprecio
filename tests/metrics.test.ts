@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import http from 'http';
 import type { AddressInfo } from 'net';
 import {
-  parseMeminfo, parseCgroupCpuUsec, parseCgroupMemory, MetricsSampler, evaluateSystem, PI_THRESHOLDS,
+  parseMeminfo, parseCgroupCpuUsec, parseCgroupMemory, MetricsSampler, evaluateSystem, PI_THRESHOLDS, thresholdsFor,
   type SampleReaders, type SystemSample,
 } from '../src/scraper/metrics';
 import { nextPause } from '../src/scheduler/executor-monitor';
@@ -157,5 +157,31 @@ describe('service exposes the system state', () => {
     const m = await (await fetch(`${url}/metrics`, { headers: { authorization: 'Bearer ' + 't'.repeat(30) } })).json() as any;
     expect(m.samples.length).toBe(2);
     expect((await fetch(`${url}/metrics`)).status).toBe(401);
+  });
+});
+
+describe('thresholdsFor (per-executor overrides)', () => {
+  const raw = JSON.stringify({ pi5: { swapGrowthWarnMb: 4000, swapGrowthCritMb: 6000, bogus: 1, tempCritC: 'x' } });
+  it('without overrides everyone gets the defaults', () => {
+    expect(thresholdsFor('pi5', undefined)).toEqual(PI_THRESHOLDS);
+    expect(thresholdsFor('pi4', raw)).toEqual(PI_THRESHOLDS);          // only pi5 is overridden
+  });
+  it('overrides only the listed numeric keys', () => {
+    const t = thresholdsFor('pi5', raw);
+    expect(t.swapGrowthCritMb).toBe(6000);
+    expect(t.swapGrowthWarnMb).toBe(4000);
+    expect(t.tempCritC).toBe(PI_THRESHOLDS.tempCritC);                 // 'x' is not a number: ignored
+    expect(Object.keys(t)).toEqual(Object.keys(PI_THRESHOLDS));        // unknown keys are not added
+  });
+  it('a Pi that lives on swap is no longer critical at +1.5 GB, but real pressure still is', () => {
+    const t = thresholdsFor('pi5', raw);
+    expect(evaluateSystem(base({ swapGrowthMb: 1700 }), PI_THRESHOLDS).level).toBe('critical');
+    expect(evaluateSystem(base({ swapGrowthMb: 1700 }), t).level).toBe('ok');
+    expect(evaluateSystem(base({ hostMemAvailMb: 400 }), t).level).toBe('critical');
+    expect(evaluateSystem(base({ load1: 10.5 }), t).level).toBe('critical');
+  });
+  it('garbage JSON falls back to the defaults', () => {
+    expect(thresholdsFor('pi5', '{not json')).toEqual(PI_THRESHOLDS);
+    expect(thresholdsFor('pi5', '[1,2]')).toEqual(PI_THRESHOLDS);
   });
 });

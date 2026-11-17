@@ -6,7 +6,7 @@ import { db } from '../db/client';
 import { getSetting } from '../db/settings';
 import { sendOpsAlert } from '../lib/ops-alert';
 import { parseRemotes } from '../scraper/remote';
-import { evaluateSystem, formatSample, type HealthLevel, type SystemSample } from '../scraper/metrics';
+import { evaluateSystem, thresholdsFor, formatSample, type HealthLevel, type SystemSample } from '../scraper/metrics';
 
 export interface ExecutorSystemState {
   reachable: boolean;
@@ -54,7 +54,7 @@ async function pollOne(name: string, baseUrl: string, token: string): Promise<vo
     state.set(name, { reachable: false, level: 'unknown', reasons: ['sin respuesta del servicio'], sample: null, at: now });
     return;
   }
-  const ev = evaluateSystem(sample);
+  const ev = evaluateSystem(sample, thresholdsFor(name));
   state.set(name, { reachable: true, level: ev.level, reasons: ev.reasons, sample, at: now });
 
   const t = nextPause({ pausedUntil: pausedUntil.get(name) ?? 0, okStreak: okStreak.get(name) ?? 0 }, ev.level, now);
