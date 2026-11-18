@@ -35,7 +35,7 @@ describe('admin-salud view', () => {
       ],
       app: { version: '3.66.0', commit: 'abc1234', uptimeMs: 7_200_000, rssMb: 550, heapMb: 120, dbPingMs: 2, dbMb: 900, priceRows: 490000, activeProducts: 4154, diskPct: 61, diskFreeGb: 40.5, hostMemAvailMb: 1700, hostMemTotalMb: 3800, load1: 3.2 },
     } as any, { async: true } as any);
-    for (const t of ['Últimos 7 días', 'Visitantes', 'visitantes ahora', 'usuarios registrados', 'Salud y rendimiento', 'Lecturas por hora', 'Ejecutores', 'pi4', 'aviso', 'latencia de la BD', '61 %']) expect(html).toContain(t);
+    for (const t of ['chart-tooltip', 'data-tip="23:00 · 460 lecturas (incompleto)"', 'Últimos 7 días', 'Visitantes', 'visitantes ahora', 'usuarios registrados', 'Salud y rendimiento', 'Lecturas por hora', 'Ejecutores', 'pi4', 'aviso', 'latencia de la BD', '61 %']) expect(html).toContain(t);
   });
 });
 

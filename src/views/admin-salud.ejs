@@ -51,7 +51,7 @@ const levelBadge = (m) => !m.reachable ? ['sin respuesta', '#b53847'] : m.paused
         <div style="font-size:12px;margin-bottom:2px">Visitantes únicos por día — últimos 14 días</div>
         <div style="display:flex;align-items:flex-end;gap:3px;height:48px">
           <% visitors.daily.forEach(function(d) { %>
-            <div title="<%= d.day %> · <%= d.uniques %> únicos · pico <%= d.peak %>" style="flex:1;height:<%= Math.max(3, Math.round(d.uniques / visitors.maxDaily * 46)) %>px;background:#1d4ed8;border-radius:2px 2px 0 0;min-width:4px"></div>
+            <div class="chart-bar" data-tip="<%= d.day %> · <%= d.uniques %> únicos · pico <%= d.peak %>" style="flex:1;height:<%= Math.max(3, Math.round(d.uniques / visitors.maxDaily * 46)) %>px;background:#1d4ed8;border-radius:2px 2px 0 0;min-width:4px"></div>
           <% }); %>
           <% if (!visitors.daily.length) { %><span class="hint">sin datos todavía</span><% } %>
         </div>
@@ -76,7 +76,7 @@ const levelBadge = (m) => !m.reachable ? ['sin respuesta', '#b53847'] : m.paused
     <div style="font-size:11px;color:var(--gray-400);text-align:right;margin-top:8px">máx: <%= fmt(maxBar) %></div>
     <div style="display:flex;align-items:flex-end;gap:<%= range === '7d' ? 8 : 3 %>px;height:90px;padding:0 2px">
       <% bars.forEach(function(h) { const px = h.n > 0 ? Math.max(3, Math.round((h.n / maxBar) * 86)) : 0; %>
-        <div title="<%= h.tip %> · <%= fmt(h.n) %> lecturas<%= h.partial ? ' (incompleto)' : '' %>"
+        <div class="chart-bar" data-tip="<%= h.tip %> · <%= fmt(h.n) %> lecturas<%= h.partial ? ' (incompleto)' : '' %>"
              style="flex:1;height:<%= px %>px;background:<%= h.partial ? '#93c5fd' : '#1d4ed8' %>;border-radius:2px 2px 0 0;min-width:4px;align-self:flex-end"></div>
       <% }); %>
     </div>
@@ -141,6 +141,20 @@ const levelBadge = (m) => !m.reachable ? ['sin respuesta', '#b53847'] : m.paused
   </div>
 
 </main>
+<div id="chart-tooltip" style="display:none;position:fixed;background:#111827;color:#fff;padding:5px 10px;border-radius:6px;font-size:12px;pointer-events:none;z-index:1000;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.3)"></div>
+<script>
+(function () {
+  var tip = document.getElementById('chart-tooltip');
+  function place(e) { tip.style.left = Math.min(window.innerWidth - tip.offsetWidth - 8, e.clientX + 14) + 'px'; tip.style.top = (e.clientY - 36) + 'px'; }
+  document.querySelectorAll('.chart-bar').forEach(function (bar) {
+    bar.style.cursor = 'default';
+    bar.addEventListener('mouseover', function (e) { tip.textContent = bar.dataset.tip; tip.style.display = 'block'; place(e); });
+    bar.addEventListener('mousemove', place);
+    bar.addEventListener('mouseout', function () { tip.style.display = 'none'; });
+    bar.addEventListener('touchstart', function (e) { var t = e.touches[0]; tip.textContent = bar.dataset.tip; tip.style.display = 'block'; place(t); setTimeout(function () { tip.style.display = 'none'; }, 2500); }, { passive: true });
+  });
+})();
+</script>
 <script>
 (function () {
   var ids = { active: 'live-active', loggedIn: 'live-logged', uniquesToday: 'live-uniques', peakToday: 'live-peak' };
