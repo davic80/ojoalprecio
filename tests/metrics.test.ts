@@ -123,12 +123,21 @@ describe('evaluateSystem', () => {
 
 describe('nextPause (pause the remote worker while the Pi is under pressure)', () => {
   const T = 1_000_000;
-  it('critical pauses for 10 min and reports the first pause only', () => {
-    const a = nextPause({ pausedUntil: 0, okStreak: 0 }, 'critical', T);
-    expect(a.pausedUntil).toBe(T + 600_000); expect(a.justPaused).toBe(true);
-    const b = nextPause({ pausedUntil: a.pausedUntil, okStreak: 0 }, 'critical', T + 30_000);
+  it('a single critical poll does not pause; the second one in a row pauses for 10 min and reports once', () => {
+    const one = nextPause({ pausedUntil: 0, okStreak: 0 }, 'critical', T);
+    expect(one.pausedUntil).toBe(0); expect(one.justPaused).toBe(false); expect(one.critStreak).toBe(1);
+    const a = nextPause({ pausedUntil: 0, okStreak: 0, critStreak: one.critStreak }, 'critical', T + 30_000);
+    expect(a.pausedUntil).toBe(T + 30_000 + 600_000); expect(a.justPaused).toBe(true);
+    const b = nextPause({ pausedUntil: a.pausedUntil, okStreak: 0, critStreak: a.critStreak }, 'critical', T + 60_000);
     expect(b.justPaused).toBe(false);                               // no repeated alert while still paused
-    expect(b.pausedUntil).toBe(T + 30_000 + 600_000);               // pause is extended
+    expect(b.pausedUntil).toBe(T + 60_000 + 600_000);               // pause is extended
+  });
+  it('a healthy poll between two critical ones resets the count (a blip never pauses)', () => {
+    const one = nextPause({ pausedUntil: 0, okStreak: 0 }, 'critical', T);
+    const ok = nextPause({ pausedUntil: 0, okStreak: 0, critStreak: one.critStreak }, 'ok', T + 30_000);
+    expect(ok.critStreak).toBe(0);
+    const again = nextPause({ pausedUntil: 0, okStreak: ok.okStreak, critStreak: ok.critStreak }, 'critical', T + 60_000);
+    expect(again.pausedUntil).toBe(0); expect(again.justPaused).toBe(false);
   });
   it('resumes only after 2 healthy polls in a row; warn does not resume', () => {
     const paused = { pausedUntil: T + 600_000, okStreak: 0 };
@@ -140,7 +149,7 @@ describe('nextPause (pause the remote worker while the Pi is under pressure)', (
     expect(o2.pausedUntil).toBe(0);
   });
   it('healthy and never paused stays that way', () => {
-    expect(nextPause({ pausedUntil: 0, okStreak: 0 }, 'ok', T)).toEqual({ pausedUntil: 0, okStreak: 1, justPaused: false });
+    expect(nextPause({ pausedUntil: 0, okStreak: 0 }, 'ok', T)).toEqual({ pausedUntil: 0, okStreak: 1, critStreak: 0, justPaused: false });
   });
 });
 

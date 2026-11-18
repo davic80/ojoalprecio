@@ -22,24 +22,34 @@ const POLL_MS = 30 * 1000;
 const state = new Map<string, ExecutorSystemState>();
 const pausedUntil = new Map<string, number>();
 const okStreak = new Map<string, number>();
+const critStreak = new Map<string, number>();
 let pollCount = 0;
 
 export function getExecutorSystem(name: string): ExecutorSystemState | undefined { return state.get(name); }
 export function isExecutorPaused(name: string, now = Date.now()): boolean { return (pausedUntil.get(name) ?? 0) > now; }
 
+/** Critical polls in a row needed before pausing: one odd sample (a Pi that has just restarted) must not stop the worker. */
+const CRITICAL_POLLS_TO_PAUSE = 2;
+
 /** Pure transition used by the poller (and by tests): decide pause / resume from a new evaluation. */
 export function nextPause(
-  prev: { pausedUntil: number; okStreak: number },
+  prev: { pausedUntil: number; okStreak: number; critStreak?: number },
   level: HealthLevel,
   now: number,
-): { pausedUntil: number; okStreak: number; justPaused: boolean } {
+): { pausedUntil: number; okStreak: number; critStreak: number; justPaused: boolean } {
   if (level === 'critical') {
-    return { pausedUntil: now + PAUSE_MS, okStreak: 0, justPaused: prev.pausedUntil <= now };
+    const critStreak = (prev.critStreak ?? 0) + 1;
+    const alreadyPaused = prev.pausedUntil > now;
+    // Already paused: keep extending while it stays critical. Not paused: wait for a confirming second poll.
+    if (!alreadyPaused && critStreak < CRITICAL_POLLS_TO_PAUSE) {
+      return { pausedUntil: prev.pausedUntil, okStreak: 0, critStreak, justPaused: false };
+    }
+    return { pausedUntil: now + PAUSE_MS, okStreak: 0, critStreak, justPaused: !alreadyPaused };
   }
   const streak = level === 'ok' ? prev.okStreak + 1 : 0;
   // After a critical period resume only once the machine has been healthy for 2 polls in a row.
-  if (prev.pausedUntil > now && streak >= 2) return { pausedUntil: 0, okStreak: streak, justPaused: false };
-  return { pausedUntil: prev.pausedUntil, okStreak: streak, justPaused: false };
+  if (prev.pausedUntil > now && streak >= 2) return { pausedUntil: 0, okStreak: streak, critStreak: 0, justPaused: false };
+  return { pausedUntil: prev.pausedUntil, okStreak: streak, critStreak: 0, justPaused: false };
 }
 
 async function pollOne(name: string, baseUrl: string, token: string): Promise<void> {
@@ -57,8 +67,9 @@ async function pollOne(name: string, baseUrl: string, token: string): Promise<vo
   const ev = evaluateSystem(sample, thresholdsFor(name));
   state.set(name, { reachable: true, level: ev.level, reasons: ev.reasons, sample, at: now });
 
-  const t = nextPause({ pausedUntil: pausedUntil.get(name) ?? 0, okStreak: okStreak.get(name) ?? 0 }, ev.level, now);
+  const t = nextPause({ pausedUntil: pausedUntil.get(name) ?? 0, okStreak: okStreak.get(name) ?? 0, critStreak: critStreak.get(name) ?? 0 }, ev.level, now);
   okStreak.set(name, t.okStreak);
+  critStreak.set(name, t.critStreak);
   if (t.pausedUntil) pausedUntil.set(name, t.pausedUntil); else pausedUntil.delete(name);
 
   if (t.justPaused) {
