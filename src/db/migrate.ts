@@ -961,9 +961,6 @@ export const MIGRATIONS: string[] = [
      container_mem_mb INTEGER, container_cpu_pct REAL, temp_c REAL
    );
    CREATE INDEX IF NOT EXISTS idx_executor_metrics_executor_ts ON executor_metrics (executor, ts DESC);`,
-  // Health page: DNS latency and swap in use per sample; the server itself ('local') is sampled too.
-  `ALTER TABLE executor_metrics ADD COLUMN IF NOT EXISTS dns_ms REAL;
-   ALTER TABLE executor_metrics ADD COLUMN IF NOT EXISTS swap_used_mb INTEGER;`,
   // Amazon moved an article to another ASIN: remember old -> new so it is not re-ingested
   // and so a link with the old ASIN resolves to the current one.
   `CREATE TABLE IF NOT EXISTS asin_redirects (
@@ -988,6 +985,13 @@ export const MIGRATIONS: string[] = [
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub VARCHAR(64);
    ALTER TABLE users ADD COLUMN IF NOT EXISTS password_set BOOLEAN NOT NULL DEFAULT TRUE;
    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_sub ON users (google_sub) WHERE google_sub IS NOT NULL;`,
+  // Placeholder: migrations are tracked by POSITION. 3.66.0 inserted the health-page columns in the middle,
+  // which shifted every later entry by one and made production record position 65 as applied. Never insert
+  // in the middle: always append.
+  `SELECT 1;`,
+  // Health page: DNS latency and swap in use per sample; the server itself ('local') is sampled too.
+  `ALTER TABLE executor_metrics ADD COLUMN IF NOT EXISTS dns_ms REAL;
+   ALTER TABLE executor_metrics ADD COLUMN IF NOT EXISTS swap_used_mb INTEGER;`,
 ];
 
 export async function migrate(pool: Pool = defaultPool): Promise<void> {
