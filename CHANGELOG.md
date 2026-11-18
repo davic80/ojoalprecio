@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Monitor de ejecutores: pausa el worker remoto solo tras 2 comprobaciones críticas seguidas (evita falsas pausas al reiniciar una Pi)
+- Servidor con `SCRAPER_UI_TIMEOUT_SCALE=2` (más paciencia al fijar el código postal); variables pasadas por `docker-compose.yml`
+
 ### Added
 - Suite de tests de integración con Postgres real (testcontainers + `postgres:16-alpine`); contenedor compartido por toda la ejecución, migraciones aplicadas una sola vez
 - Primera batería: 3-strike para `unqualified` (strikes 1-2 mantienen disponible, strike 3 marca y encola anomalía; `used` marca al instante; scrape OK resetea el contador)
