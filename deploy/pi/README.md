@@ -70,3 +70,7 @@ El Node del servicio crece ~2-3 MB por consulta con objetos de red de Playwright
 
 ### Parar sin cortar lecturas (2026-11-16, v3.64.1)
 `docker stop` / `docker compose up -d` (SIGTERM) ahora funciona como un reciclado: el servicio deja de aceptar trabajo (503 `recycling`), termina las lecturas en curso (máx. 90 s) y sale. El compose lleva `stop_grace_period: 120s` para que Docker espere. Antes, al reiniciar el contenedor las lecturas en curso fallaban con "el navegador se ha cerrado".
+
+### Paciencia del código postal en el servidor (18-nov)
+
+Un aviso «Amazon no respeta la ubicación» del ejecutor local (4 sesiones seguidas sin fijar el CP 28001 a las 04:14) llevó a subir `SCRAPER_UI_TIMEOUT_SCALE` a 2 también en el servidor (antes 1). Valores actuales: servidor 2, Pi 4 2,5, Pi 5 1,5.

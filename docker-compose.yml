@@ -60,6 +60,10 @@ services:
       # Per-executor monitor thresholds as JSON, e.g. {"pi5":{"swapGrowthWarnMb":4000,"swapGrowthCritMb":6000}} (see scraper/metrics.ts)
       - EXECUTOR_THRESHOLDS=${EXECUTOR_THRESHOLDS:-}
       - SCRAPER_REMOTE_TOKEN=${SCRAPER_REMOTE_TOKEN:-}
+      # Patience of the Amazon UI steps (postal-code popover): waits are multiplied by this. 1 = 5 s, 2 = 10 s (>= 1)
+      - SCRAPER_UI_TIMEOUT_SCALE=${SCRAPER_UI_TIMEOUT_SCALE:-1}
+      # Local Chromium is replaced every N uses (frees the Node memory Playwright retains per scrape). Default 500
+      - SCRAPER_BROWSER_RECYCLE_AFTER=${SCRAPER_BROWSER_RECYCLE_AFTER:-500}
       - NODE_ENV=production
     ports:
       - "${HOST_PORT:-8080}:3000"

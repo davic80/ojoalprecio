@@ -58,6 +58,8 @@ La aplicación estará disponible en `http://<ip-raspberry>:3000`.
 | `SMTP_USER` | Usuario SMTP | — |
 | `SMTP_PASSWORD` | Contraseña SMTP / App Password | — |
 | `SMTP_FROM` | Dirección de envío | igual que `SMTP_USER` |
+| `SCRAPER_UI_TIMEOUT_SCALE` | Multiplica las esperas del paso «fijar código postal» de Amazon (1 = 5 s). Sube a 2 si aparecen avisos «Amazon no respeta la ubicación» | `1` |
+| `SCRAPER_BROWSER_RECYCLE_AFTER` | Cada cuántos usos se sustituye el Chromium local (libera memoria) | `500` |
 
 ## Acceso con Google
 
