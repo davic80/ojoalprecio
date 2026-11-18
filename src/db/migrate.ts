@@ -992,6 +992,18 @@ export const MIGRATIONS: string[] = [
   // Health page: DNS latency and swap in use per sample; the server itself ('local') is sampled too.
   `ALTER TABLE executor_metrics ADD COLUMN IF NOT EXISTS dns_ms REAL;
    ALTER TABLE executor_metrics ADD COLUMN IF NOT EXISTS swap_used_mb INTEGER;`,
+  // Live visitors: counts only (see src/lib/live-visitors.ts). One sample per minute (kept 14 days) and one row per day.
+  `CREATE TABLE IF NOT EXISTS visitor_samples (
+     ts        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+     active    INTEGER NOT NULL,
+     logged_in INTEGER NOT NULL
+   );
+   CREATE INDEX IF NOT EXISTS idx_visitor_samples_ts ON visitor_samples (ts DESC);
+   CREATE TABLE IF NOT EXISTS visitor_daily (
+     day     VARCHAR(10) PRIMARY KEY,
+     uniques INTEGER NOT NULL DEFAULT 0,
+     peak    INTEGER NOT NULL DEFAULT 0
+   );`,
 ];
 
 export async function migrate(pool: Pool = defaultPool): Promise<void> {

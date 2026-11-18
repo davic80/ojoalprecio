@@ -14,6 +14,7 @@ import { selectDue } from './selection';
 import { WorkQueue, RateWindow } from './queue';
 import { Breaker, type ExecutorStatus } from './executors';
 import { sameArticle, ASIN_RE } from './redirect';
+import { startVisitorRecorder, pruneVisitorSamples } from '../lib/live-visitors';
 import { startExecutorMonitor, startLocalSampler, isExecutorPaused, getExecutorSystem, pruneExecutorMetrics } from './executor-monitor';
 import { remoteScrape, parseRemotes, ExecutorUnavailableError, ExecutorRecyclingError } from '../scraper/remote';
 import { sendOpsAlert } from '../lib/ops-alert';
@@ -1293,6 +1294,7 @@ export function triggerScrape(): boolean {
  *    the table size in check.
  */
 async function runHourlyMaintenance(): Promise<void> {
+  await pruneVisitorSamples().catch(err => console.error('[maintenance] visitor_samples prune failed:', err instanceof Error ? err.message : err));
   await pruneExecutorMetrics().catch(err => console.error('[maintenance] executor_metrics prune failed:', err instanceof Error ? err.message : err));
   // 1. Featured cap with freshness rotation. Composite score subtracts a
   // 1.5-point penalty per day the product has been featured, so deals that
@@ -1389,6 +1391,7 @@ export function startScheduler(): void {
 
   startExecutorMonitor();
   startLocalSampler();
+  startVisitorRecorder();
   startFirstScrapeLoop();
   // Build the variant groups of what is already in the catalog (idempotent, runs once per start).
   setTimeout(() => { backfillProductGroups().catch(err => console.error('[groups] backfill failed:', err)); }, 45_000).unref();

@@ -63,7 +63,7 @@ La aplicación estará disponible en `http://<ip-raspberry>:3000`.
 
 ## Panel de salud (admin)
 
-`/admin/salud` (solo admin) muestra el estado de los ejecutores (servidor, Pi 4, Pi 5), lecturas por hora, edad media y cobertura de lecturas, gráficas de 24 h (carga, CPU, memoria, swap, temperatura y DNS) y datos de la aplicación (versión, BD, disco). Las muestras se guardan una por minuto en `executor_metrics` durante 14 días. `/admin/ops` sigue con las reglas automáticas y `/healthz/scraper` es el JSON público de estado.
+`/admin/salud` (solo admin) muestra el estado de los ejecutores (servidor, Pi 4, Pi 5), lecturas por hora, edad media y cobertura de lecturas, gráficas de 24 h (carga, CPU, memoria, swap, temperatura y DNS) y datos de la aplicación (versión, BD, disco). Se puede ver el rango de 24 h (un punto cada 10 min) o de 7 días (un punto por hora) con `?r=24h` / `?r=7d`. Incluye visitantes en directo (ventana de 5 min), usuarios con sesión, únicos y pico del día, altas y una gráfica histórica; las personas se cuentan solo en memoria con una huella con clave diaria aleatoria (nunca se guarda IP ni agente) y a la base solo van recuentos (`visitor_samples` 14 días, `visitor_daily`). Las muestras de máquinas se guardan una por minuto en `executor_metrics` durante 14 días. `/admin/ops` sigue con las reglas automáticas y `/healthz/scraper` es el JSON público de estado.
 
 ## Acceso con Google
 

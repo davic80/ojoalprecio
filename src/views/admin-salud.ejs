@@ -17,14 +17,54 @@ const levelBadge = (m) => !m.reachable ? ['sin respuesta', '#b53847'] : m.paused
 
   <div class="page-header">
     <h1>Salud y rendimiento</h1>
-    <p class="subtitle">Estado de los ejecutores, ritmo de lectura, máquinas (últimas 24 h) y aplicación &nbsp;·&nbsp; generado a las <%= madrid(generatedAt, { hour: '2-digit', minute: '2-digit', second: '2-digit' }) %> (hora de España) &nbsp;·&nbsp; <a href="/admin/ops" class="hint-link">Ops →</a></p>
+    <p class="subtitle">Ejecutores, ritmo de lectura, máquinas, visitantes y aplicación &nbsp;·&nbsp; generado a las <%= madrid(generatedAt, { hour: '2-digit', minute: '2-digit', second: '2-digit' }) %> (hora de España) &nbsp;·&nbsp; <a href="/admin/ops" class="hint-link">Ops →</a></p>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <% [['24h', 'Últimas 24 h'], ['7d', 'Últimos 7 días']].forEach(function(t) { %>
+        <a href="/admin/salud?r=<%= t[0] %>" style="padding:5px 12px;border-radius:999px;font-size:13px;border:1px solid var(--gray-300, #d1d5db);<%= range === t[0] ? 'background:#1d4ed8;color:#fff;border-color:#1d4ed8' : 'color:inherit' %>"><%= t[1] %></a>
+      <% }); %>
+    </div>
+  </div>
+
+  <!-- Visitors -->
+  <div class="stats-bar" style="margin-bottom:16px">
+    <div class="stat-pill"><span class="stat-pill-value" id="live-active"><%= visitors.live.active %></span><span class="stat-pill-label">visitantes ahora (5 min) <span id="live-dot" style="color:#198754">●</span></span></div>
+    <div class="stat-pill"><span class="stat-pill-value" id="live-logged"><%= visitors.live.loggedIn %></span><span class="stat-pill-label">con sesión ahora</span></div>
+    <div class="stat-pill"><span class="stat-pill-value" id="live-uniques"><%= fmt(visitors.live.uniquesToday) %></span><span class="stat-pill-label">únicos hoy*</span></div>
+    <div class="stat-pill"><span class="stat-pill-value" id="live-peak"><%= visitors.live.peakToday %></span><span class="stat-pill-label">pico simultáneo hoy*</span></div>
+    <div class="stat-pill"><span class="stat-pill-value"><%= fmt(visitors.viewsToday) %></span><span class="stat-pill-label">páginas vistas hoy</span></div>
+    <div class="stat-pill"><span class="stat-pill-value"><%= fmt(visitors.usersTotal) %></span><span class="stat-pill-label">usuarios registrados</span></div>
+    <div class="stat-pill"><span class="stat-pill-value"><%= visitors.new24h %> / <%= visitors.new7d %></span><span class="stat-pill-label">altas 24 h / 7 días</span></div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <h2>Visitantes <span class="hint">— <%= range === '7d' ? 'últimos 7 días, máximo de cada hora' : 'últimas 24 h, máximo de cada 10 min' %></span></h2>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin-top:12px">
+      <div>
+        <div style="display:flex;justify-content:space-between;font-size:12px"><span>Visitantes activos (ventana de 5 min)</span><strong>máx <%= fmt(visitors.activeSummary.max) %></strong></div>
+        <%- visitors.activeSvg %>
+      </div>
+      <div>
+        <div style="font-size:12px">Usuarios con sesión activos</div>
+        <%- visitors.loggedSvg %>
+      </div>
+      <div>
+        <div style="font-size:12px;margin-bottom:2px">Visitantes únicos por día — últimos 14 días</div>
+        <div style="display:flex;align-items:flex-end;gap:3px;height:48px">
+          <% visitors.daily.forEach(function(d) { %>
+            <div title="<%= d.day %> · <%= d.uniques %> únicos · pico <%= d.peak %>" style="flex:1;height:<%= Math.max(3, Math.round(d.uniques / visitors.maxDaily * 46)) %>px;background:#1d4ed8;border-radius:2px 2px 0 0;min-width:4px"></div>
+          <% }); %>
+          <% if (!visitors.daily.length) { %><span class="hint">sin datos todavía</span><% } %>
+        </div>
+      </div>
+    </div>
+    <p class="hint" style="margin-top:8px">Cuenta personas, no bots, sin guardar IP ni identificadores: solo recuentos. * «Únicos» y «pico» se reconstruyen en memoria y pueden quedarse cortos el día de un despliegue; las gráficas empiezan al activar esta función.</p>
   </div>
 
   <!-- Scraping -->
   <div class="stats-bar" style="margin-bottom:16px">
     <div class="stat-pill"><span class="stat-pill-value" style="color:<%= scraping.ok ? '#198754' : '#b53847' %>"><%= scraping.ok ? 'sano' : (scraping.stuck ? 'atascado' : 'sin respuestas') %></span><span class="stat-pill-label">scraping</span></div>
-    <div class="stat-pill"><span class="stat-pill-value"><%= fmt(scraping.last60) %></span><span class="stat-pill-label">lecturas última hora completa</span></div>
-    <div class="stat-pill"><span class="stat-pill-value"><%= fmt(scraping.total24h) %></span><span class="stat-pill-label">lecturas en 24 h</span></div>
+    <div class="stat-pill"><span class="stat-pill-value"><%= fmt(scraping.lastHour) %></span><span class="stat-pill-label">lecturas última hora completa</span></div>
+    <div class="stat-pill"><span class="stat-pill-value"><%= fmt(scraping.totalRange) %></span><span class="stat-pill-label">lecturas en <%= range === '7d' ? '7 días' : '24 h' %></span></div>
     <div class="stat-pill"><span class="stat-pill-value"><%= fmt(scraping.avgAgeH, 1) %> h</span><span class="stat-pill-label">edad media de la última lectura</span></div>
     <div class="stat-pill"><span class="stat-pill-value"><%= fmt(scraping.read24h) %>/<%= fmt(scraping.total) %></span><span class="stat-pill-label">productos leídos en 24 h</span></div>
     <div class="stat-pill"><span class="stat-pill-value"><%= fmt(scraping.queueDone) %>/<%= fmt(scraping.queueTotal) %></span><span class="stat-pill-label">cola actual</span></div>
@@ -32,17 +72,17 @@ const levelBadge = (m) => !m.reachable ? ['sin respuesta', '#b53847'] : m.paused
   </div>
 
   <div class="card" style="margin-bottom:16px">
-    <h2>Lecturas por hora — últimas 24 h</h2>
-    <div style="font-size:11px;color:var(--gray-400);text-align:right;margin-top:8px">máx: <%= fmt(maxHour) %></div>
-    <div style="display:flex;align-items:flex-end;gap:3px;height:90px;padding:0 2px">
-      <% hours.forEach(function(h, i) { const px = h.n > 0 ? Math.max(3, Math.round((h.n / maxHour) * 86)) : 0; %>
-        <div title="<%= madrid(h.ts * 1000, { hour: '2-digit', minute: '2-digit' }) %> · <%= h.n %> lecturas<%= h.partial ? ' (hora en curso)' : '' %>"
+    <h2>Lecturas <%= range === '7d' ? 'por día — últimos 7 días' : 'por hora — últimas 24 h' %></h2>
+    <div style="font-size:11px;color:var(--gray-400);text-align:right;margin-top:8px">máx: <%= fmt(maxBar) %></div>
+    <div style="display:flex;align-items:flex-end;gap:<%= range === '7d' ? 8 : 3 %>px;height:90px;padding:0 2px">
+      <% bars.forEach(function(h) { const px = h.n > 0 ? Math.max(3, Math.round((h.n / maxBar) * 86)) : 0; %>
+        <div title="<%= h.tip %> · <%= fmt(h.n) %> lecturas<%= h.partial ? ' (incompleto)' : '' %>"
              style="flex:1;height:<%= px %>px;background:<%= h.partial ? '#93c5fd' : '#1d4ed8' %>;border-radius:2px 2px 0 0;min-width:4px;align-self:flex-end"></div>
       <% }); %>
     </div>
     <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:11px;color:var(--gray-400)">
-      <span><%= madrid(hours[0].ts * 1000, { hour: '2-digit', minute: '2-digit' }) %></span>
-      <span>ahora (barra clara = hora en curso)</span>
+      <span><%= bars[0].label %></span>
+      <span>ahora (barra clara = periodo incompleto)</span>
     </div>
   </div>
 
@@ -71,7 +111,7 @@ const levelBadge = (m) => !m.reachable ? ['sin respuesta', '#b53847'] : m.paused
   <!-- Machines -->
   <% machines.forEach(function(m) { %>
     <div class="card" style="margin-bottom:16px">
-      <h2><%= m.kind === 'local' ? 'Servidor' : 'Pi' %> · <%= m.name %> <span class="hint">— últimas 24 h, un punto cada 10 min</span></h2>
+      <h2><%= m.kind === 'local' ? 'Servidor' : 'Pi' %> · <%= m.name %> <span class="hint">— <%= range === '7d' ? 'últimos 7 días, un punto por hora' : 'últimas 24 h, un punto cada 10 min' %></span></h2>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-top:12px">
         <% m.charts.forEach(function(c) { %>
           <div>
@@ -101,5 +141,18 @@ const levelBadge = (m) => !m.reachable ? ['sin respuesta', '#b53847'] : m.paused
   </div>
 
 </main>
+<script>
+(function () {
+  var ids = { active: 'live-active', loggedIn: 'live-logged', uniquesToday: 'live-uniques', peakToday: 'live-peak' };
+  function tick() {
+    fetch('/admin/salud/live', { credentials: 'same-origin' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
+      if (!d) return;
+      Object.keys(ids).forEach(function (k) { var el = document.getElementById(ids[k]); if (el) el.textContent = Number(d[k]).toLocaleString('es-ES'); });
+      var dot = document.getElementById('live-dot'); if (dot) dot.style.opacity = dot.style.opacity === '0.3' ? '1' : '0.3';
+    }).catch(function () {});
+  }
+  setInterval(tick, 15000);
+})();
+</script>
 </body>
 </html>

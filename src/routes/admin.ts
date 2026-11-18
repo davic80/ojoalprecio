@@ -9,6 +9,7 @@ import { requireAdmin } from '../middleware/admin';
 import { scrapeUrlForAsins, extractAsin, normaliseAmazonUrl } from '../scraper/amazon';
 import { getScraperStatus, triggerScrape, getScraperHealth } from '../scheduler';
 import { getLocalSystem } from '../scheduler/executor-monitor';
+import { liveVisitors } from '../lib/live-visitors';
 import { alignBuckets, summarize, sparkline } from '../lib/spark';
 import { getBestUnpostedDeal, postDailyDeal, POST_HOURS } from '../scheduler/social';
 import { refreshAllAETracks, refreshAEEquivalents, refreshAEHotProducts } from '../scheduler/aliexpress';
@@ -904,19 +905,27 @@ router.post('/admin/social/post-now', requireAuth, requireAdmin, async (req: Req
   res.redirect('/admin/social');
 });
 
-// ── GET /admin/salud — performance and health: executors, scraping rate, machines, app ──
-const SALUD_STEP = 600;           // 10-minute buckets
-const SALUD_BUCKETS = 144;        // = 24 h
+// ── GET /admin/salud — performance and health: executors, scraping rate, machines, visitors, app ──
+// ?r=24h (default, 10-minute points) or ?r=7d (hourly points).
+const MADRID_DAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid', year: 'numeric', month: '2-digit', day: '2-digit' });
+router.get('/admin/salud/live', requireAuth, requireAdmin, (_req: Request, res: Response) => {
+  res.json({ ...liveVisitors.snapshot(), at: Date.now() });
+});
 router.get('/admin/salud', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const range: '24h' | '7d' = req.query.r === '7d' ? '7d' : '24h';
+  const STEP = range === '7d' ? 3600 : 600;
+  const BUCKETS = range === '7d' ? 168 : 144;
+  const INTERVAL = sql.raw(range === '7d' ? "'7 days'" : "'24 hours'");
+  const STEP_SQL = sql.raw(String(STEP));
   const t0 = Date.now();
   const nowSec = Math.floor(Date.now() / 1000);
-  const startSec = Math.floor(nowSec / SALUD_STEP) * SALUD_STEP - (SALUD_BUCKETS - 1) * SALUD_STEP;
+  const startSec = Math.floor(nowSec / STEP) * STEP - (BUCKETS - 1) * STEP;
   await db.execute(sql`SELECT 1`);
   const dbPingMs = Date.now() - t0;
-  const [hourlyR, freshR, metricsR, sizeR] = await Promise.all([
+  const [hourlyR, freshR, metricsR, sizeR, visR, dailyR, usersR] = await Promise.all([
     db.execute(sql`
       SELECT (extract(epoch FROM date_trunc('hour', scraped_at)))::bigint AS h, COUNT(*)::int AS n
-      FROM price_history WHERE scraped_at > NOW() - INTERVAL '24 hours' GROUP BY 1 ORDER BY 1`),
+      FROM price_history WHERE scraped_at > NOW() - ${INTERVAL}::interval GROUP BY 1 ORDER BY 1`),
     db.execute(sql`
       SELECT
         round((avg(extract(epoch FROM now() - last_checked_at)) / 3600)::numeric, 1) AS avg_age_h,
@@ -925,21 +934,46 @@ router.get('/admin/salud', requireAuth, requireAdmin, async (req: Request, res: 
         count(*) FILTER (WHERE is_failed)::int AS failed
       FROM products WHERE is_active AND is_available`),
     db.execute(sql`
-      SELECT executor, (floor(extract(epoch FROM ts) / ${sql.raw(String(SALUD_STEP))}) * ${sql.raw(String(SALUD_STEP))})::bigint AS b,
+      SELECT executor, (floor(extract(epoch FROM ts) / ${STEP_SQL}) * ${STEP_SQL})::bigint AS b,
              avg(load1) AS load1, avg(temp_c) AS temp_c, max(container_mem_mb) AS mem_mb,
              avg(container_cpu_pct) AS cpu_pct, max(swap_used_mb) AS swap_mb, max(dns_ms) AS dns_ms,
              min(host_mem_avail_mb) AS mem_avail_mb
-      FROM executor_metrics WHERE ts > NOW() - INTERVAL '24 hours' GROUP BY 1, 2 ORDER BY 1, 2`),
+      FROM executor_metrics WHERE ts > NOW() - ${INTERVAL}::interval GROUP BY 1, 2 ORDER BY 1, 2`),
     db.execute(sql`
       SELECT pg_database_size(current_database())::bigint AS db_bytes,
              (SELECT reltuples::bigint FROM pg_class WHERE relname = 'price_history') AS price_rows,
              (SELECT COUNT(*)::int FROM products WHERE is_active) AS active_products`),
+    db.execute(sql`
+      SELECT (floor(extract(epoch FROM ts) / ${STEP_SQL}) * ${STEP_SQL})::bigint AS b, max(active) AS active, max(logged_in) AS logged_in
+      FROM visitor_samples WHERE ts > NOW() - ${INTERVAL}::interval GROUP BY 1 ORDER BY 1`),
+    db.execute(sql`SELECT day, uniques, peak FROM visitor_daily WHERE day >= TO_CHAR(CURRENT_DATE - 13, 'YYYY-MM-DD') ORDER BY day`),
+    db.execute(sql`
+      SELECT COUNT(*)::int AS total,
+             COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours')::int AS new_24h,
+             COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days')::int AS new_7d,
+             (SELECT COALESCE(SUM(count), 0)::int FROM page_views WHERE day = TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD')) AS views_today
+      FROM users WHERE email NOT LIKE '%@ojoalprecio.local'`),
   ]);
 
+  // Reads: hourly bars for 24 h, one bar per Madrid day for 7 d.
   const hourlyMap = new Map<number, number>((hourlyR.rows as any[]).map(r => [Number(r.h), Number(r.n)]));
   const curHour = Math.floor(nowSec / 3600) * 3600;
-  const hours: { ts: number; n: number; partial: boolean }[] = [];
-  for (let i = 23; i >= 0; i--) { const ts = curHour - i * 3600; hours.push({ ts, n: hourlyMap.get(ts) ?? 0, partial: ts === curHour }); }
+  let bars: { label: string; tip: string; n: number; partial: boolean }[] = [];
+  if (range === '24h') {
+    for (let i = 23; i >= 0; i--) {
+      const ts = curHour - i * 3600; const hh = new Date(ts * 1000).toLocaleTimeString('es-ES', { timeZone: 'Europe/Madrid', hour: '2-digit', minute: '2-digit' });
+      bars.push({ label: hh, tip: hh, n: hourlyMap.get(ts) ?? 0, partial: ts === curHour });
+    }
+  } else {
+    const perDay = new Map<string, number>();
+    for (let i = 167; i >= 0; i--) { const ts = curHour - i * 3600; const k = MADRID_DAY.format(new Date(ts * 1000)); perDay.set(k, (perDay.get(k) ?? 0) + (hourlyMap.get(ts) ?? 0)); }
+    const todayKey = MADRID_DAY.format(new Date());
+    const keys = [...perDay.keys()];
+    bars = keys.map(k => {
+      const d = new Date(k + 'T12:00:00Z').toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', timeZone: 'UTC' });
+      return { label: d, tip: d + (k === keys[0] ? ' (día incompleto)' : ''), n: perDay.get(k) ?? 0, partial: k === todayKey || k === keys[0] };
+    });
+  }
 
   const byExec = new Map<string, any[]>();
   for (const r of metricsR.rows as any[]) { if (!byExec.has(r.executor)) byExec.set(r.executor, []); byExec.get(r.executor)!.push(r); }
@@ -947,7 +981,7 @@ router.get('/admin/salud', requireAuth, requireAdmin, async (req: Request, res: 
   const names = ['local', ...health.executors.map(e => e.name).filter(n => n !== 'local')];
   const machines = names.map(name => {
     const rows = byExec.get(name) ?? [];
-    const series = (pick: (r: any) => number | null | undefined) => alignBuckets(rows, pick, startSec, SALUD_STEP, SALUD_BUCKETS);
+    const series = (pick: (r: any) => number | null | undefined) => alignBuckets(rows, pick, startSec, STEP, BUCKETS);
     const mk = (key: string, label: string, unit: string, pick: (r: any) => any, opt: { min?: number; max?: number; stroke?: string } = {}) => {
       const v = series(pick);
       return { key, label, unit, svg: sparkline(v, { ...opt, label: `${name} ${label}` }), ...summarize(v) };
@@ -966,10 +1000,17 @@ router.get('/admin/salud', requireAuth, requireAdmin, async (req: Request, res: 
         mk('cpu', 'CPU del contenedor', '% de un núcleo', r => r.cpu_pct, { min: 0 }),
         mk('mem', 'Memoria del contenedor', 'MB', r => r.mem_mb, { min: 0 }),
         mk('swap', 'Swap en uso', 'MB', r => r.swap_mb, { min: 0 }),
-        ...(name === 'local' ? [] : [mk('temp', 'Temperatura', '°C', r => r.temp_c), mk('dns', 'DNS (peor de cada 10 min)', 'ms', r => r.dns_ms, { min: 0 })]),
+        ...(name === 'local' ? [] : [mk('temp', 'Temperatura', '°C', r => r.temp_c), mk('dns', range === '7d' ? 'DNS (peor de cada hora)' : 'DNS (peor de cada 10 min)', 'ms', r => r.dns_ms, { min: 0 })]),
       ],
     };
   });
+
+  const visRows = visR.rows as any[];
+  const activeSeries = alignBuckets(visRows, r => r.active, startSec, STEP, BUCKETS);
+  const loggedSeries = alignBuckets(visRows, r => r.logged_in, startSec, STEP, BUCKETS);
+  const daily = (dailyR.rows as any[]).map(r => ({ day: String(r.day), uniques: Number(r.uniques), peak: Number(r.peak) }));
+  const u = (usersR.rows[0] ?? {}) as any;
+  const live = liveVisitors.snapshot();
 
   const mem = process.memoryUsage();
   let diskPct: number | null = null; let diskFreeGb: number | null = null;
@@ -977,22 +1018,32 @@ router.get('/admin/salud', requireAuth, requireAdmin, async (req: Request, res: 
   const sz = (sizeR.rows[0] ?? {}) as any;
   const fresh = (freshR.rows[0] ?? {}) as any;
   const last = getLocalSystem();
+  const total = bars.reduce((a, b) => a + b.n, 0);
   res.render('admin-salud', {
     user: { email: req.session.userEmail },
     isAdmin: true,
     generatedAt: Date.now(),
+    range,
     scraping: {
       ok: health.ok, stuck: health.stuck, noAnswers: health.noAnswers,
       lastProgressAgeSec: health.lastProgressAgeSec, lastAnswerAgeSec: health.lastAnswerAgeSec,
       queueDone: health.done, queueTotal: health.total,
       avgAgeH: fresh.avg_age_h === null || fresh.avg_age_h === undefined ? null : Number(fresh.avg_age_h),
       read24h: Number(fresh.read_24h ?? 0), total: Number(fresh.total ?? 0), failed: Number(fresh.failed ?? 0),
-      last60: hours.length ? hours[hours.length - 2]?.n ?? 0 : 0,
-      total24h: hours.reduce((a, h) => a + h.n, 0),
+      lastHour: range === '24h' ? (bars[bars.length - 2]?.n ?? 0) : (hourlyMap.get(curHour - 3600) ?? 0),
+      totalRange: total,
     },
-    hours,
-    maxHour: Math.max(...hours.map(h => h.n), 1),
+    bars,
+    maxBar: Math.max(...bars.map(b => b.n), 1),
     machines,
+    visitors: {
+      live,
+      activeSvg: sparkline(activeSeries, { min: 0, label: 'visitantes activos' }),
+      loggedSvg: sparkline(loggedSeries, { min: 0, stroke: '#198754', label: 'usuarios con sesión' }),
+      activeSummary: summarize(activeSeries),
+      daily, maxDaily: Math.max(...daily.map(d => d.uniques), 1),
+      usersTotal: Number(u.total ?? 0), new24h: Number(u.new_24h ?? 0), new7d: Number(u.new_7d ?? 0), viewsToday: Number(u.views_today ?? 0),
+    },
     app: {
       version: process.env.APP_VERSION ?? 'dev',
       commit: (process.env.APP_COMMIT ?? '').slice(0, 7),

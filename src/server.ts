@@ -1,5 +1,6 @@
 import compression from 'compression';
 import { getScraperHealth } from './scheduler';
+import { liveVisitors } from './lib/live-visitors';
 import express from 'express';
 import path from 'path';
 import session from 'express-session';
@@ -128,6 +129,9 @@ export function createApp() {
       req.path.startsWith('/js') ||
       req.path.includes('.');
     if (!skip) {
+      // Live visitors: in memory only, salted hash, bots excluded (see lib/live-visitors.ts).
+      const ua = (req.headers['user-agent'] ?? '') as string;
+      if (detectDevice(ua) !== 'Bot') liveVisitors.touch(req.ip ?? '', ua, (req.session as any)?.userId ?? null);
       const source = categorizeReferer(req);
       if (source !== null) {
         const device = detectDevice((req.headers['user-agent'] ?? '') as string);

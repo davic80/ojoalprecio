@@ -25,7 +25,7 @@ describe('/privacidad', () => {
   it('is public and says what is stored, who gets it and the affiliate notice', async () => {
     const r = await get('/privacidad');
     expect(r.status).toBe(200);
-    for (const t of ['Política de privacidad', 'Brevo', 'Hetzner', 'Cloudflare Turnstile', 'Como afiliado de Amazon', 'Tus derechos', 'aepd.es']) expect(r.text).toContain(t);
+    for (const t of ['Política de privacidad', 'Brevo', 'Hetzner', 'Cloudflare Turnstile', 'Como afiliado de Amazon', 'solo en memoria', 'Tus derechos', 'aepd.es']) expect(r.text).toContain(t);
   });
 
   it('says analytics is cookieless, and only when it is enabled; never mentions Google Analytics', async () => {

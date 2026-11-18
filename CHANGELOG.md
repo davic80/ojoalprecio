@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `/admin/salud`: selector 24 h / 7 días; visitantes en directo (se refresca solo cada 15 s), usuarios con sesión, únicos y pico del día, altas y gráficas históricas, sin guardar nada personal (`visitor_samples`, `visitor_daily`; texto añadido en /privacidad)
 - Página de admin `/admin/salud`: salud y rendimiento (semáforo por ejecutor, lecturas por hora, edad media y cobertura, gráficas de 24 h de carga/CPU/memoria/swap/temperatura/DNS de servidor y Pis, versión, BD y disco). El servidor también guarda una muestra por minuto en `executor_metrics` (columnas nuevas `dns_ms`, `swap_used_mb`)
 
 ### Changed
