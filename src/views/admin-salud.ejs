@@ -1,0 +1,105 @@
+<%
+const fmt = (n, d) => n === null || n === undefined ? '—' : Number(n).toLocaleString('es-ES', { maximumFractionDigits: d === undefined ? 0 : d });
+const madrid = (ms, o) => new Date(ms).toLocaleString('es-ES', Object.assign({ timeZone: 'Europe/Madrid' }, o));
+const dur = (ms) => { const m = Math.floor(ms / 60000); if (m < 60) return m + ' min'; const h = Math.floor(m / 60); return h < 48 ? h + ' h ' + (m % 60) + ' min' : Math.floor(h / 24) + ' d ' + (h % 24) + ' h'; };
+const levelBadge = (m) => !m.reachable ? ['sin respuesta', '#b53847'] : m.paused ? ['en pausa', '#b45309'] : m.breakerOpen ? ['interruptor abierto', '#b45309'] : m.level === 'critical' ? ['crítico', '#b53847'] : m.level === 'warn' ? ['aviso', '#b45309'] : ['ok', '#198754'];
+%>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<%- include('partials/head', { title: 'Salud y rendimiento — Admin OjoAlPrecio' }) %>
+</head>
+<body>
+
+<%- include('partials/navbar-admin', { user, activePage: 'salud' }) %>
+
+<main class="container">
+
+  <div class="page-header">
+    <h1>Salud y rendimiento</h1>
+    <p class="subtitle">Estado de los ejecutores, ritmo de lectura, máquinas (últimas 24 h) y aplicación &nbsp;·&nbsp; generado a las <%= madrid(generatedAt, { hour: '2-digit', minute: '2-digit', second: '2-digit' }) %> (hora de España) &nbsp;·&nbsp; <a href="/admin/ops" class="hint-link">Ops →</a></p>
+  </div>
+
+  <!-- Scraping -->
+  <div class="stats-bar" style="margin-bottom:16px">
+    <div class="stat-pill"><span class="stat-pill-value" style="color:<%= scraping.ok ? '#198754' : '#b53847' %>"><%= scraping.ok ? 'sano' : (scraping.stuck ? 'atascado' : 'sin respuestas') %></span><span class="stat-pill-label">scraping</span></div>
+    <div class="stat-pill"><span class="stat-pill-value"><%= fmt(scraping.last60) %></span><span class="stat-pill-label">lecturas última hora completa</span></div>
+    <div class="stat-pill"><span class="stat-pill-value"><%= fmt(scraping.total24h) %></span><span class="stat-pill-label">lecturas en 24 h</span></div>
+    <div class="stat-pill"><span class="stat-pill-value"><%= fmt(scraping.avgAgeH, 1) %> h</span><span class="stat-pill-label">edad media de la última lectura</span></div>
+    <div class="stat-pill"><span class="stat-pill-value"><%= fmt(scraping.read24h) %>/<%= fmt(scraping.total) %></span><span class="stat-pill-label">productos leídos en 24 h</span></div>
+    <div class="stat-pill"><span class="stat-pill-value"><%= fmt(scraping.queueDone) %>/<%= fmt(scraping.queueTotal) %></span><span class="stat-pill-label">cola actual</span></div>
+    <div class="stat-pill"><span class="stat-pill-value"><%= fmt(scraping.failed) %></span><span class="stat-pill-label">productos con fallo</span></div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <h2>Lecturas por hora — últimas 24 h</h2>
+    <div style="font-size:11px;color:var(--gray-400);text-align:right;margin-top:8px">máx: <%= fmt(maxHour) %></div>
+    <div style="display:flex;align-items:flex-end;gap:3px;height:90px;padding:0 2px">
+      <% hours.forEach(function(h, i) { const px = h.n > 0 ? Math.max(3, Math.round((h.n / maxHour) * 86)) : 0; %>
+        <div title="<%= madrid(h.ts * 1000, { hour: '2-digit', minute: '2-digit' }) %> · <%= h.n %> lecturas<%= h.partial ? ' (hora en curso)' : '' %>"
+             style="flex:1;height:<%= px %>px;background:<%= h.partial ? '#93c5fd' : '#1d4ed8' %>;border-radius:2px 2px 0 0;min-width:4px;align-self:flex-end"></div>
+      <% }); %>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:11px;color:var(--gray-400)">
+      <span><%= madrid(hours[0].ts * 1000, { hour: '2-digit', minute: '2-digit' }) %></span>
+      <span>ahora (barra clara = hora en curso)</span>
+    </div>
+  </div>
+
+  <!-- Executors -->
+  <div class="card" style="margin-bottom:16px">
+    <h2>Ejecutores</h2>
+    <div class="table-wrap">
+      <table class="data-table" style="width:100%;margin-top:8px">
+        <thead><tr><th style="text-align:left">Ejecutor</th><th style="text-align:left">Estado</th><th style="text-align:right">Hechas*</th><th style="text-align:right">Fallos*</th><th style="text-align:left">Último error</th></tr></thead>
+        <tbody>
+        <% machines.forEach(function(m) { const b = levelBadge(m); %>
+          <tr>
+            <td><strong><%= m.name %></strong> <span class="hint">(<%= m.kind === 'local' ? 'servidor' : 'remoto' %>)</span></td>
+            <td><span style="color:<%= b[1] %>;font-weight:600">● <%= b[0] %></span></td>
+            <td style="text-align:right"><%= fmt(m.done) %></td>
+            <td style="text-align:right"><%= fmt(m.failed) %></td>
+            <td class="hint"><%= m.lastError || '—' %></td>
+          </tr>
+        <% }); %>
+        </tbody>
+      </table>
+    </div>
+    <p class="hint" style="margin-top:8px">* desde el último reinicio de la app. Un ejecutor se pausa solo tras 2 comprobaciones críticas seguidas.</p>
+  </div>
+
+  <!-- Machines -->
+  <% machines.forEach(function(m) { %>
+    <div class="card" style="margin-bottom:16px">
+      <h2><%= m.kind === 'local' ? 'Servidor' : 'Pi' %> · <%= m.name %> <span class="hint">— últimas 24 h, un punto cada 10 min</span></h2>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-top:12px">
+        <% m.charts.forEach(function(c) { %>
+          <div>
+            <div style="display:flex;justify-content:space-between;font-size:12px"><span><%= c.label %></span><strong><%= fmt(c.last, c.key === 'load' ? 2 : (c.key === 'temp' ? 1 : 0)) %> <span class="hint"><%= c.unit %></span></strong></div>
+            <%- c.svg %>
+            <div class="hint" style="font-size:11px">mín <%= fmt(c.min, c.key === 'load' ? 2 : 0) %> · máx <%= fmt(c.max, c.key === 'load' ? 2 : 0) %></div>
+          </div>
+        <% }); %>
+      </div>
+    </div>
+  <% }); %>
+
+  <!-- App -->
+  <div class="card" style="margin-bottom:16px">
+    <h2>Aplicación y base de datos</h2>
+    <div class="stats-bar" style="margin-top:12px">
+      <div class="stat-pill"><span class="stat-pill-value"><%= app.version %><%= app.commit ? ' · ' + app.commit : '' %></span><span class="stat-pill-label">versión</span></div>
+      <div class="stat-pill"><span class="stat-pill-value"><%= dur(app.uptimeMs) %></span><span class="stat-pill-label">en marcha</span></div>
+      <div class="stat-pill"><span class="stat-pill-value"><%= fmt(app.rssMb) %> MB</span><span class="stat-pill-label">memoria de la app (heap <%= fmt(app.heapMb) %>)</span></div>
+      <div class="stat-pill"><span class="stat-pill-value"><%= fmt(app.dbPingMs) %> ms</span><span class="stat-pill-label">latencia de la BD</span></div>
+      <div class="stat-pill"><span class="stat-pill-value"><%= fmt(app.dbMb) %> MB</span><span class="stat-pill-label">tamaño de la BD</span></div>
+      <div class="stat-pill"><span class="stat-pill-value"><%= fmt(app.priceRows) %></span><span class="stat-pill-label">filas de precios (aprox.)</span></div>
+      <div class="stat-pill"><span class="stat-pill-value"><%= fmt(app.activeProducts) %></span><span class="stat-pill-label">productos activos</span></div>
+      <div class="stat-pill"><span class="stat-pill-value"><%= app.diskPct === null ? '—' : app.diskPct + ' %' %></span><span class="stat-pill-label">disco usado (<%= fmt(app.diskFreeGb, 1) %> GB libres)</span></div>
+      <div class="stat-pill"><span class="stat-pill-value"><%= fmt(app.hostMemAvailMb) %> / <%= fmt(app.hostMemTotalMb) %> MB</span><span class="stat-pill-label">memoria libre del servidor</span></div>
+    </div>
+  </div>
+
+</main>
+</body>
+</html>

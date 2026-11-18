@@ -6,7 +6,7 @@ import { db } from '../db/client';
 import { getSetting } from '../db/settings';
 import { sendOpsAlert } from '../lib/ops-alert';
 import { parseRemotes } from '../scraper/remote';
-import { evaluateSystem, thresholdsFor, formatSample, type HealthLevel, type SystemSample } from '../scraper/metrics';
+import { evaluateSystem, thresholdsFor, formatSample, MetricsSampler, type HealthLevel, type SystemSample } from '../scraper/metrics';
 
 export interface ExecutorSystemState {
   reachable: boolean;
@@ -86,15 +86,28 @@ async function pollOne(name: string, baseUrl: string, token: string): Promise<vo
   }
 
   // One stored sample per minute (every 2nd poll).
-  if (++pollCount % 2 === 0) {
-    try {
-      await db.execute(sql`
-        INSERT INTO executor_metrics (executor, level, load1, host_mem_avail_mb, swap_growth_mb, container_mem_mb, container_cpu_pct, temp_c)
-        VALUES (${name}, ${ev.level}, ${sample.load1}, ${sample.hostMemAvailMb}, ${sample.swapGrowthMb},
-                ${sample.containerMemMb}, ${sample.containerCpuPct}, ${sample.tempC})
-      `);
-    } catch (err) { console.error('[executor-monitor] no se pudo guardar la muestra:', err instanceof Error ? err.message : err); }
-  }
+  if (++pollCount % 2 === 0) await storeSample(name, ev.level, sample);
+}
+
+async function storeSample(name: string, level: HealthLevel, sample: SystemSample): Promise<void> {
+  try {
+    await db.execute(sql`
+      INSERT INTO executor_metrics (executor, level, load1, host_mem_avail_mb, swap_growth_mb, container_mem_mb, container_cpu_pct, temp_c, dns_ms, swap_used_mb)
+      VALUES (${name}, ${level}, ${sample.load1}, ${sample.hostMemAvailMb}, ${sample.swapGrowthMb},
+              ${sample.containerMemMb}, ${sample.containerCpuPct}, ${sample.tempC}, ${sample.dnsMs ?? null}, ${sample.swapUsedMb})
+    `);
+  } catch (err) { console.error('[executor-monitor] no se pudo guardar la muestra:', err instanceof Error ? err.message : err); }
+}
+
+// The server itself ('local'): same sampler as the Pis, one stored row per minute, for the /admin/salud charts.
+const localSampler = new MetricsSampler();
+export function getLocalSystem(): SystemSample | null { return localSampler.latest(); }
+export function startLocalSampler(): void {
+  localSampler.start(10_000);
+  setInterval(() => {
+    const s = localSampler.latest();
+    if (s) void storeSample('local', 'ok', s);
+  }, 60_000).unref();
 }
 
 async function tick(): Promise<void> {

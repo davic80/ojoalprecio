@@ -1,12 +1,15 @@
 import express, { Router, type Request, type Response } from 'express';
 import os from 'os';
+import fs from 'fs';
 import { db } from '../db/client';
 import { categories, products, users, recommendationLists, recommendationItems, scrapeAnomalies, priceHistory } from '../db/schema';
 import { eq, sql, asc, desc } from 'drizzle-orm';
 import { requireAuth } from '../middleware/auth';
 import { requireAdmin } from '../middleware/admin';
 import { scrapeUrlForAsins, extractAsin, normaliseAmazonUrl } from '../scraper/amazon';
-import { getScraperStatus, triggerScrape } from '../scheduler';
+import { getScraperStatus, triggerScrape, getScraperHealth } from '../scheduler';
+import { getLocalSystem } from '../scheduler/executor-monitor';
+import { alignBuckets, summarize, sparkline } from '../lib/spark';
 import { getBestUnpostedDeal, postDailyDeal, POST_HOURS } from '../scheduler/social';
 import { refreshAllAETracks, refreshAEEquivalents, refreshAEHotProducts } from '../scheduler/aliexpress';
 import {
@@ -899,6 +902,109 @@ router.post('/admin/social/post-now', requireAuth, requireAdmin, async (req: Req
     console.error('[admin] Error posting deal:', err);
   }
   res.redirect('/admin/social');
+});
+
+// ── GET /admin/salud — performance and health: executors, scraping rate, machines, app ──
+const SALUD_STEP = 600;           // 10-minute buckets
+const SALUD_BUCKETS = 144;        // = 24 h
+router.get('/admin/salud', requireAuth, requireAdmin, async (req: Request, res: Response) => {
+  const t0 = Date.now();
+  const nowSec = Math.floor(Date.now() / 1000);
+  const startSec = Math.floor(nowSec / SALUD_STEP) * SALUD_STEP - (SALUD_BUCKETS - 1) * SALUD_STEP;
+  await db.execute(sql`SELECT 1`);
+  const dbPingMs = Date.now() - t0;
+  const [hourlyR, freshR, metricsR, sizeR] = await Promise.all([
+    db.execute(sql`
+      SELECT (extract(epoch FROM date_trunc('hour', scraped_at)))::bigint AS h, COUNT(*)::int AS n
+      FROM price_history WHERE scraped_at > NOW() - INTERVAL '24 hours' GROUP BY 1 ORDER BY 1`),
+    db.execute(sql`
+      SELECT
+        round((avg(extract(epoch FROM now() - last_checked_at)) / 3600)::numeric, 1) AS avg_age_h,
+        count(*) FILTER (WHERE last_checked_at > now() - interval '24 hours')::int AS read_24h,
+        count(*)::int AS total,
+        count(*) FILTER (WHERE is_failed)::int AS failed
+      FROM products WHERE is_active AND is_available`),
+    db.execute(sql`
+      SELECT executor, (floor(extract(epoch FROM ts) / ${sql.raw(String(SALUD_STEP))}) * ${sql.raw(String(SALUD_STEP))})::bigint AS b,
+             avg(load1) AS load1, avg(temp_c) AS temp_c, max(container_mem_mb) AS mem_mb,
+             avg(container_cpu_pct) AS cpu_pct, max(swap_used_mb) AS swap_mb, max(dns_ms) AS dns_ms,
+             min(host_mem_avail_mb) AS mem_avail_mb
+      FROM executor_metrics WHERE ts > NOW() - INTERVAL '24 hours' GROUP BY 1, 2 ORDER BY 1, 2`),
+    db.execute(sql`
+      SELECT pg_database_size(current_database())::bigint AS db_bytes,
+             (SELECT reltuples::bigint FROM pg_class WHERE relname = 'price_history') AS price_rows,
+             (SELECT COUNT(*)::int FROM products WHERE is_active) AS active_products`),
+  ]);
+
+  const hourlyMap = new Map<number, number>((hourlyR.rows as any[]).map(r => [Number(r.h), Number(r.n)]));
+  const curHour = Math.floor(nowSec / 3600) * 3600;
+  const hours: { ts: number; n: number; partial: boolean }[] = [];
+  for (let i = 23; i >= 0; i--) { const ts = curHour - i * 3600; hours.push({ ts, n: hourlyMap.get(ts) ?? 0, partial: ts === curHour }); }
+
+  const byExec = new Map<string, any[]>();
+  for (const r of metricsR.rows as any[]) { if (!byExec.has(r.executor)) byExec.set(r.executor, []); byExec.get(r.executor)!.push(r); }
+  const health = getScraperHealth();
+  const names = ['local', ...health.executors.map(e => e.name).filter(n => n !== 'local')];
+  const machines = names.map(name => {
+    const rows = byExec.get(name) ?? [];
+    const series = (pick: (r: any) => number | null | undefined) => alignBuckets(rows, pick, startSec, SALUD_STEP, SALUD_BUCKETS);
+    const mk = (key: string, label: string, unit: string, pick: (r: any) => any, opt: { min?: number; max?: number; stroke?: string } = {}) => {
+      const v = series(pick);
+      return { key, label, unit, svg: sparkline(v, { ...opt, label: `${name} ${label}` }), ...summarize(v) };
+    };
+    const ex = health.executors.find(e => e.name === name);
+    return {
+      name,
+      kind: ex?.kind ?? 'local',
+      level: ex?.system?.level ?? 'ok',
+      reachable: ex?.system?.reachable ?? true,
+      paused: ex?.pausedForPressure ?? false,
+      breakerOpen: ex?.breakerOpen ?? false,
+      done: ex?.done ?? null, failed: ex?.failed ?? null, lastError: ex?.lastError ?? null,
+      charts: [
+        mk('load', 'Carga (1 min)', '', r => r.load1, { min: 0 }),
+        mk('cpu', 'CPU del contenedor', '% de un núcleo', r => r.cpu_pct, { min: 0 }),
+        mk('mem', 'Memoria del contenedor', 'MB', r => r.mem_mb, { min: 0 }),
+        mk('swap', 'Swap en uso', 'MB', r => r.swap_mb, { min: 0 }),
+        ...(name === 'local' ? [] : [mk('temp', 'Temperatura', '°C', r => r.temp_c), mk('dns', 'DNS (peor de cada 10 min)', 'ms', r => r.dns_ms, { min: 0 })]),
+      ],
+    };
+  });
+
+  const mem = process.memoryUsage();
+  let diskPct: number | null = null; let diskFreeGb: number | null = null;
+  try { const st = fs.statfsSync('/'); diskPct = Math.round((1 - st.bavail / st.blocks) * 100); diskFreeGb = Math.round((st.bavail * st.bsize) / 1e9 * 10) / 10; } catch { /* statfs not available */ }
+  const sz = (sizeR.rows[0] ?? {}) as any;
+  const fresh = (freshR.rows[0] ?? {}) as any;
+  const last = getLocalSystem();
+  res.render('admin-salud', {
+    user: { email: req.session.userEmail },
+    isAdmin: true,
+    generatedAt: Date.now(),
+    scraping: {
+      ok: health.ok, stuck: health.stuck, noAnswers: health.noAnswers,
+      lastProgressAgeSec: health.lastProgressAgeSec, lastAnswerAgeSec: health.lastAnswerAgeSec,
+      queueDone: health.done, queueTotal: health.total,
+      avgAgeH: fresh.avg_age_h === null || fresh.avg_age_h === undefined ? null : Number(fresh.avg_age_h),
+      read24h: Number(fresh.read_24h ?? 0), total: Number(fresh.total ?? 0), failed: Number(fresh.failed ?? 0),
+      last60: hours.length ? hours[hours.length - 2]?.n ?? 0 : 0,
+      total24h: hours.reduce((a, h) => a + h.n, 0),
+    },
+    hours,
+    maxHour: Math.max(...hours.map(h => h.n), 1),
+    machines,
+    app: {
+      version: process.env.APP_VERSION ?? 'dev',
+      commit: (process.env.APP_COMMIT ?? '').slice(0, 7),
+      uptimeMs: Math.round(process.uptime() * 1000),
+      rssMb: Math.round(mem.rss / 1048576), heapMb: Math.round(mem.heapUsed / 1048576),
+      dbPingMs, dbMb: Math.round(Number(sz.db_bytes ?? 0) / 1048576),
+      priceRows: Number(sz.price_rows ?? 0), activeProducts: Number(sz.active_products ?? 0),
+      diskPct, diskFreeGb,
+      hostMemAvailMb: last?.hostMemAvailMb ?? null, hostMemTotalMb: last?.hostMemTotalMb ?? null,
+      load1: last?.load1 ?? null,
+    },
+  });
 });
 
 // ── GET /admin/scrape-status ──────────────────────────────────────────────────

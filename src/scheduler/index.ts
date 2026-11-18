@@ -14,7 +14,7 @@ import { selectDue } from './selection';
 import { WorkQueue, RateWindow } from './queue';
 import { Breaker, type ExecutorStatus } from './executors';
 import { sameArticle, ASIN_RE } from './redirect';
-import { startExecutorMonitor, isExecutorPaused, getExecutorSystem, pruneExecutorMetrics } from './executor-monitor';
+import { startExecutorMonitor, startLocalSampler, isExecutorPaused, getExecutorSystem, pruneExecutorMetrics } from './executor-monitor';
 import { remoteScrape, parseRemotes, ExecutorUnavailableError, ExecutorRecyclingError } from '../scraper/remote';
 import { sendOpsAlert } from '../lib/ops-alert';
 import { optionDisplayName } from '../lib/variants';
@@ -1388,6 +1388,7 @@ export function startScheduler(): void {
   cron.schedule(CHECK_INTERVAL, () => { startScraping(); });
 
   startExecutorMonitor();
+  startLocalSampler();
   startFirstScrapeLoop();
   // Build the variant groups of what is already in the catalog (idempotent, runs once per start).
   setTimeout(() => { backfillProductGroups().catch(err => console.error('[groups] backfill failed:', err)); }, 45_000).unref();
