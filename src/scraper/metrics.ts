@@ -10,6 +10,10 @@ export interface SystemSample {
   ts: number;
   /** 1-minute load average of the HOST (a Pi 5 has 4 cores). */
   load1: number;
+  /** 5- and 15-minute load averages and tasks ready to run right now (context for the alert; older services omit them). */
+  load5?: number;
+  load15?: number;
+  runnable?: number | null;
   hostMemTotalMb: number;
   /** MemAvailable: what the host can still hand out without swapping. */
   hostMemAvailMb: number;
@@ -59,6 +63,10 @@ export interface SampleReaders {
   cgroupMemMax: () => string | null;
   tempMilli: () => string | null;
   load1: () => number;
+  load5?: () => number;
+  load15?: () => number;
+  /** Tasks ready to run now (first number of the 4th field of /proc/loadavg). */
+  runnable?: () => number | null;
   now: () => number;
   /** Resolve a name through the resolver and return the milliseconds taken (null = not measured). */
   dnsProbe?: () => Promise<number | null>;
@@ -73,6 +81,9 @@ export const defaultReaders: SampleReaders = {
   cgroupMemMax: tryRead('/sys/fs/cgroup/memory.max'),
   tempMilli: tryRead('/sys/class/thermal/thermal_zone0/temp'),
   load1: () => os.loadavg()[0],
+  load5: () => os.loadavg()[1],
+  load15: () => os.loadavg()[2],
+  runnable: () => { try { const m = /\s(\d+)\/\d+\s/.exec(fs.readFileSync('/proc/loadavg', 'utf8')); return m ? Number(m[1]) : null; } catch { return null; } },
   now: () => Date.now(),
   dnsProbe: async () => {
     const r = new dns.promises.Resolver({ timeout: 2000, tries: 1 });
@@ -119,6 +130,9 @@ export class MetricsSampler {
     const s: SystemSample = {
       ts: now,
       load1: Math.round(r.load1() * 100) / 100,
+      load5: r.load5 ? Math.round(r.load5() * 100) / 100 : undefined,
+      load15: r.load15 ? Math.round(r.load15() * 100) / 100 : undefined,
+      runnable: r.runnable ? r.runnable() : undefined,
       hostMemTotalMb: Math.round(mi.totalKb / 1024),
       hostMemAvailMb: Math.round(mi.availKb / 1024),
       swapUsedMb,
@@ -167,7 +181,7 @@ export class MetricsSampler {
 
 export function formatSample(s: SystemSample): string {
   return `cpu=${s.containerCpuPct ?? '?'}% mem=${s.containerMemMb ?? '?'}/${s.containerMemLimitMb ?? '?'}MB ` +
-    `hostLibre=${s.hostMemAvailMb}MB swap+${s.swapGrowthMb}MB temp=${s.tempC ?? '?'}°C load1=${s.load1} dns=${s.dnsMs ?? '?'}ms`;
+    `hostLibre=${s.hostMemAvailMb}MB swap+${s.swapGrowthMb}MB temp=${s.tempC ?? '?'}°C load1=${s.load1}${s.load5 !== undefined ? ` load5=${s.load5}` : ''}${s.load15 !== undefined ? ` load15=${s.load15}` : ''}${s.runnable != null ? ` listas=${s.runnable}` : ''} dns=${s.dnsMs ?? '?'}ms`;
 }
 
 // ── Health evaluation (used by the main server) ──────────────────────────────────────────────
@@ -204,8 +218,9 @@ export function evaluateSystem(s: SystemSample, t: Thresholds = PI_THRESHOLDS): 
   }
   if (s.swapGrowthMb > t.swapGrowthCritMb) crit.push(`el swap ha crecido ${s.swapGrowthMb} MB desde el arranque`);
   else if (s.swapGrowthMb > t.swapGrowthWarnMb) warn.push(`el swap ha crecido ${s.swapGrowthMb} MB`);
-  if (s.load1 > t.loadCrit) crit.push(`carga del host ${s.load1} (4 núcleos)`);
-  else if (s.load1 > t.loadWarn) warn.push(`carga del host ${s.load1}`);
+  const loadCtx = `en 1 min${s.load5 !== undefined ? `; 5 min: ${s.load5}` : ''}${s.load15 !== undefined ? `, 15 min: ${s.load15}` : ''}${s.runnable != null ? `; ${s.runnable} tareas listas para ejecutarse` : ''}`;
+  if (s.load1 > t.loadCrit) crit.push(`carga del host ${s.load1} ${loadCtx} (la Pi tiene 4 núcleos)`);
+  else if (s.load1 > t.loadWarn) warn.push(`carga del host ${s.load1} ${loadCtx}`);
   if (s.dnsMs !== undefined && s.dnsMs !== null) {
     if (s.dnsMs >= t.dnsCritMs) crit.push(`el DNS tarda ${s.dnsMs} ms (el resolutor de la Pi va lento)`);
     else if (s.dnsMs >= t.dnsWarnMs) warn.push(`el DNS tarda ${s.dnsMs} ms`);

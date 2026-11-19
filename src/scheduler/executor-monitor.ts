@@ -78,6 +78,9 @@ async function pollOne(name: string, baseUrl: string, token: string): Promise<vo
       ...ev.reasons.map(r => `• ${r}`),
       '',
       `Estado: ${formatSample(sample)}`,
+      ...(ev.reasons.some(r => r.startsWith('carga del host'))
+        ? ['', 'La carga es la de toda la Pi, no solo la del scraper: normalmente es una ráfaga de otro servicio (Jellyfin, Plex, Immich…). Pausar el scraper le deja sitio; si dura poco no hace falta hacer nada. Mira "cpu=" arriba: es lo que usa el contenedor del scraper.']
+        : []),
       `El worker remoto se detiene ${PAUSE_MS / 60000} minutos y se reanuda cuando la Pi se recupere (2 comprobaciones sanas seguidas).`,
       'Si se repite, baja scraper_remote_concurrency a 0 para apagarlo, o revisa qué otro servicio consume la Pi.',
     ], 60 * 60 * 1000);

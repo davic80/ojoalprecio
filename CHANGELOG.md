@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Página de admin `/admin/salud`: salud y rendimiento (semáforo por ejecutor, lecturas por hora, edad media y cobertura, gráficas de 24 h de carga/CPU/memoria/swap/temperatura/DNS de servidor y Pis, versión, BD y disco). El servidor también guarda una muestra por minuto en `executor_metrics` (columnas nuevas `dns_ms`, `swap_used_mb`)
 
 ### Changed
+- Aviso de «Pi al límite» por carga: ahora indica la carga a 1, 5 y 15 min, las tareas listas para ejecutarse y explica que la carga es la de toda la Pi (otros servicios), no solo la del scraper
 - Monitor de ejecutores: pausa el worker remoto solo tras 2 comprobaciones críticas seguidas (evita falsas pausas al reiniciar una Pi)
 - Servidor con `SCRAPER_UI_TIMEOUT_SCALE=2` (más paciencia al fijar el código postal); variables pasadas por `docker-compose.yml`
 

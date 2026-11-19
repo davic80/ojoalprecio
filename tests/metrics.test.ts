@@ -106,7 +106,11 @@ describe('evaluateSystem', () => {
     expect(evaluateSystem(base({ swapGrowthMb: 1600 })).level).toBe('critical');
     expect(evaluateSystem(base({ load1: 6.5 })).level).toBe('warn');
     expect(evaluateSystem(base({ load1: 10.5 })).level).toBe('critical');
-    expect(evaluateSystem(base({ load1: 3.9 })).level).toBe('ok');            // normal for a nice-15, 2-core Chromium
+    expect(evaluateSystem(base({ load1: 3.9 })).level).toBe('ok');
+    const ctx = evaluateSystem(base({ load1: 10.3, load5: 6.8, load15: 4.6, runnable: 25 }));
+    expect(ctx.reasons[0]).toMatch(/carga del host 10\.3 en 1 min; 5 min: 6\.8, 15 min: 4\.6; 25 tareas listas/);
+    expect(evaluateSystem(base({ load1: 10.3 })).reasons[0]).toContain('carga del host 10.3');      // older services: no context, no crash
+    expect(formatSample(base({ load1: 2, load5: 3, load15: 4, runnable: 5 }))).toContain('load1=2 load5=3 load15=4 listas=5');            // normal for a nice-15, 2-core Chromium
     expect(evaluateSystem(base({ dnsMs: 150 })).level).toBe('warn');
     expect(evaluateSystem(base({ dnsMs: 450 })).level).toBe('critical');
     expect(evaluateSystem(base({ dnsMs: 25 })).level).toBe('ok');
