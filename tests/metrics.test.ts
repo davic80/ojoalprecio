@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import http from 'http';
 import type { AddressInfo } from 'net';
 import {
-  parseMeminfo, parseCgroupCpuUsec, parseCgroupMemory, MetricsSampler, evaluateSystem, PI_THRESHOLDS, thresholdsFor,
+  parseMeminfo, parseCgroupCpuUsec, parseCgroupMemory, MetricsSampler, evaluateSystem, formatSample, PI_THRESHOLDS, thresholdsFor,
   type SampleReaders, type SystemSample,
 } from '../src/scraper/metrics';
 import { nextPause } from '../src/scheduler/executor-monitor';
