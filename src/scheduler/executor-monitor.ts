@@ -23,7 +23,7 @@ const state = new Map<string, ExecutorSystemState>();
 const pausedUntil = new Map<string, number>();
 const okStreak = new Map<string, number>();
 const critStreak = new Map<string, number>();
-let pollCount = 0;
+const pollCount = new Map<string, number>();
 
 export function getExecutorSystem(name: string): ExecutorSystemState | undefined { return state.get(name); }
 export function isExecutorPaused(name: string, now = Date.now()): boolean { return (pausedUntil.get(name) ?? 0) > now; }
@@ -86,7 +86,10 @@ async function pollOne(name: string, baseUrl: string, token: string): Promise<vo
   }
 
   // One stored sample per minute (every 2nd poll).
-  if (++pollCount % 2 === 0) await storeSample(name, ev.level, sample);
+  // (counted per executor: with two Pis a shared counter always landed on the same one and the other was never stored)
+  const n = (pollCount.get(name) ?? 0) + 1;
+  pollCount.set(name, n);
+  if (n % 2 === 0) await storeSample(name, ev.level, sample);
 }
 
 async function storeSample(name: string, level: HealthLevel, sample: SystemSample): Promise<void> {
